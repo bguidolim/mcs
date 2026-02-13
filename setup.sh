@@ -6,6 +6,7 @@
 # Installs MCP servers, plugins, skills, hooks, and configuration.
 #
 # Usage: ./setup.sh                      # Full interactive setup
+#        ./setup.sh --doctor              # Diagnose installation health
 #        ./setup.sh --configure-project   # Configure CLAUDE.local.md for a project
 # =============================================================================
 
@@ -1083,8 +1084,225 @@ phase_summary_post() {
 }
 
 # ---------------------------------------------------------------------------
+# Doctor — Diagnose installation health
+# ---------------------------------------------------------------------------
+phase_doctor() {
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║   🩺 Claude Code iOS Setup — Doctor                     ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    local pass=0
+    local fail=0
+    local warn_count=0
+
+    doc_pass()  { echo -e "  ${GREEN}✓${NC} $1"; pass=$((pass + 1)); }
+    doc_fail()  { echo -e "  ${RED}✗${NC} $1"; fail=$((fail + 1)); }
+    doc_warn()  { echo -e "  ${YELLOW}!${NC} $1"; warn_count=$((warn_count + 1)); }
+    doc_skip()  { echo -e "  ${DIM}○ $1${NC}"; }
+
+    # ===== Dependencies =====
+    echo -e "${BOLD}  Dependencies${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    check_command brew   && doc_pass "Homebrew"        || doc_fail "Homebrew — not found"
+    check_command node   && doc_pass "Node.js ($(node -v 2>/dev/null))" || doc_fail "Node.js — not found"
+    check_command jq     && doc_pass "jq"              || doc_fail "jq — not found"
+    check_command gh     && doc_pass "gh (GitHub CLI)"  || doc_fail "gh — not found"
+    check_command uvx    && doc_pass "uv"              || doc_fail "uv — not found (needed for Serena)"
+    check_command claude && doc_pass "Claude Code"     || doc_fail "Claude Code — not found"
+
+    # Ollama: check command + brew service + model
+    if check_command ollama; then
+        doc_pass "Ollama"
+        if brew services list 2>/dev/null | grep -q "ollama.*started"; then
+            doc_pass "Ollama brew service running"
+        else
+            doc_fail "Ollama brew service not running — run: brew services start ollama"
+        fi
+        if curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null | grep -q "mxbai-embed-large"; then
+            doc_pass "mxbai-embed-large model"
+        else
+            if curl -s --max-time 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
+                doc_fail "mxbai-embed-large model not found — run: ollama pull mxbai-embed-large"
+            else
+                doc_fail "Ollama not responding — service may need restart"
+            fi
+        fi
+    else
+        doc_fail "Ollama — not found"
+    fi
+    echo ""
+
+    # ===== MCP Servers =====
+    echo -e "${BOLD}  MCP Servers${NC} ${DIM}(in ~/.claude.json)${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    if [[ -f "$CLAUDE_JSON" ]]; then
+        local mcp_servers=("XcodeBuildMCP" "sosumi" "serena" "docs-mcp-server" "mcp-omnisearch")
+        for server in "${mcp_servers[@]}"; do
+            if jq -e ".mcpServers.\"$server\"" "$CLAUDE_JSON" >/dev/null 2>&1; then
+                doc_pass "$server"
+            else
+                doc_skip "$server — not configured"
+            fi
+        done
+
+        # Check Perplexity API key
+        local perp_key
+        perp_key=$(jq -r '.mcpServers."mcp-omnisearch".env.PERPLEXITY_API_KEY // ""' "$CLAUDE_JSON" 2>/dev/null)
+        if [[ "$perp_key" == "__ADD_YOUR_PERPLEXITY_API_KEY__" ]]; then
+            doc_warn "mcp-omnisearch: Perplexity API key is still a placeholder"
+        elif [[ -z "$perp_key" ]] && jq -e '.mcpServers."mcp-omnisearch"' "$CLAUDE_JSON" >/dev/null 2>&1; then
+            doc_warn "mcp-omnisearch: Perplexity API key is empty"
+        fi
+    else
+        doc_fail "~/.claude.json not found — Claude Code may not be configured"
+    fi
+    echo ""
+
+    # ===== Plugins =====
+    echo -e "${BOLD}  Plugins${NC} ${DIM}(in ~/.claude/settings.json)${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    if [[ -f "$CLAUDE_SETTINGS" ]]; then
+        local plugins=(
+            "explanatory-output-style@claude-plugins-official"
+            "pr-review-toolkit@claude-plugins-official"
+            "code-simplifier@claude-plugins-official"
+            "ralph-loop@claude-plugins-official"
+            "claude-hud@claude-hud"
+            "claude-md-management@claude-plugins-official"
+        )
+        for plugin in "${plugins[@]}"; do
+            local short_name="${plugin%%@*}"
+            if jq -e ".enabledPlugins.\"$plugin\"" "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
+                doc_pass "$short_name"
+            else
+                doc_skip "$short_name — not enabled"
+            fi
+        done
+    else
+        doc_fail "~/.claude/settings.json not found"
+    fi
+    echo ""
+
+    # ===== Skills =====
+    echo -e "${BOLD}  Skills${NC} ${DIM}(in ~/.claude/skills/)${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    if [[ -f "$CLAUDE_SKILLS_DIR/continuous-learning/SKILL.md" ]]; then
+        doc_pass "continuous-learning"
+    else
+        doc_skip "continuous-learning — not installed"
+    fi
+
+    if [[ -e "$CLAUDE_SKILLS_DIR/xcodebuildmcp" ]]; then
+        doc_pass "xcodebuildmcp"
+    else
+        doc_skip "xcodebuildmcp — not installed"
+    fi
+    echo ""
+
+    # ===== Commands =====
+    echo -e "${BOLD}  Commands${NC} ${DIM}(in ~/.claude/commands/)${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    if [[ -f "$HOME/.claude/commands/pr.md" ]]; then
+        if grep -q "__USER_NAME__" "$HOME/.claude/commands/pr.md" 2>/dev/null; then
+            doc_warn "/pr — installed but user name placeholder not replaced"
+        else
+            doc_pass "/pr"
+        fi
+    else
+        doc_skip "/pr — not installed"
+    fi
+    echo ""
+
+    # ===== Hooks =====
+    echo -e "${BOLD}  Hooks${NC} ${DIM}(in ~/.claude/hooks/)${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    local hook_files=("session_start.sh" "continuous-learning-activator.sh")
+    for hook in "${hook_files[@]}"; do
+        local hook_path="$CLAUDE_HOOKS_DIR/$hook"
+        if [[ -f "$hook_path" ]]; then
+            if [[ -x "$hook_path" ]]; then
+                doc_pass "$hook"
+            else
+                doc_warn "$hook — exists but not executable"
+            fi
+        else
+            doc_skip "$hook — not installed"
+        fi
+    done
+
+    # Check settings.json has hook entries
+    if [[ -f "$CLAUDE_SETTINGS" ]]; then
+        if jq -e '.hooks.SessionStart' "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+            doc_pass "SessionStart hook registered in settings"
+        else
+            doc_warn "SessionStart hook not registered in settings.json"
+        fi
+        if jq -e '.hooks.UserPromptSubmit' "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+            doc_pass "UserPromptSubmit hook registered in settings"
+        else
+            doc_warn "UserPromptSubmit hook not registered in settings.json"
+        fi
+    fi
+    echo ""
+
+    # ===== Settings =====
+    echo -e "${BOLD}  Settings${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    if [[ -f "$CLAUDE_SETTINGS" ]]; then
+        if jq -e '.permissions.defaultMode == "plan"' "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
+            doc_pass "Default mode: plan"
+        else
+            doc_skip "Default mode: not set to plan"
+        fi
+        if jq -e '.alwaysThinkingEnabled == true' "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
+            doc_pass "Always-thinking: enabled"
+        else
+            doc_skip "Always-thinking: not enabled"
+        fi
+    fi
+    echo ""
+
+    # ===== Summary =====
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -ne "  "
+    echo -ne "${GREEN}${pass} passed${NC}"
+    if [[ $warn_count -gt 0 ]]; then
+        echo -ne "  ${YELLOW}${warn_count} warnings${NC}"
+    fi
+    if [[ $fail -gt 0 ]]; then
+        echo -ne "  ${RED}${fail} issues${NC}"
+    fi
+    echo ""
+
+    if [[ $fail -eq 0 && $warn_count -eq 0 ]]; then
+        echo -e "  ${GREEN}Everything looks good!${NC}"
+    elif [[ $fail -eq 0 ]]; then
+        echo -e "  ${YELLOW}No critical issues, but some warnings to review.${NC}"
+    else
+        echo -e "  ${RED}Some issues found. Run ${BOLD}./setup.sh${NC}${RED} to fix them.${NC}"
+    fi
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+# Support --doctor flag for health check
+if [[ "${1:-}" == "--doctor" ]]; then
+    phase_doctor
+    exit 0
+fi
 
 # Support --configure-project flag for standalone project setup
 if [[ "${1:-}" == "--configure-project" ]]; then

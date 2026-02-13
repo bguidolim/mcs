@@ -5,7 +5,8 @@
 # Portable, interactive setup script for Claude Code with iOS development tools.
 # Installs MCP servers, plugins, skills, hooks, and configuration.
 #
-# Usage: ./setup.sh                      # Full interactive setup
+# Usage: ./setup.sh                      # Interactive setup (pick components)
+#        ./setup.sh --all                 # Install everything (minimal prompts)
 #        ./setup.sh --doctor              # Diagnose installation health
 #        ./setup.sh --configure-project   # Configure CLAUDE.local.md for a project
 # =============================================================================
@@ -72,6 +73,9 @@ INSTALL_SETTINGS=0
 # User identity (used in commands and project config)
 USER_NAME=""
 
+# Full install mode (--all flag)
+INSTALL_ALL=0
+
 # Track what was installed
 INSTALLED_ITEMS=()
 SKIPPED_ITEMS=()
@@ -112,12 +116,13 @@ ask_yn() {
     fi
     while true; do
         echo -ne "  ${prompt} ${yn_hint}: "
+        local answer
         read -r answer
         answer=${answer:-$default}
-        case "${answer,,}" in
-            y|yes) return 0 ;;
-            n|no)  return 1 ;;
-            *)     echo "  Please answer y or n." ;;
+        case "$answer" in
+            [yY]|[yY][eE][sS]) return 0 ;;
+            [nN]|[nN][oO])     return 1 ;;
+            *)                  echo "  Please answer y or n." ;;
         esac
     done
 }
@@ -358,14 +363,63 @@ phase_welcome() {
     fi
 
     echo ""
-    info "Let's configure your setup. For each item, choose whether to install."
-    info "Required dependencies are auto-selected based on your choices."
+    info "This script will ask what to install. You can also choose to install everything at once."
+    info "Required dependencies are auto-resolved based on your choices."
 }
 
 # ---------------------------------------------------------------------------
 # Phase 2: Interactive Selection
 # ---------------------------------------------------------------------------
 phase_selection() {
+
+    # === Full install shortcut ===
+    echo ""
+    if [[ $INSTALL_ALL -eq 1 ]] || ask_yn "Install everything? (skip individual prompts)" "N"; then
+        INSTALL_MCP_XCODEBUILD=1
+        INSTALL_MCP_SOSUMI=1
+        INSTALL_MCP_SERENA=1
+        INSTALL_MCP_DOCS=1
+        INSTALL_MCP_OMNISEARCH=1
+        INSTALL_PLUGIN_EXPLANATORY=1
+        INSTALL_PLUGIN_PR_REVIEW=1
+        INSTALL_PLUGIN_SIMPLIFIER=1
+        INSTALL_PLUGIN_RALPH=1
+        INSTALL_PLUGIN_HUD=1
+        INSTALL_PLUGIN_CLAUDE_MD=1
+        INSTALL_SKILL_LEARNING=1
+        INSTALL_SKILL_XCODEBUILD=1
+        INSTALL_CMD_PR=1
+        INSTALL_HOOKS=1
+        INSTALL_SETTINGS=1
+
+        # Still need the API key and user name
+        echo ""
+        echo -e "  ${BOLD}Your name${NC} (used for branch naming, e.g. ${DIM}bruno${NC}):"
+        echo -ne "  > "
+        read -r USER_NAME
+
+        echo ""
+        echo -ne "  Perplexity API key for mcp-omnisearch (Enter to skip): "
+        read -r PERPLEXITY_API_KEY
+        if [[ -z "$PERPLEXITY_API_KEY" ]]; then
+            PERPLEXITY_API_KEY="__ADD_YOUR_PERPLEXITY_API_KEY__"
+        fi
+
+        resolve_dependencies
+
+        # === Optional: Claude Code ===
+        header "📦 Claude Code"
+        if check_command claude; then
+            info "Claude Code is already installed."
+            INSTALL_CLAUDE_CODE=0
+        else
+            echo -e "  ${BOLD}Claude Code${NC} is not installed."
+            if ask_yn "Install Claude Code via Homebrew?"; then
+                INSTALL_CLAUDE_CODE=1
+            fi
+        fi
+        return
+    fi
 
     # === Category A: MCP Servers ===
     header "🔌 MCP Servers"
@@ -1414,22 +1468,40 @@ phase_doctor() {
 # Main
 # ---------------------------------------------------------------------------
 
-# Support --doctor flag for health check
-if [[ "${1:-}" == "--doctor" ]]; then
-    phase_doctor
-    exit 0
-fi
-
-# Support --configure-project flag for standalone project setup
-if [[ "${1:-}" == "--configure-project" ]]; then
-    header "📱 Configure Project"
-    configure_project
-    while ask_yn "Configure another project?" "N"; do
+# Handle flags
+case "${1:-}" in
+    --doctor)
+        phase_doctor
+        exit 0
+        ;;
+    --all)
+        # Set all install flags — phase_selection will detect this and skip prompts
+        INSTALL_ALL=1
+        ;;
+    --configure-project)
+        header "📱 Configure Project"
         configure_project
-    done
-    echo ""
-    exit 0
-fi
+        while ask_yn "Configure another project?" "N"; do
+            configure_project
+        done
+        echo ""
+        exit 0
+        ;;
+    --help|-h)
+        echo "Usage: ./setup.sh                      # Interactive setup (pick components)"
+        echo "       ./setup.sh --all                 # Install everything (minimal prompts)"
+        echo "       ./setup.sh --doctor              # Diagnose installation health"
+        echo "       ./setup.sh --configure-project   # Configure CLAUDE.local.md for a project"
+        exit 0
+        ;;
+    "")
+        ;; # No flag — interactive mode
+    *)
+        error "Unknown option: $1"
+        echo "Run ./setup.sh --help for usage."
+        exit 1
+        ;;
+esac
 
 main() {
     phase_welcome

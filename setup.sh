@@ -776,7 +776,7 @@ phase_summary() {
         [[ $INSTALL_JQ -eq 1 ]]          && echo -e "    ✅ jq (JSON processor)"
         [[ $INSTALL_GH -eq 1 ]]          && echo -e "    ✅ gh (GitHub CLI)"
         [[ $INSTALL_UV -eq 1 ]]          && echo -e "    ✅ uv (Python package manager, for Serena)"
-        [[ $INSTALL_OLLAMA -eq 1 ]]      && echo -e "    ✅ Ollama + mxbai-embed-large model"
+        [[ $INSTALL_OLLAMA -eq 1 ]]      && echo -e "    ✅ Ollama + nomic-embed-text model"
         [[ $INSTALL_CLAUDE_CODE -eq 1 ]] && echo -e "    ✅ Claude Code"
     fi
 
@@ -967,19 +967,19 @@ phase_install() {
 
         # Pull embedding model (skip if Ollama didn't start)
         if [[ "$ollama_ready" == true ]]; then
-            if ! ollama list 2>/dev/null | grep -q "mxbai-embed-large"; then
-                info "Pulling mxbai-embed-large model..."
-                if ollama pull mxbai-embed-large; then
-                    INSTALLED_ITEMS+=("mxbai-embed-large model")
-                    success "Ollama ready with mxbai-embed-large"
+            if ! ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
+                info "Pulling nomic-embed-text model..."
+                if ollama pull nomic-embed-text; then
+                    INSTALLED_ITEMS+=("nomic-embed-text model")
+                    success "Ollama ready with nomic-embed-text"
                 else
-                    warn "Failed to pull mxbai-embed-large. Run manually: ollama pull mxbai-embed-large"
+                    warn "Failed to pull nomic-embed-text. Run manually: ollama pull nomic-embed-text"
                 fi
             else
-                success "Ollama running with mxbai-embed-large"
+                success "Ollama running with nomic-embed-text"
             fi
         else
-            warn "Skipping model pull. Run manually: ollama pull mxbai-embed-large"
+            warn "Skipping model pull. Run manually: ollama pull nomic-embed-text"
         fi
     fi
 
@@ -1045,7 +1045,7 @@ phase_install() {
                 if try_install "MCP: docs-mcp-server" mcp_add docs-mcp-server \
                     -e OPENAI_API_KEY=ollama \
                     -e OPENAI_API_BASE=http://localhost:11434/v1 \
-                    -e DOCS_MCP_EMBEDDING_MODEL=openai:mxbai-embed-large \
+                    -e DOCS_MCP_EMBEDDING_MODEL=openai:nomic-embed-text \
                     -- npx -y @arabold/docs-mcp-server@latest --read-only --telemetry=false; then
                     success "docs-mcp-server configured"
                 fi
@@ -1396,11 +1396,11 @@ phase_doctor() {
         else
             doc_fail "Ollama brew service not running — run: brew services start ollama"
         fi
-        if curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null | grep -q "mxbai-embed-large"; then
-            doc_pass "mxbai-embed-large model"
+        if curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null | grep -q "nomic-embed-text"; then
+            doc_pass "nomic-embed-text model"
         else
             if curl -s --max-time 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
-                doc_fail "mxbai-embed-large model not found — run: ollama pull mxbai-embed-large"
+                doc_fail "nomic-embed-text model not found — run: ollama pull nomic-embed-text"
             else
                 doc_fail "Ollama not responding — service may need restart"
             fi

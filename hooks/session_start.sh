@@ -102,12 +102,15 @@ main() {
                 local memories_path
                 memories_path="$(git rev-parse --show-toplevel 2>/dev/null)/.serena/memories"
 
-                # Background: ensure library exists and is up to date
+                # Background: ensure library exists and is up to date.
+                # Redirect subshell stdout/stderr to /dev/null so the hook's
+                # output pipe closes immediately (Claude Code waits for the
+                # pipe to close, not just the parent process).
                 (
                     export OPENAI_API_KEY=ollama
                     export OPENAI_API_BASE=http://localhost:11434/v1
 
-                    local embedding_model="openai:mxbai-embed-large"
+                    local embedding_model="openai:nomic-embed-text"
 
                     if npx -y @arabold/docs-mcp-server list --silent 2>/dev/null | grep -q "$repo_name"; then
                         npx -y @arabold/docs-mcp-server refresh "$repo_name" \
@@ -119,7 +122,7 @@ main() {
                             --embedding-model "$embedding_model" \
                             --silent >/dev/null 2>&1
                     fi
-                ) &
+                ) >/dev/null 2>&1 &
             fi
         else
             context+="\n⚠️ Ollama not running — docs-mcp semantic search will fail"

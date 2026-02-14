@@ -98,7 +98,7 @@ The script automatically installs required dependencies based on your selections
 - **jq** — for JSON config merging
 - **gh** — GitHub CLI (when /pr command is selected)
 - **uv** — for Serena (Python-based)
-- **Ollama** + `mxbai-embed-large` — for docs-mcp-server embeddings
+- **Ollama** + `nomic-embed-text` — for docs-mcp-server embeddings
 
 ## Post-Setup: Per-Project Configuration
 

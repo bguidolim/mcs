@@ -243,10 +243,14 @@ mcp_add() {
 # Configure CLAUDE.local.md for a project
 # ---------------------------------------------------------------------------
 configure_project() {
+    local current_dir
+    current_dir=$(pwd)
     echo ""
-    echo -e "  ${BOLD}Enter the path to your iOS project:${NC}"
+    echo -e "  ${BOLD}Enter the path to your iOS project${NC} [${DIM}${current_dir}${NC}]${BOLD}:${NC}"
     echo -ne "  > "
     read -e -r project_path
+    # Default to current directory if empty
+    project_path="${project_path:-$current_dir}"
     # Expand ~ to $HOME
     project_path="${project_path/#\~/$HOME}"
     # Remove trailing slash

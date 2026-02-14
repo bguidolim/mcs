@@ -872,6 +872,8 @@ phase_install() {
     [[ $INSTALL_CMD_PR -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_HOOKS -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_SETTINGS -eq 1 ]] && total_steps=$((total_steps + 1))
+    [[ $INSTALL_MCP_XCODEBUILD -eq 1 || $INSTALL_MCP_DOCS -eq 1 || \
+       $INSTALL_MCP_OMNISEARCH -eq 1 ]] && total_steps=$((total_steps + 1))
 
     header "🚀 Installing..."
 
@@ -1242,6 +1244,30 @@ phase_install() {
         } >> "$git_ignore"
         INSTALLED_ITEMS+=("Global gitignore: ${added_entries[*]}")
         success "Global gitignore updated (${#added_entries[@]} entries added)"
+    fi
+
+    # --- Warm up npx cache ---
+    # Pre-download npx packages so the first Claude Code launch is fast.
+    # MCP servers use @latest (checks registry every time), but cached
+    # packages make the download check near-instant.
+    local npx_packages=()
+    [[ $INSTALL_MCP_XCODEBUILD -eq 1 ]] && npx_packages+=("xcodebuildmcp@latest")
+    [[ $INSTALL_MCP_DOCS -eq 1 ]]       && npx_packages+=("@arabold/docs-mcp-server@latest")
+    [[ $INSTALL_MCP_OMNISEARCH -eq 1 ]]  && npx_packages+=("mcp-omnisearch")
+
+    if [[ ${#npx_packages[@]} -gt 0 ]] && check_command npx; then
+        current_step=$((current_step + 1))
+        step $current_step $total_steps "Warming up npx cache"
+        info "Pre-downloading MCP packages for faster first launch..."
+        local pids=()
+        for pkg in "${npx_packages[@]}"; do
+            npx -y "$pkg" --help >/dev/null 2>&1 &
+            pids+=($!)
+        done
+        for pid in "${pids[@]}"; do
+            wait "$pid" 2>/dev/null || true
+        done
+        success "npx cache ready"
     fi
 
 }

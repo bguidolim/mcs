@@ -109,12 +109,12 @@ main() {
 
                     local embedding_model="openai:mxbai-embed-large"
 
-                    if npx -y @arabold/docs-mcp-server@latest list --silent 2>/dev/null | grep -q "$repo_name"; then
-                        npx -y @arabold/docs-mcp-server@latest refresh "$repo_name" \
+                    if npx -y @arabold/docs-mcp-server list --silent 2>/dev/null | grep -q "$repo_name"; then
+                        npx -y @arabold/docs-mcp-server refresh "$repo_name" \
                             --embedding-model "$embedding_model" \
                             --silent >/dev/null 2>&1
                     else
-                        npx -y @arabold/docs-mcp-server@latest scrape "$repo_name" \
+                        npx -y @arabold/docs-mcp-server scrape "$repo_name" \
                             "file://$memories_path" \
                             --embedding-model "$embedding_model" \
                             --silent >/dev/null 2>&1

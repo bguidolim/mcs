@@ -206,9 +206,37 @@ ensure_brew_in_path() {
     fi
 }
 
+# Read an env var from an existing MCP server in ~/.claude.json
+# Usage: get_mcp_env "server-name" "ENV_VAR_NAME"
+# Returns the value on stdout, or empty string if not found
+get_mcp_env() {
+    local server=$1
+    local var_name=$2
+    if [[ -f "$CLAUDE_JSON" ]]; then
+        if check_command jq; then
+            jq -r ".mcpServers.\"${server}\".env.\"${var_name}\" // empty" "$CLAUDE_JSON" 2>/dev/null || true
+        else
+            # Fallback: rough grep extraction (works for simple string values)
+            grep -o "\"${var_name}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$CLAUDE_JSON" 2>/dev/null \
+                | head -1 | sed 's/.*:.*"\(.*\)"/\1/' || true
+        fi
+    fi
+}
+
 # Run claude CLI without nesting check
 claude_cli() {
     CLAUDECODE="" claude "$@"
+}
+
+# Add (or replace) an MCP server. Removes existing entry first to avoid
+# "already exists" errors, and places the server name before -e flags
+# so the variadic --env doesn't consume the name.
+# Usage: mcp_add <name> [options...] [-- command args...]
+mcp_add() {
+    local name=$1
+    shift
+    claude_cli mcp remove -s user "$name" 2>/dev/null || true
+    claude_cli mcp add -s user "$name" "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -449,10 +477,21 @@ phase_selection() {
         read -r USER_NAME
 
         echo ""
-        echo -ne "  Perplexity API key for mcp-omnisearch (Enter to skip): "
+        local existing_pplx_key
+        existing_pplx_key=$(get_mcp_env "mcp-omnisearch" "PERPLEXITY_API_KEY")
+        if [[ -n "$existing_pplx_key" && "$existing_pplx_key" != "__ADD_YOUR_PERPLEXITY_API_KEY__" ]]; then
+            local masked_key="${existing_pplx_key:0:8}...${existing_pplx_key: -4}"
+            echo -ne "  Perplexity API key for mcp-omnisearch [current: ${masked_key}] (Enter to keep): "
+        else
+            echo -ne "  Perplexity API key for mcp-omnisearch (Enter to skip): "
+        fi
         read -r PERPLEXITY_API_KEY
         if [[ -z "$PERPLEXITY_API_KEY" ]]; then
-            PERPLEXITY_API_KEY="__ADD_YOUR_PERPLEXITY_API_KEY__"
+            if [[ -n "$existing_pplx_key" && "$existing_pplx_key" != "__ADD_YOUR_PERPLEXITY_API_KEY__" ]]; then
+                PERPLEXITY_API_KEY="$existing_pplx_key"
+            else
+                PERPLEXITY_API_KEY="__ADD_YOUR_PERPLEXITY_API_KEY__"
+            fi
         fi
 
         resolve_dependencies
@@ -508,11 +547,22 @@ phase_selection() {
     echo -e "     AI-powered web search via Perplexity. Requires a Perplexity API key."
     if ask_yn "Install mcp-omnisearch?"; then
         INSTALL_MCP_OMNISEARCH=1
-        echo -ne "     Enter your Perplexity API key (or press Enter to add later): "
+        local existing_pplx_key
+        existing_pplx_key=$(get_mcp_env "mcp-omnisearch" "PERPLEXITY_API_KEY")
+        if [[ -n "$existing_pplx_key" && "$existing_pplx_key" != "__ADD_YOUR_PERPLEXITY_API_KEY__" ]]; then
+            local masked_key="${existing_pplx_key:0:8}...${existing_pplx_key: -4}"
+            echo -ne "     Perplexity API key [current: ${masked_key}] (Enter to keep): "
+        else
+            echo -ne "     Enter your Perplexity API key (or press Enter to add later): "
+        fi
         read -r PERPLEXITY_API_KEY
         if [[ -z "$PERPLEXITY_API_KEY" ]]; then
-            warn "No API key provided. You can add it later in ~/.claude.json"
-            PERPLEXITY_API_KEY="__ADD_YOUR_PERPLEXITY_API_KEY__"
+            if [[ -n "$existing_pplx_key" && "$existing_pplx_key" != "__ADD_YOUR_PERPLEXITY_API_KEY__" ]]; then
+                PERPLEXITY_API_KEY="$existing_pplx_key"
+            else
+                warn "No API key provided. You can add it later in ~/.claude.json"
+                PERPLEXITY_API_KEY="__ADD_YOUR_PERPLEXITY_API_KEY__"
+            fi
         fi
     fi
 
@@ -946,26 +996,26 @@ phase_install() {
 
             if [[ $INSTALL_MCP_XCODEBUILD -eq 1 ]]; then
                 info "Adding XcodeBuildMCP..."
-                if try_install "MCP: XcodeBuildMCP" claude_cli mcp add -s user \
+                if try_install "MCP: XcodeBuildMCP" mcp_add XcodeBuildMCP \
                     -e XCODEBUILDMCP_SENTRY_DISABLED=1 \
-                    XcodeBuildMCP -- npx -y xcodebuildmcp@latest mcp; then
+                    -- npx -y xcodebuildmcp@latest mcp; then
                     success "XcodeBuildMCP configured"
                 fi
             fi
 
             if [[ $INSTALL_MCP_SOSUMI -eq 1 ]]; then
                 info "Adding Sosumi..."
-                if try_install "MCP: Sosumi" claude_cli mcp add -s user \
+                if try_install "MCP: Sosumi" mcp_add sosumi \
                     --transport http \
-                    sosumi https://sosumi.ai/mcp; then
+                    https://sosumi.ai/mcp; then
                     success "Sosumi configured"
                 fi
             fi
 
             if [[ $INSTALL_MCP_SERENA -eq 1 ]]; then
                 info "Adding Serena..."
-                if try_install "MCP: Serena" claude_cli mcp add -s user \
-                    serena -- uvx --from "git+https://github.com/oraios/serena" \
+                if try_install "MCP: Serena" mcp_add serena \
+                    -- uvx --from "git+https://github.com/oraios/serena" \
                     serena start-mcp-server --context=claude-code --project-from-cwd; then
                     success "Serena configured"
                 fi
@@ -973,20 +1023,20 @@ phase_install() {
 
             if [[ $INSTALL_MCP_DOCS -eq 1 ]]; then
                 info "Adding docs-mcp-server..."
-                if try_install "MCP: docs-mcp-server" claude_cli mcp add -s user \
+                if try_install "MCP: docs-mcp-server" mcp_add docs-mcp-server \
                     -e OPENAI_API_KEY=ollama \
                     -e OPENAI_API_BASE=http://localhost:11434/v1 \
                     -e DOCS_MCP_EMBEDDING_MODEL=openai:mxbai-embed-large \
-                    docs-mcp-server -- npx -y @arabold/docs-mcp-server@latest --read-only --telemetry=false; then
+                    -- npx -y @arabold/docs-mcp-server@latest --read-only --telemetry=false; then
                     success "docs-mcp-server configured"
                 fi
             fi
 
             if [[ $INSTALL_MCP_OMNISEARCH -eq 1 ]]; then
                 info "Adding mcp-omnisearch..."
-                if try_install "MCP: mcp-omnisearch" claude_cli mcp add -s user \
+                if try_install "MCP: mcp-omnisearch" mcp_add mcp-omnisearch \
                     -e "PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY}" \
-                    mcp-omnisearch -- npx -y mcp-omnisearch; then
+                    -- npx -y mcp-omnisearch; then
                     success "mcp-omnisearch configured"
                 fi
             fi

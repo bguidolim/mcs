@@ -861,7 +861,7 @@ phase_install() {
     # Count total steps (using $((x + 1)) instead of ((x++)) for bash 3.2 / set -e safety)
     [[ $INSTALL_HOMEBREW -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_NODE -eq 1 || $INSTALL_JQ -eq 1 || $INSTALL_GH -eq 1 || $INSTALL_UV -eq 1 ]] && total_steps=$((total_steps + 1))
-    [[ $INSTALL_OLLAMA -eq 1 ]] && total_steps=$((total_steps + 1))
+    [[ $INSTALL_OLLAMA -eq 1 || $INSTALL_MCP_DOCS -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_CLAUDE_CODE -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_MCP_XCODEBUILD -eq 1 || $INSTALL_MCP_SOSUMI -eq 1 || $INSTALL_MCP_SERENA -eq 1 || \
        $INSTALL_MCP_DOCS -eq 1 || $INSTALL_MCP_OMNISEARCH -eq 1 ]] && total_steps=$((total_steps + 1))
@@ -934,6 +934,15 @@ phase_install() {
             INSTALLED_ITEMS+=("Ollama")
             success "Ollama installed"
         fi
+    fi
+
+    # Ensure Ollama is running as a brew service whenever docs-mcp-server is selected.
+    # This covers both fresh installs and re-runs where Ollama is installed but not started.
+    if [[ $INSTALL_MCP_DOCS -eq 1 ]] && check_command ollama; then
+        if [[ $INSTALL_OLLAMA -ne 1 ]]; then
+            current_step=$((current_step + 1))
+            step $current_step $total_steps "Setting up Ollama"
+        fi
 
         # Register Ollama as a brew service (auto-starts on login)
         if ! brew services list 2>/dev/null | grep -q "ollama.*started"; then
@@ -958,12 +967,16 @@ phase_install() {
 
         # Pull embedding model (skip if Ollama didn't start)
         if [[ "$ollama_ready" == true ]]; then
-            info "Pulling mxbai-embed-large model (this may take a few minutes)..."
-            if ollama pull mxbai-embed-large; then
-                INSTALLED_ITEMS+=("mxbai-embed-large model")
-                success "Ollama ready with mxbai-embed-large"
+            if ! ollama list 2>/dev/null | grep -q "mxbai-embed-large"; then
+                info "Pulling mxbai-embed-large model..."
+                if ollama pull mxbai-embed-large; then
+                    INSTALLED_ITEMS+=("mxbai-embed-large model")
+                    success "Ollama ready with mxbai-embed-large"
+                else
+                    warn "Failed to pull mxbai-embed-large. Run manually: ollama pull mxbai-embed-large"
+                fi
             else
-                warn "Failed to pull mxbai-embed-large. Run manually: ollama pull mxbai-embed-large"
+                success "Ollama running with mxbai-embed-large"
             fi
         else
             warn "Skipping model pull. Run manually: ollama pull mxbai-embed-large"

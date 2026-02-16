@@ -42,6 +42,7 @@ The script is interactive — it will ask what you want to install before making
 ./setup.sh doctor               # Diagnose installation health
 ./setup.sh doctor --fix         # Diagnose and auto-fix issues
 ./setup.sh configure-project    # Configure CLAUDE.local.md for a project
+./setup.sh cleanup              # Find and delete backup files
 ./setup.sh --help               # Show usage
 ```
 

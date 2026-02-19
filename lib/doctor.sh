@@ -194,22 +194,22 @@ phase_doctor() {
     fi
 
     # Only check plugins if settings file exists now
+    local template_settings="$SCRIPT_DIR/config/settings.json"
+
     if [[ -f "$CLAUDE_SETTINGS" ]] && check_command jq; then
-        local plugins=(
-            "explanatory-output-style@claude-plugins-official"
-            "pr-review-toolkit@claude-plugins-official"
-            "ralph-loop@claude-plugins-official"
-            "claude-hud@claude-hud"
-            "claude-md-management@claude-plugins-official"
-        )
-        for plugin in "${plugins[@]}"; do
-            local short_name="${plugin%%@*}"
-            if jq -e ".enabledPlugins.\"$plugin\"" "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
-                doc_pass "$short_name"
-            else
-                doc_skip "$short_name — not enabled"
-            fi
-        done
+        # Read expected plugins from template
+        if [[ -f "$template_settings" ]]; then
+            local plugin
+            while IFS= read -r plugin; do
+                [[ -z "$plugin" ]] && continue
+                local short_name="${plugin%%@*}"
+                if jq -e ".enabledPlugins.\"$plugin\"" "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
+                    doc_pass "$short_name"
+                else
+                    doc_skip "$short_name — not enabled"
+                fi
+            done < <(jq -r '.enabledPlugins | keys[]' "$template_settings" 2>/dev/null)
+        fi
 
         # Check for deprecated plugins (redundant or removed)
         # Format: full_name|reason
@@ -344,33 +344,34 @@ phase_doctor() {
     echo -e "${BOLD}  Settings${NC}"
     echo -e "  ${DIM}──────────────────────────────────────────${NC}"
 
-    if [[ -f "$CLAUDE_SETTINGS" ]] && check_command jq; then
-        if jq -e '.permissions.defaultMode == "plan"' "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
-            doc_pass "Default mode: plan"
-        else
-            if [[ "$doctor_fix" == "true" ]]; then
-                if fix_settings_merge 2>/dev/null; then
-                    doc_fixed "Default mode: plan"
-                else
-                    doc_fix_failed "Default mode — settings merge failed"
-                fi
+    if [[ -f "$CLAUDE_SETTINGS" ]] && check_command jq && [[ -f "$template_settings" ]]; then
+        # Read expected settings from template
+        # Format: jq_path|label
+        local -a settings_checks=(
+            ".permissions.defaultMode|Default mode"
+            ".alwaysThinkingEnabled|Always-thinking"
+        )
+        for entry in "${settings_checks[@]}"; do
+            local jq_path="${entry%%|*}"
+            local label="${entry##*|}"
+            local expected actual
+            expected=$(jq -r "$jq_path // empty" "$template_settings" 2>/dev/null)
+            actual=$(jq -r "$jq_path // empty" "$CLAUDE_SETTINGS" 2>/dev/null)
+
+            if [[ -n "$expected" && "$expected" == "$actual" ]]; then
+                doc_pass "$label: $expected"
             else
-                doc_skip "Default mode: not set to plan"
-            fi
-        fi
-        if jq -e '.alwaysThinkingEnabled == true' "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
-            doc_pass "Always-thinking: enabled"
-        else
-            if [[ "$doctor_fix" == "true" ]]; then
-                if fix_settings_merge 2>/dev/null; then
-                    doc_fixed "Always-thinking: enabled"
+                if [[ "$doctor_fix" == "true" ]]; then
+                    if fix_settings_merge 2>/dev/null; then
+                        doc_fixed "$label: $expected"
+                    else
+                        doc_fix_failed "$label — settings merge failed"
+                    fi
                 else
-                    doc_fix_failed "Always-thinking — settings merge failed"
+                    doc_skip "$label: ${actual:-not set} (expected: $expected)"
                 fi
-            else
-                doc_skip "Always-thinking: not enabled"
             fi
-        fi
+        done
     fi
     echo ""
 

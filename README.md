@@ -22,12 +22,6 @@ One-line install:
 curl -fsSL https://raw.githubusercontent.com/bguidolim/my-claude-ios-setup/main/install.sh | bash
 ```
 
-Or install everything without prompts:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/bguidolim/my-claude-ios-setup/main/install.sh | bash -s -- --all
-```
-
 Or clone manually:
 
 ```bash

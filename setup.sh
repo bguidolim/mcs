@@ -154,14 +154,17 @@ while [[ $# -gt 0 ]]; do
             # Custom clone with a remote-trackable branch: try it first
             if [[ -n "$local_branch" && "$local_branch" != "main" ]]; then
                 info "Updating branch: $local_branch"
-                if ! git -C "$SCRIPT_DIR" pull origin "$local_branch" 2>/dev/null; then
-                    warn "Branch '$local_branch' not found on remote. Falling back to main."
+                if ! git -C "$SCRIPT_DIR" pull origin "$local_branch" 2>&1; then
+                    warn "Could not update branch '$local_branch'. Falling back to main."
                     local_branch=""
                 fi
             fi
             # Default path: update main
             if [[ -z "$local_branch" || "$local_branch" == "main" ]]; then
-                git -C "$SCRIPT_DIR" checkout main 2>/dev/null || true
+                git -C "$SCRIPT_DIR" checkout main >/dev/null 2>&1 || {
+                    error "Could not switch to main branch."
+                    exit 1
+                }
                 git -C "$SCRIPT_DIR" pull origin main
             fi
             success "Updated successfully"

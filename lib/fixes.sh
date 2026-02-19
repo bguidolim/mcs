@@ -178,13 +178,19 @@ DEFAULT_DIR="__DEFAULT_DIR__"
 if [[ ! -d "$REPO_DIR" ]]; then
     echo -e "\033[1;33m[WARN]\033[0m Setup repo not found at $REPO_DIR"
     echo -e "\033[0;34m[INFO]\033[0m Re-cloning to $DEFAULT_DIR..."
-    git clone --depth 1 "$REPO_URL" "$DEFAULT_DIR" 2>&1 | tail -1
+    if ! git clone --depth 1 "$REPO_URL" "$DEFAULT_DIR"; then
+        echo -e "\033[0;31m[ERROR]\033[0m Failed to clone. Check your network connection."
+        exit 1
+    fi
     REPO_DIR="$DEFAULT_DIR"
     # Update this wrapper to point to new location
-    sed -i '' "s|^REPO_DIR=.*|REPO_DIR=\"$DEFAULT_DIR\"|" "$0"
+    # Resolve own path via BASH_SOURCE (reliable even when invoked via PATH)
+    WRAPPER_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    sed -i '' "s|^REPO_DIR=.*|REPO_DIR=\"$DEFAULT_DIR\"|" "$WRAPPER_SELF"
 fi
 
 # Check for staleness (warn if last fetch was >7 days ago)
+# Note: stat -f %m is macOS-specific; this tool only targets macOS
 local_fetch_head="$REPO_DIR/.git/FETCH_HEAD"
 if [[ -f "$local_fetch_head" ]]; then
     local_fetch_age=$(( $(date +%s) - $(stat -f %m "$local_fetch_head") ))

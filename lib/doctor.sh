@@ -544,17 +544,31 @@ phase_doctor() {
     fi
     [[ -n "$shell_rc" ]] && grep -qF '$HOME/.claude/bin' "$shell_rc" 2>/dev/null && cli_path_ok=true
 
+    # Save pre-fix state for reporting (distinguishes "already ok" from "just fixed")
+    local wrapper_was_ok=$cli_wrapper_ok
+    local repo_was_ok=$cli_repo_ok
+    local path_was_ok=$cli_path_ok
+
     # Run fix once if anything is wrong
     local cli_fix_ok=false
     if [[ "$doctor_fix" == "true" ]] && \
        [[ "$cli_wrapper_ok" == false || "$cli_repo_ok" == false || "$cli_path_ok" == false ]]; then
-        fix_cli_wrapper 2>/dev/null && cli_fix_ok=true
+        if fix_cli_wrapper; then
+            cli_fix_ok=true
+            # Re-check state after fix for accurate reporting
+            [[ -f "$CLI_WRAPPER_PATH" ]] && [[ -x "$CLI_WRAPPER_PATH" ]] && cli_wrapper_ok=true
+            if [[ "$cli_wrapper_ok" == true ]]; then
+                wrapper_repo_dir=$(grep '^REPO_DIR=' "$CLI_WRAPPER_PATH" 2>/dev/null | head -1 | cut -d'"' -f2)
+                [[ -n "$wrapper_repo_dir" && -d "$wrapper_repo_dir" ]] && cli_repo_ok=true
+            fi
+            [[ -n "$shell_rc" ]] && grep -qF '$HOME/.claude/bin' "$shell_rc" 2>/dev/null && cli_path_ok=true
+        fi
     fi
 
     # --- Report: wrapper ---
-    if [[ "$cli_wrapper_ok" == true ]]; then
+    if [[ "$wrapper_was_ok" == true ]]; then
         doc_pass "CLI wrapper installed"
-    elif [[ "$cli_fix_ok" == true ]]; then
+    elif [[ "$cli_wrapper_ok" == true ]]; then
         doc_fixed "CLI wrapper installed"
     elif [[ "$doctor_fix" == "true" ]]; then
         doc_fix_failed "CLI wrapper — could not install"
@@ -564,22 +578,20 @@ phase_doctor() {
 
     # --- Report: repo dir ---
     if [[ "$cli_wrapper_ok" == true ]]; then
-        if [[ "$cli_repo_ok" == true ]]; then
+        if [[ "$repo_was_ok" == true ]]; then
             doc_pass "Repo directory exists ($wrapper_repo_dir)"
+        elif [[ "$cli_repo_ok" == true ]]; then
+            doc_fixed "Repo directory exists ($wrapper_repo_dir)"
         elif [[ -n "$wrapper_repo_dir" ]]; then
-            if [[ "$cli_fix_ok" == true ]]; then
-                doc_fixed "CLI wrapper — updated repo path"
-            else
-                doc_fail "CLI wrapper — repo dir missing: $wrapper_repo_dir"
-            fi
+            doc_fail "CLI wrapper — repo dir missing: $wrapper_repo_dir"
         fi
     fi
 
     # --- Report: PATH ---
     if [[ -n "$shell_rc" ]]; then
-        if [[ "$cli_path_ok" == true ]]; then
+        if [[ "$path_was_ok" == true ]]; then
             doc_pass "PATH configured in $(basename "$shell_rc")"
-        elif [[ "$cli_fix_ok" == true ]]; then
+        elif [[ "$cli_path_ok" == true ]]; then
             doc_fixed "PATH configured in $(basename "$shell_rc")"
         elif [[ "$doctor_fix" == "true" ]]; then
             doc_fix_failed "PATH — could not update $(basename "$shell_rc")"

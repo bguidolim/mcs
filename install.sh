@@ -4,7 +4,6 @@
 # =============================================================================
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/bguidolim/my-claude-ios-setup/main/install.sh | bash
-#   curl -fsSL ... | bash -s -- --all
 # =============================================================================
 
 set -euo pipefail
@@ -14,10 +13,12 @@ REPO_URL="https://github.com/bguidolim/my-claude-ios-setup.git"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
 info()    { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # --- Prerequisites ---
@@ -29,7 +30,7 @@ INSTALL_DIR="$HOME/.claude-ios-setup"
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     info "Updating existing installation..."
-    git -C "$INSTALL_DIR" pull origin main 2>&1 | tail -3
+    git -C "$INSTALL_DIR" pull origin main || warn "Pull failed. Continuing with existing version."
 else
     if [[ -d "$INSTALL_DIR" ]]; then
         # Directory exists but isn't a git repo — move it aside

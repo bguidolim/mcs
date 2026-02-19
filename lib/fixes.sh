@@ -206,6 +206,16 @@ fix_mcp_remove_deprecated() {
     claude_cli mcp remove -s user "$name" 2>&1
 }
 
+# Remove a deprecated plugin from settings.json
+fix_plugin_remove_deprecated() {
+    local full_name=$1
+    check_command jq || return 1
+    [[ -f "$CLAUDE_SETTINGS" ]] || return 1
+    local tmp_settings
+    tmp_settings=$(jq "del(.enabledPlugins.\"$full_name\")" "$CLAUDE_SETTINGS")
+    echo "$tmp_settings" > "$CLAUDE_SETTINGS"
+}
+
 # === Dependency-awareness helpers ===
 
 # Check if a dependency is needed by any installed component

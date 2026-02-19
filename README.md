@@ -67,7 +67,6 @@ The script lets you pick from the following components:
 |--------|-------------|
 | **explanatory-output-style** | Enhanced output with educational insights |
 | **pr-review-toolkit** | PR review agents (code-reviewer, silent-failure-hunter, etc.) |
-| **code-simplifier** | Simplifies code for clarity and maintainability |
 | **ralph-loop** | Iterative refinement loop for complex tasks |
 | **claude-hud** | Status line HUD with real-time session info |
 | **claude-md-management** | Audit and improve CLAUDE.md files |

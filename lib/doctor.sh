@@ -196,7 +196,6 @@ phase_doctor() {
         local plugins=(
             "explanatory-output-style@claude-plugins-official"
             "pr-review-toolkit@claude-plugins-official"
-            "code-simplifier@claude-plugins-official"
             "ralph-loop@claude-plugins-official"
             "claude-hud@claude-hud"
             "claude-md-management@claude-plugins-official"
@@ -207,6 +206,26 @@ phase_doctor() {
                 doc_pass "$short_name"
             else
                 doc_skip "$short_name — not enabled"
+            fi
+        done
+
+        # Check for deprecated plugins (redundant or removed)
+        # Format: full_name|reason
+        local deprecated_plugins=("code-simplifier@claude-plugins-official|redundant (included in pr-review-toolkit)")
+        for entry in "${deprecated_plugins[@]}"; do
+            local plugin="${entry%%|*}"
+            local reason="${entry##*|}"
+            local short_name="${plugin%%@*}"
+            if jq -e ".enabledPlugins.\"$plugin\"" "$CLAUDE_SETTINGS" 2>/dev/null | grep -q "true"; then
+                if [[ "$doctor_fix" == "true" ]]; then
+                    if fix_plugin_remove_deprecated "$plugin" 2>/dev/null; then
+                        doc_fixed "$short_name removed ($reason)"
+                    else
+                        doc_fix_failed "$short_name — could not remove"
+                    fi
+                else
+                    doc_warn "$short_name is $reason — run doctor --fix to remove"
+                fi
             fi
         done
     fi

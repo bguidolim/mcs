@@ -56,7 +56,6 @@ phase_selection() {
         INSTALL_MCP_DOCS=1
         INSTALL_PLUGIN_EXPLANATORY=1
         INSTALL_PLUGIN_PR_REVIEW=1
-        INSTALL_PLUGIN_SIMPLIFIER=1
         INSTALL_PLUGIN_RALPH=1
         INSTALL_PLUGIN_HUD=1
         INSTALL_PLUGIN_CLAUDE_MD=1
@@ -145,28 +144,21 @@ phase_selection() {
     fi
     echo ""
 
-    echo -e "  ${BOLD}3. code-simplifier${NC}"
-    echo -e "     Simplifies and refines code for clarity, consistency, and maintainability."
-    if ask_yn "Install code-simplifier?"; then
-        INSTALL_PLUGIN_SIMPLIFIER=1
-    fi
-    echo ""
-
-    echo -e "  ${BOLD}4. ralph-loop${NC}"
+    echo -e "  ${BOLD}3. ralph-loop${NC}"
     echo -e "     Iterative refinement loop for complex multi-step tasks."
     if ask_yn "Install ralph-loop?"; then
         INSTALL_PLUGIN_RALPH=1
     fi
     echo ""
 
-    echo -e "  ${BOLD}5. claude-hud${NC}"
+    echo -e "  ${BOLD}4. claude-hud${NC}"
     echo -e "     Status line HUD showing real-time session info (cost, tokens, etc.)."
     if ask_yn "Install claude-hud?"; then
         INSTALL_PLUGIN_HUD=1
     fi
     echo ""
 
-    echo -e "  ${BOLD}6. claude-md-management${NC}"
+    echo -e "  ${BOLD}5. claude-md-management${NC}"
     echo -e "     Audit and improve CLAUDE.md files across your repositories."
     if ask_yn "Install claude-md-management?"; then
         INSTALL_PLUGIN_CLAUDE_MD=1
@@ -352,14 +344,13 @@ phase_summary() {
 
     # Plugins
     if [[ $INSTALL_PLUGIN_EXPLANATORY -eq 1 || $INSTALL_PLUGIN_PR_REVIEW -eq 1 || \
-          $INSTALL_PLUGIN_SIMPLIFIER -eq 1 || $INSTALL_PLUGIN_RALPH -eq 1 || \
-          $INSTALL_PLUGIN_HUD -eq 1 || $INSTALL_PLUGIN_CLAUDE_MD -eq 1 ]]; then
+          $INSTALL_PLUGIN_RALPH -eq 1 || $INSTALL_PLUGIN_HUD -eq 1 || \
+          $INSTALL_PLUGIN_CLAUDE_MD -eq 1 ]]; then
         has_plugins=true
         echo ""
         echo -e "  ${BOLD}Plugins:${NC}"
         [[ $INSTALL_PLUGIN_EXPLANATORY -eq 1 ]] && echo -e "    ✅ explanatory-output-style"
         [[ $INSTALL_PLUGIN_PR_REVIEW -eq 1 ]]   && echo -e "    ✅ pr-review-toolkit"
-        [[ $INSTALL_PLUGIN_SIMPLIFIER -eq 1 ]]  && echo -e "    ✅ code-simplifier"
         [[ $INSTALL_PLUGIN_RALPH -eq 1 ]]       && echo -e "    ✅ ralph-loop"
         [[ $INSTALL_PLUGIN_HUD -eq 1 ]]         && echo -e "    ✅ claude-hud"
         [[ $INSTALL_PLUGIN_CLAUDE_MD -eq 1 ]]   && echo -e "    ✅ claude-md-management"
@@ -431,8 +422,8 @@ phase_install() {
     [[ $INSTALL_MCP_XCODEBUILD -eq 1 || $INSTALL_MCP_SOSUMI -eq 1 || $INSTALL_MCP_SERENA -eq 1 || \
        $INSTALL_MCP_DOCS -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_PLUGIN_EXPLANATORY -eq 1 || $INSTALL_PLUGIN_PR_REVIEW -eq 1 || \
-       $INSTALL_PLUGIN_SIMPLIFIER -eq 1 || $INSTALL_PLUGIN_RALPH -eq 1 || \
-       $INSTALL_PLUGIN_HUD -eq 1 || $INSTALL_PLUGIN_CLAUDE_MD -eq 1 ]] && total_steps=$((total_steps + 1))
+       $INSTALL_PLUGIN_RALPH -eq 1 || $INSTALL_PLUGIN_HUD -eq 1 || \
+       $INSTALL_PLUGIN_CLAUDE_MD -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_SKILL_LEARNING -eq 1 || $INSTALL_SKILL_XCODEBUILD -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_CMD_PR -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_HOOKS -eq 1 ]] && total_steps=$((total_steps + 1))
@@ -605,8 +596,8 @@ phase_install() {
 
     # --- Plugins ---
     if [[ $INSTALL_PLUGIN_EXPLANATORY -eq 1 || $INSTALL_PLUGIN_PR_REVIEW -eq 1 || \
-          $INSTALL_PLUGIN_SIMPLIFIER -eq 1 || $INSTALL_PLUGIN_RALPH -eq 1 || \
-          $INSTALL_PLUGIN_HUD -eq 1 || $INSTALL_PLUGIN_CLAUDE_MD -eq 1 ]]; then
+          $INSTALL_PLUGIN_RALPH -eq 1 || $INSTALL_PLUGIN_HUD -eq 1 || \
+          $INSTALL_PLUGIN_CLAUDE_MD -eq 1 ]]; then
         current_step=$((current_step + 1))
         step $current_step $total_steps "Installing Plugins"
 
@@ -626,14 +617,6 @@ phase_install() {
                 if try_install "Plugin: pr-review-toolkit" \
                     fix_plugin pr-review-toolkit@claude-plugins-official; then
                     success "pr-review-toolkit installed"
-                fi
-            fi
-
-            if [[ $INSTALL_PLUGIN_SIMPLIFIER -eq 1 ]]; then
-                info "Installing code-simplifier..."
-                if try_install "Plugin: code-simplifier" \
-                    fix_plugin code-simplifier@claude-plugins-official; then
-                    success "code-simplifier installed"
                 fi
             fi
 

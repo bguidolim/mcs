@@ -60,7 +60,6 @@ The script lets you pick from the following components:
 | **Sosumi** | Search and fetch Apple Developer documentation |
 | **Serena** | Semantic code navigation, symbol editing, and persistent memory via LSP |
 | **docs-mcp-server** | Semantic search over docs and memories using local Ollama embeddings |
-| **mcp-omnisearch** | AI-powered web search via Perplexity |
 
 ### Plugins
 

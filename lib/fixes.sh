@@ -199,6 +199,13 @@ fix_skill_xcodebuild() {
     npx -y skills add cameroncooke/xcodebuildmcp -g -a claude-code -y 2>&1
 }
 
+# Remove a deprecated MCP server from user config
+fix_mcp_remove_deprecated() {
+    local name=$1
+    check_command claude || return 1
+    claude_cli mcp remove -s user "$name" 2>&1
+}
+
 # === Dependency-awareness helpers ===
 
 # Check if a dependency is needed by any installed component

@@ -146,7 +146,7 @@ phase_doctor() {
     elif ! check_command jq; then
         doc_warn "jq not installed — cannot inspect ~/.claude.json"
     else
-        local mcp_servers=("XcodeBuildMCP" "sosumi" "serena" "docs-mcp-server" "mcp-omnisearch")
+        local mcp_servers=("XcodeBuildMCP" "sosumi" "serena" "docs-mcp-server")
         for server in "${mcp_servers[@]}"; do
             if jq -e ".mcpServers.\"$server\"" "$CLAUDE_JSON" >/dev/null 2>&1; then
                 doc_pass "$server"
@@ -155,13 +155,17 @@ phase_doctor() {
             fi
         done
 
-        # Check Perplexity API key
-        local perp_key
-        perp_key=$(jq -r '.mcpServers."mcp-omnisearch".env.PERPLEXITY_API_KEY // ""' "$CLAUDE_JSON" 2>/dev/null) || perp_key=""
-        if [[ "$perp_key" == "__ADD_YOUR_PERPLEXITY_API_KEY__" ]]; then
-            doc_warn "mcp-omnisearch: Perplexity API key is still a placeholder"
-        elif [[ -z "$perp_key" ]] && jq -e '.mcpServers."mcp-omnisearch"' "$CLAUDE_JSON" >/dev/null 2>&1; then
-            doc_warn "mcp-omnisearch: Perplexity API key is empty"
+        # Check for deprecated MCP servers
+        if jq -e '.mcpServers."mcp-omnisearch"' "$CLAUDE_JSON" >/dev/null 2>&1; then
+            if [[ "$doctor_fix" == "true" ]]; then
+                if fix_mcp_remove_deprecated "mcp-omnisearch" >/dev/null 2>&1; then
+                    doc_fixed "mcp-omnisearch removed (deprecated)"
+                else
+                    doc_fix_failed "mcp-omnisearch — could not remove (deprecated server)"
+                fi
+            else
+                doc_warn "mcp-omnisearch is deprecated — run doctor --fix to remove it"
+            fi
         fi
     fi
     echo ""
@@ -403,11 +407,12 @@ phase_doctor() {
         doc_warn "Source repo not found"
     else
         # Plain-copy files: can compare source vs installed directly
+        # Format: rel_path|installed_path|display_name
         local -a direct_files=(
-            "hooks/session_start.sh|$CLAUDE_HOOKS_DIR/session_start.sh"
-            "hooks/continuous-learning-activator.sh|$CLAUDE_HOOKS_DIR/continuous-learning-activator.sh"
-            "skills/continuous-learning/SKILL.md|$CLAUDE_SKILLS_DIR/continuous-learning/SKILL.md"
-            "skills/continuous-learning/references/templates.md|$CLAUDE_SKILLS_DIR/continuous-learning/references/templates.md"
+            "hooks/session_start.sh|$CLAUDE_HOOKS_DIR/session_start.sh|session_start.sh"
+            "hooks/continuous-learning-activator.sh|$CLAUDE_HOOKS_DIR/continuous-learning-activator.sh|continuous-learning-activator.sh"
+            "skills/continuous-learning/SKILL.md|$CLAUDE_SKILLS_DIR/continuous-learning/SKILL.md|continuous-learning skill"
+            "skills/continuous-learning/references/templates.md|$CLAUDE_SKILLS_DIR/continuous-learning/references/templates.md|continuous-learning templates"
         )
         # sed-modified files: need manifest hash (can't compare directly)
         local -a manifest_files=(
@@ -417,9 +422,9 @@ phase_doctor() {
         # Check plain-copy files via direct diff
         for entry in "${direct_files[@]}"; do
             local rel_path="${entry%%|*}"
-            local installed_path="${entry##*|}"
-            local short_name
-            short_name=$(basename "$rel_path")
+            local remainder="${entry#*|}"
+            local installed_path="${remainder%%|*}"
+            local short_name="${remainder##*|}"
             local src_file="$src_dir/$rel_path"
 
             if [[ ! -f "$installed_path" ]]; then
@@ -530,12 +535,6 @@ phase_doctor() {
         local xbm_template="$SCRIPT_DIR/templates/xcodebuildmcp.yaml"
         if [[ -f "$xbm_project_config" ]]; then
             doc_pass ".xcodebuildmcp/config.yaml"
-            # Check if xcode-ide workflow is enabled
-            if grep -q "xcode-ide" "$xbm_project_config" 2>/dev/null; then
-                doc_pass "xcode-ide workflow enabled"
-            else
-                doc_warn "xcode-ide workflow not enabled — xcode_tools_* unavailable"
-            fi
 
             # Compare workflows against template
             if [[ -f "$xbm_template" ]]; then

@@ -19,7 +19,6 @@ allowed-tools:
   - mcp__serena__get_symbols_overview
   - mcp__docs-mcp-server__search_docs
   - mcp__docs-mcp-server__list_libraries
-  - mcp__mcp-omnisearch__ai_search
   - mcp__sosumi__searchAppleDocumentation
   - mcp__sosumi__fetchAppleDocumentation
   - AskUserQuestion
@@ -107,9 +106,9 @@ Determine if: update an existing memory, cross-reference related memories, or kn
 mcp__sosumi__searchAppleDocumentation(query: "<topic>")
 ```
 
-**For general topics** — use OmniSearch:
+**For general topics** — use Claude Code's built-in web search:
 ```
-mcp__mcp-omnisearch__ai_search(query: "<topic> best practices 2026", provider: "perplexity")
+WebSearch(query: "<topic> best practices 2026")
 ```
 
 **Skip research for:** project-specific conventions, personal preferences, time-sensitive captures.
@@ -173,4 +172,4 @@ When `/retrospective` is invoked:
 | `mcp__serena__delete_memory` | Remove outdated memory |
 | `mcp__sosumi__searchAppleDocumentation` | Search Apple Developer docs |
 | `mcp__sosumi__fetchAppleDocumentation` | Fetch specific Apple doc by path |
-| `mcp__mcp-omnisearch__ai_search` | AI-powered web search (perplexity/kagi/exa) |
+| `WebSearch` | Built-in web search for general topics |

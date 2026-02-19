@@ -26,9 +26,7 @@ Only after these steps, proceed with Serena tools, Glob, or other discovery.
 
 ## Build & Test (XcodeBuildMCP)
 
-All build, test, and run operations go through **XcodeBuildMCP** (see the `xcodebuildmcp` skill for the full tool catalog).
-
-The `xcode-ide` workflow is enabled via `.xcodebuildmcp/config.yaml`, providing `xcode_tools_*` (incremental builds — fast). Default to these. Use CLI tools (`build_sim`, `test_sim`, etc.) only when you need scheme switching, `-only-testing`, or UI interaction. Set `preferXcodebuild: true` in `session_set_defaults` to force full `xcodebuild` builds.
+All build, test, and run operations go through **XcodeBuildMCP**. When a task requires building, testing, running, debugging, or interacting with simulators, **invoke the `xcodebuildmcp` skill first** to load the tool catalog and workflow guidance.
 
 ### Rules
 - Before the first build/test in a session, call `session_show_defaults` to verify the active project, scheme, and simulator

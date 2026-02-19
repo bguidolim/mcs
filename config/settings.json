@@ -1,7 +1,8 @@
 {
   "env": {
     "ENABLE_TOOL_SEARCH": "1",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-4-6"
   },
   "permissions": {
     "defaultMode": "plan"

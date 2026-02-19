@@ -161,10 +161,10 @@ fix_outdated_direct() {
 fix_cli_wrapper() {
     local repo_dir="$SCRIPT_DIR"
 
-    # Create wrapper directory
     mkdir -p "$CLI_WRAPPER_DIR"
 
-    # Generate wrapper script with repo location baked in
+    # Generate wrapper script with repo location baked in (unlike other
+    # fix_* functions, this doesn't copy from a template file)
     local wrapper_content
     wrapper_content=$(cat <<'WRAPPER_EOF'
 #!/bin/bash
@@ -174,7 +174,7 @@ REPO_DIR="__REPO_DIR__"
 REPO_URL="__REPO_URL__"
 DEFAULT_DIR="__DEFAULT_DIR__"
 
-# If repo moved/deleted, re-clone to default location
+# If repo moved/deleted, re-clone to default location and update this wrapper
 if [[ ! -d "$REPO_DIR" ]]; then
     echo -e "\033[1;33m[WARN]\033[0m Setup repo not found at $REPO_DIR"
     echo -e "\033[0;34m[INFO]\033[0m Re-cloning to $DEFAULT_DIR..."

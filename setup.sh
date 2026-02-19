@@ -146,12 +146,14 @@ while [[ $# -gt 0 ]]; do
                 error "Local changes detected in $SCRIPT_DIR. Stash or commit them first."
                 exit 1
             fi
-            # Determine which branch to pull
+            # Determine which branch to pull.
+            # The default install dir always tracks main; a custom clone
+            # location may be on a different branch (e.g. a developer fork).
             local_branch=""
             if [[ "$SCRIPT_DIR" != "$DEFAULT_INSTALL_DIR" ]]; then
                 local_branch=$(git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || echo "")
             fi
-            # Custom clone with a remote-trackable branch: try it first
+            # Non-default install on a feature branch: try pulling that branch first
             if [[ -n "$local_branch" && "$local_branch" != "main" ]]; then
                 info "Updating branch: $local_branch"
                 if ! git -C "$SCRIPT_DIR" pull origin "$local_branch" 2>&1; then

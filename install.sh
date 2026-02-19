@@ -23,12 +23,20 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 command -v git >/dev/null 2>&1 || error "git is required. Install Xcode CLT: xcode-select --install"
 [ -c /dev/tty ] || error "No terminal available. This installer must be run interactively."
 
-# --- Clone to temp dir ---
-TMPDIR_SETUP=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_SETUP"' EXIT
+# --- Clone or update to persistent location ---
+INSTALL_DIR="$HOME/.claude-ios-setup"
 
-info "Cloning setup repo..."
-git clone --depth 1 "$REPO_URL" "$TMPDIR_SETUP" 2>&1 | tail -1
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+    info "Updating existing installation..."
+    git -C "$INSTALL_DIR" pull origin main 2>&1 | tail -3
+else
+    if [[ -d "$INSTALL_DIR" ]]; then
+        # Directory exists but isn't a git repo — move it aside
+        mv "$INSTALL_DIR" "${INSTALL_DIR}.bak.$(date +%Y%m%d_%H%M%S)"
+    fi
+    info "Cloning setup repo..."
+    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>&1 | tail -1
+fi
 
 # --- Run setup ---
 echo ""
@@ -36,4 +44,4 @@ echo -e "${BOLD}Running setup...${NC}"
 echo ""
 # Redirect stdin from terminal so setup.sh can prompt interactively
 # (curl pipe consumes stdin, leaving EOF for read calls)
-"$TMPDIR_SETUP/setup.sh" "$@" </dev/tty
+"$INSTALL_DIR/setup.sh" "$@" </dev/tty

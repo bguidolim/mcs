@@ -12,6 +12,7 @@
 #        ./setup.sh doctor [--fix]        # Diagnose installation health
 #        ./setup.sh configure-project     # Configure CLAUDE.local.md for a project
 #        ./setup.sh cleanup               # Find and delete backup files
+#        ./setup.sh update                # Pull latest from remote
 # =============================================================================
 
 set -euo pipefail
@@ -28,6 +29,10 @@ CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
 CLAUDE_HOOKS_DIR="$CLAUDE_DIR/hooks"
 CLAUDE_SKILLS_DIR="$CLAUDE_DIR/skills"
 SETUP_MANIFEST="$CLAUDE_DIR/.setup-manifest"
+CLI_WRAPPER_DIR="$CLAUDE_DIR/bin"
+CLI_WRAPPER_PATH="$CLAUDE_DIR/bin/claude-ios-setup"
+DEFAULT_INSTALL_DIR="$HOME/.claude-ios-setup"
+REPO_URL="https://github.com/bguidolim/my-claude-ios-setup.git"
 
 # Colors
 RED='\033[0;31m'
@@ -133,6 +138,31 @@ while [[ $# -gt 0 ]]; do
             phase_cleanup
             exit 0
             ;;
+        update|--update)
+            info "Checking for updates..."
+            if [[ "$SCRIPT_DIR" == "$DEFAULT_INSTALL_DIR" ]]; then
+                # Default install location: always update from main
+                git -C "$SCRIPT_DIR" fetch origin main 2>/dev/null
+                git -C "$SCRIPT_DIR" checkout main 2>/dev/null || true
+                git -C "$SCRIPT_DIR" pull origin main
+            else
+                # Custom clone: try current branch, fall back to main
+                local_branch=$(git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || echo "")
+                if [[ -n "$local_branch" ]]; then
+                    info "Updating branch: $local_branch"
+                    if ! git -C "$SCRIPT_DIR" pull origin "$local_branch" 2>/dev/null; then
+                        warn "Branch '$local_branch' not found on remote. Falling back to main."
+                        git -C "$SCRIPT_DIR" checkout main 2>/dev/null || true
+                        git -C "$SCRIPT_DIR" pull origin main
+                    fi
+                else
+                    git -C "$SCRIPT_DIR" checkout main 2>/dev/null || true
+                    git -C "$SCRIPT_DIR" pull origin main
+                fi
+            fi
+            success "Updated successfully"
+            exit 0
+            ;;
         --help|-h)
             echo "Usage: ./setup.sh                      # Interactive setup (pick components)"
             echo "       ./setup.sh --all                 # Install everything (minimal prompts)"
@@ -141,6 +171,7 @@ while [[ $# -gt 0 ]]; do
             echo "       ./setup.sh doctor [--fix]        # Diagnose installation health"
             echo "       ./setup.sh configure-project     # Configure CLAUDE.local.md for a project"
             echo "       ./setup.sh cleanup               # Find and delete backup files"
+            echo "       ./setup.sh update                # Pull latest from remote"
             exit 0
             ;;
         *)

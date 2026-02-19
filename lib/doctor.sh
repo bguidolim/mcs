@@ -524,6 +524,65 @@ phase_doctor() {
     fi
     echo ""
 
+    # ===== CLI Wrapper =====
+    echo -e "${BOLD}  CLI Wrapper${NC} ${DIM}(claude-ios-setup command)${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────${NC}"
+
+    if [[ -f "$CLI_WRAPPER_PATH" ]] && [[ -x "$CLI_WRAPPER_PATH" ]]; then
+        doc_pass "CLI wrapper installed"
+        # Check the REPO_DIR it points to
+        local wrapper_repo_dir
+        wrapper_repo_dir=$(grep '^REPO_DIR=' "$CLI_WRAPPER_PATH" 2>/dev/null | head -1 | cut -d'"' -f2)
+        if [[ -n "$wrapper_repo_dir" && -d "$wrapper_repo_dir" ]]; then
+            doc_pass "Repo directory exists ($wrapper_repo_dir)"
+        elif [[ -n "$wrapper_repo_dir" ]]; then
+            if [[ "$doctor_fix" == "true" ]]; then
+                if fix_cli_wrapper 2>/dev/null; then
+                    doc_fixed "CLI wrapper — updated repo path"
+                else
+                    doc_fix_failed "CLI wrapper — repo dir missing: $wrapper_repo_dir"
+                fi
+            else
+                doc_fail "CLI wrapper — repo dir missing: $wrapper_repo_dir"
+            fi
+        fi
+    else
+        if [[ "$doctor_fix" == "true" ]]; then
+            if fix_cli_wrapper 2>/dev/null; then
+                doc_fixed "CLI wrapper installed"
+            else
+                doc_fix_failed "CLI wrapper — could not install"
+            fi
+        else
+            doc_fail "CLI wrapper — not installed. Run setup to install."
+        fi
+    fi
+
+    # Check PATH
+    local shell_rc=""
+    case "$(basename "${SHELL:-/bin/zsh}")" in
+        zsh)  shell_rc="$HOME/.zshrc" ;;
+        bash) shell_rc="$HOME/.bash_profile" ;;
+    esac
+    if [[ -n "$shell_rc" ]]; then
+        if grep -qF '.claude/bin' "$shell_rc" 2>/dev/null; then
+            doc_pass "PATH configured in $(basename "$shell_rc")"
+        else
+            if [[ "$doctor_fix" == "true" ]]; then
+                if fix_cli_wrapper 2>/dev/null; then
+                    doc_fixed "PATH configured in $(basename "$shell_rc")"
+                else
+                    doc_fix_failed "PATH — could not update $(basename "$shell_rc")"
+                fi
+            else
+                doc_fail "PATH — ~/.claude/bin not in $(basename "$shell_rc")"
+            fi
+        fi
+    else
+        doc_warn "Unsupported shell ($(basename "${SHELL:-unknown}")) — add ~/.claude/bin to PATH manually"
+    fi
+    echo ""
+
     # ===== Project (current directory) =====
     local has_project=false
     local project_dir="$PWD"
@@ -652,9 +711,9 @@ phase_doctor() {
         echo -e "  ${YELLOW}No critical issues, but some warnings to review.${NC}"
     else
         if [[ "$doctor_fix" != "true" ]]; then
-            echo -e "  ${RED}Some issues found. Run ${BOLD}./setup.sh doctor --fix${NC}${RED} to auto-fix.${NC}"
+            echo -e "  ${RED}Some issues found. Run ${BOLD}claude-ios-setup doctor --fix${NC}${RED} to auto-fix.${NC}"
         else
-            echo -e "  ${RED}Some issues could not be auto-fixed. Run ${BOLD}./setup.sh${NC}${RED} to resolve.${NC}"
+            echo -e "  ${RED}Some issues could not be auto-fixed. Run ${BOLD}claude-ios-setup${NC}${RED} to resolve.${NC}"
         fi
     fi
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

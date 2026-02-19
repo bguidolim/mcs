@@ -38,6 +38,8 @@ cd my-claude-ios-setup
 
 The script is interactive — it will ask what you want to install before making any changes.
 
+After install, the `claude-ios-setup` command is available globally — restart your terminal to pick up PATH changes.
+
 ### Prerequisites
 
 - **macOS** (Apple Silicon or Intel)
@@ -46,17 +48,21 @@ The script is interactive — it will ask what you want to install before making
 
 ## Usage
 
+After installation, use the `claude-ios-setup` command from anywhere:
+
 ```bash
-./setup.sh                      # Interactive setup (pick components)
-./setup.sh --all                # Install everything (minimal prompts)
-./setup.sh --dry-run            # Show what would be installed (no changes)
-./setup.sh --all --dry-run      # Preview full install without changes
-./setup.sh doctor               # Diagnose installation health
-./setup.sh doctor --fix         # Diagnose and auto-fix issues
-./setup.sh configure-project    # Configure CLAUDE.local.md for a project
-./setup.sh cleanup              # Find and delete backup files
-./setup.sh --help               # Show usage
+claude-ios-setup                   # Interactive setup (pick components)
+claude-ios-setup --all             # Install everything (minimal prompts)
+claude-ios-setup --dry-run         # Show what would be installed (no changes)
+claude-ios-setup doctor            # Diagnose installation health
+claude-ios-setup doctor --fix      # Diagnose and auto-fix issues
+claude-ios-setup configure-project # Configure CLAUDE.local.md for a project
+claude-ios-setup cleanup           # Find and delete backup files
+claude-ios-setup update            # Pull latest version from GitHub
+claude-ios-setup --help            # Show usage
 ```
+
+Or if running from a local clone, use `./setup.sh` with the same arguments.
 
 ## What Gets Installed
 

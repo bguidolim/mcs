@@ -17,7 +17,10 @@ Portable, interactive Bash setup script that configures Claude Code with MCP ser
 ./setup.sh doctor --fix         # Diagnose and auto-fix issues
 ./setup.sh configure-project    # Generate CLAUDE.local.md for a project
 ./setup.sh cleanup              # Find and delete backup files
+./setup.sh update               # Pull latest from remote
 ```
+
+After installation, these are also available globally as `claude-ios-setup <command>`.
 
 There are no tests, linting, or build steps — this is a pure Bash project.
 
@@ -25,7 +28,7 @@ There are no tests, linting, or build steps — this is a pure Bash project.
 
 ### Entry points
 - `setup.sh` — main orchestrator; parses args, sources lib modules, dispatches to subcommands or runs the 5-phase install flow (welcome → selection → summary → install → post-summary)
-- `install.sh` — one-line web installer that clones to a temp dir and runs `setup.sh` with stdin from `/dev/tty`
+- `install.sh` — one-line web installer that clones to `~/.claude-ios-setup/` (persistent) and runs `setup.sh` with stdin from `/dev/tty`
 
 ### Library modules (`lib/`)
 All sourced by `setup.sh` to share global state (flags, paths, color constants) without subshell overhead:

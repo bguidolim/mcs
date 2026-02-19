@@ -428,6 +428,7 @@ phase_install() {
     [[ $INSTALL_CMD_PR -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_HOOKS -eq 1 ]] && total_steps=$((total_steps + 1))
     [[ $INSTALL_SETTINGS -eq 1 ]] && total_steps=$((total_steps + 1))
+    total_steps=$((total_steps + 1))  # CLI wrapper (always installed)
     header "🚀 Installing..."
 
     # --- Homebrew ---
@@ -735,6 +736,21 @@ phase_install() {
         success "Global gitignore updated (${#added_entries[@]} entries added)"
     fi
 
+    # --- CLI Wrapper ---
+    current_step=$((current_step + 1))
+    step $current_step $total_steps "Installing CLI wrapper"
+
+    if fix_cli_wrapper; then
+        INSTALLED_ITEMS+=("CLI: claude-ios-setup")
+        success "CLI wrapper installed to $CLI_WRAPPER_PATH"
+        # Check if we need to tell the user about PATH
+        if [[ ":$PATH:" != *":$CLI_WRAPPER_DIR:"* ]]; then
+            info "Restart your terminal or run: export PATH=\"\$HOME/.claude/bin:\$PATH\""
+        fi
+    else
+        SKIPPED_ITEMS+=("CLI wrapper (already up to date)")
+    fi
+
 }
 
 # ---------------------------------------------------------------------------
@@ -790,8 +806,8 @@ phase_summary_post() {
         done
     else
         echo ""
-        echo -e "       ${DIM}You can configure projects later by re-running:${NC}"
-        echo -e "       ${SCRIPT_DIR}/setup.sh configure-project"
+        echo -e "       ${DIM}You can configure projects later by running:${NC}"
+        echo -e "       claude-ios-setup configure-project"
     fi
     echo ""
 

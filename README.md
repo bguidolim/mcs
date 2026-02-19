@@ -1,14 +1,18 @@
 # Claude Code iOS Development Setup
 
-Portable, interactive setup script that configures [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with MCP servers, plugins, skills, and hooks optimized for iOS development.
+One command to turn [Claude Code](https://docs.anthropic.com/en/docs/claude-code) into a full-featured iOS development environment — MCP servers, plugins, skills, and hooks, all pre-configured.
 
-Run one command to set up a complete AI-assisted iOS development environment on any Mac.
+### What you get
 
-## Prerequisites
+- 🔨 **Build, test, and run** iOS apps through Claude — no manual Xcode switching
+- 📚 **Apple docs at your fingertips** — search Developer documentation inline while coding
+- 🧠 **Semantic code intelligence** — navigate by symbol, edit structurally, persist learnings across sessions
+- 🔍 **Automated PR reviews** — specialized agents for code quality, silent failures, and test coverage
+- ⚡ **Context-aware sessions** — Claude starts every session knowing your git state, simulator, branch, and open PRs
+- 📋 **Per-project templates** — auto-generate `CLAUDE.local.md` tuned to your Xcode workspace
+- 🩺 **Self-healing setup** — built-in diagnostics that detect and auto-fix configuration drift
 
-- **macOS** (Apple Silicon or Intel)
-- **Xcode** with Command Line Tools (`xcode-select --install`)
-- **Anthropic account** with Claude Code access
+> **Safe to try**: preview with `--dry-run`, pick only the components you need, automatic backups before any file changes. Fully idempotent — re-run anytime.
 
 ## Quick Start
 
@@ -33,6 +37,12 @@ cd my-claude-ios-setup
 ```
 
 The script is interactive — it will ask what you want to install before making any changes.
+
+### Prerequisites
+
+- **macOS** (Apple Silicon or Intel)
+- **Xcode** with Command Line Tools (`xcode-select --install`)
+- **Anthropic account** with Claude Code access
 
 ## Usage
 

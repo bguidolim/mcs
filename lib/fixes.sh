@@ -160,7 +160,6 @@ fix_outdated_direct() {
 # Install CLI wrapper to ~/.claude/bin/ and add to PATH
 fix_cli_wrapper() {
     local repo_dir="$SCRIPT_DIR"
-    local changed=false
 
     # Create wrapper directory
     mkdir -p "$CLI_WRAPPER_DIR"
@@ -204,19 +203,15 @@ WRAPPER_EOF
     wrapper_content="${wrapper_content//__REPO_URL__/$REPO_URL}"
     wrapper_content="${wrapper_content//__DEFAULT_DIR__/$DEFAULT_INSTALL_DIR}"
 
-    # Write wrapper (compare before writing to detect changes)
+    # Write wrapper only if content changed
     if [[ ! -f "$CLI_WRAPPER_PATH" ]] || [[ "$(cat "$CLI_WRAPPER_PATH")" != "$wrapper_content" ]]; then
         printf '%s\n' "$wrapper_content" > "$CLI_WRAPPER_PATH"
-        changed=true
     fi
     chmod +x "$CLI_WRAPPER_PATH"
 
     # Add to PATH in shell rc file
-    local shell_rc=""
-    case "$(basename "${SHELL:-/bin/zsh}")" in
-        zsh)  shell_rc="$HOME/.zshrc" ;;
-        bash) shell_rc="$HOME/.bash_profile" ;;
-    esac
+    local shell_rc
+    shell_rc=$(resolve_shell_rc)
 
     if [[ -n "$shell_rc" ]]; then
         # Check if PATH already contains our bin dir
@@ -225,12 +220,9 @@ WRAPPER_EOF
             echo "" >> "$shell_rc"
             echo "# Added by Claude Code iOS Setup" >> "$shell_rc"
             echo "export PATH=\"\$HOME/.claude/bin:\$PATH\"" >> "$shell_rc"
-            changed=true
         fi
     fi
 
-    # Always return 0 — the state is correct when we exit.
-    # $changed is not exposed; callers should pre-check if they need to distinguish.
     return 0
 }
 

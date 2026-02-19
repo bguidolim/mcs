@@ -9,6 +9,7 @@
 
 set -euo pipefail
 
+# Keep in sync with REPO_URL in setup.sh
 REPO_URL="https://github.com/bguidolim/my-claude-ios-setup.git"
 
 RED='\033[0;31m'

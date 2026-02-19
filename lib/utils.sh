@@ -124,6 +124,15 @@ ensure_brew_in_path() {
     fi
 }
 
+# Resolve the shell rc file for the current user's shell.
+# Prints the path (e.g. ~/.zshrc or ~/.bash_profile), or nothing for unknown shells.
+resolve_shell_rc() {
+    case "$(basename "${SHELL:-/bin/zsh}")" in
+        zsh)  echo "$HOME/.zshrc" ;;
+        bash) echo "$HOME/.bash_profile" ;;
+    esac
+}
+
 # Run claude CLI without nesting check
 claude_cli() {
     CLAUDECODE="" claude "$@"

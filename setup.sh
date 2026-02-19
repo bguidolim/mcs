@@ -146,25 +146,23 @@ while [[ $# -gt 0 ]]; do
                 error "Local changes detected in $SCRIPT_DIR. Stash or commit them first."
                 exit 1
             fi
-            if [[ "$SCRIPT_DIR" == "$DEFAULT_INSTALL_DIR" ]]; then
-                # Default install location: always update from main
-                git -C "$SCRIPT_DIR" fetch origin main 2>/dev/null
+            # Determine which branch to pull
+            local_branch=""
+            if [[ "$SCRIPT_DIR" != "$DEFAULT_INSTALL_DIR" ]]; then
+                local_branch=$(git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || echo "")
+            fi
+            # Custom clone with a remote-trackable branch: try it first
+            if [[ -n "$local_branch" && "$local_branch" != "main" ]]; then
+                info "Updating branch: $local_branch"
+                if ! git -C "$SCRIPT_DIR" pull origin "$local_branch" 2>/dev/null; then
+                    warn "Branch '$local_branch' not found on remote. Falling back to main."
+                    local_branch=""
+                fi
+            fi
+            # Default path: update main
+            if [[ -z "$local_branch" || "$local_branch" == "main" ]]; then
                 git -C "$SCRIPT_DIR" checkout main 2>/dev/null || true
                 git -C "$SCRIPT_DIR" pull origin main
-            else
-                # Custom clone: try current branch, fall back to main
-                local_branch=$(git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || echo "")
-                if [[ -n "$local_branch" ]]; then
-                    info "Updating branch: $local_branch"
-                    if ! git -C "$SCRIPT_DIR" pull origin "$local_branch" 2>/dev/null; then
-                        warn "Branch '$local_branch' not found on remote. Falling back to main."
-                        git -C "$SCRIPT_DIR" checkout main 2>/dev/null || true
-                        git -C "$SCRIPT_DIR" pull origin main
-                    fi
-                else
-                    git -C "$SCRIPT_DIR" checkout main 2>/dev/null || true
-                    git -C "$SCRIPT_DIR" pull origin main
-                fi
             fi
             success "Updated successfully"
             exit 0

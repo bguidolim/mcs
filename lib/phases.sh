@@ -740,15 +740,21 @@ phase_install() {
     current_step=$((current_step + 1))
     step $current_step $total_steps "Installing CLI wrapper"
 
-    local cli_existed=false
-    [[ -f "$CLI_WRAPPER_PATH" ]] && cli_existed=true
+    local cli_hash_before=""
+    [[ -f "$CLI_WRAPPER_PATH" ]] && cli_hash_before=$(file_hash "$CLI_WRAPPER_PATH")
 
     fix_cli_wrapper
 
-    if [[ "$cli_existed" == false ]]; then
+    local cli_hash_after=""
+    [[ -f "$CLI_WRAPPER_PATH" ]] && cli_hash_after=$(file_hash "$CLI_WRAPPER_PATH")
+
+    if [[ "$cli_hash_before" != "$cli_hash_after" ]]; then
         INSTALLED_ITEMS+=("CLI: claude-ios-setup")
-        success "CLI wrapper installed to $CLI_WRAPPER_PATH"
-        # Check if we need to tell the user about PATH
+        if [[ -z "$cli_hash_before" ]]; then
+            success "CLI wrapper installed to $CLI_WRAPPER_PATH"
+        else
+            success "CLI wrapper updated"
+        fi
         if [[ ":$PATH:" != *":$CLI_WRAPPER_DIR:"* ]]; then
             info "Restart your terminal or run: export PATH=\"\$HOME/.claude/bin:\$PATH\""
         fi

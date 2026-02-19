@@ -528,55 +528,63 @@ phase_doctor() {
     echo -e "${BOLD}  CLI Wrapper${NC} ${DIM}(claude-ios-setup command)${NC}"
     echo -e "  ${DIM}──────────────────────────────────────────${NC}"
 
-    if [[ -f "$CLI_WRAPPER_PATH" ]] && [[ -x "$CLI_WRAPPER_PATH" ]]; then
-        doc_pass "CLI wrapper installed"
-        # Check the REPO_DIR it points to
-        local wrapper_repo_dir
+    # Detect what needs fixing before calling fix_cli_wrapper (which
+    # handles wrapper + PATH together), so we call it at most once.
+    local cli_wrapper_ok=false
+    local cli_repo_ok=false
+    local cli_path_ok=false
+    local wrapper_repo_dir=""
+    local shell_rc
+    shell_rc=$(resolve_shell_rc)
+
+    [[ -f "$CLI_WRAPPER_PATH" ]] && [[ -x "$CLI_WRAPPER_PATH" ]] && cli_wrapper_ok=true
+    if [[ "$cli_wrapper_ok" == true ]]; then
         wrapper_repo_dir=$(grep '^REPO_DIR=' "$CLI_WRAPPER_PATH" 2>/dev/null | head -1 | cut -d'"' -f2)
-        if [[ -n "$wrapper_repo_dir" && -d "$wrapper_repo_dir" ]]; then
+        [[ -n "$wrapper_repo_dir" && -d "$wrapper_repo_dir" ]] && cli_repo_ok=true
+    fi
+    [[ -n "$shell_rc" ]] && grep -qF '$HOME/.claude/bin' "$shell_rc" 2>/dev/null && cli_path_ok=true
+
+    # Run fix once if anything is wrong
+    local cli_fix_ok=false
+    if [[ "$doctor_fix" == "true" ]] && \
+       [[ "$cli_wrapper_ok" == false || "$cli_repo_ok" == false || "$cli_path_ok" == false ]]; then
+        fix_cli_wrapper 2>/dev/null && cli_fix_ok=true
+    fi
+
+    # --- Report: wrapper ---
+    if [[ "$cli_wrapper_ok" == true ]]; then
+        doc_pass "CLI wrapper installed"
+    elif [[ "$cli_fix_ok" == true ]]; then
+        doc_fixed "CLI wrapper installed"
+    elif [[ "$doctor_fix" == "true" ]]; then
+        doc_fix_failed "CLI wrapper — could not install"
+    else
+        doc_fail "CLI wrapper — not installed. Run setup to install."
+    fi
+
+    # --- Report: repo dir ---
+    if [[ "$cli_wrapper_ok" == true ]]; then
+        if [[ "$cli_repo_ok" == true ]]; then
             doc_pass "Repo directory exists ($wrapper_repo_dir)"
         elif [[ -n "$wrapper_repo_dir" ]]; then
-            if [[ "$doctor_fix" == "true" ]]; then
-                if fix_cli_wrapper 2>/dev/null; then
-                    doc_fixed "CLI wrapper — updated repo path"
-                else
-                    doc_fix_failed "CLI wrapper — repo dir missing: $wrapper_repo_dir"
-                fi
+            if [[ "$cli_fix_ok" == true ]]; then
+                doc_fixed "CLI wrapper — updated repo path"
             else
                 doc_fail "CLI wrapper — repo dir missing: $wrapper_repo_dir"
             fi
         fi
-    else
-        if [[ "$doctor_fix" == "true" ]]; then
-            if fix_cli_wrapper 2>/dev/null; then
-                doc_fixed "CLI wrapper installed"
-            else
-                doc_fix_failed "CLI wrapper — could not install"
-            fi
-        else
-            doc_fail "CLI wrapper — not installed. Run setup to install."
-        fi
     fi
 
-    # Check PATH
-    local shell_rc=""
-    case "$(basename "${SHELL:-/bin/zsh}")" in
-        zsh)  shell_rc="$HOME/.zshrc" ;;
-        bash) shell_rc="$HOME/.bash_profile" ;;
-    esac
+    # --- Report: PATH ---
     if [[ -n "$shell_rc" ]]; then
-        if grep -qF '$HOME/.claude/bin' "$shell_rc" 2>/dev/null; then
+        if [[ "$cli_path_ok" == true ]]; then
             doc_pass "PATH configured in $(basename "$shell_rc")"
+        elif [[ "$cli_fix_ok" == true ]]; then
+            doc_fixed "PATH configured in $(basename "$shell_rc")"
+        elif [[ "$doctor_fix" == "true" ]]; then
+            doc_fix_failed "PATH — could not update $(basename "$shell_rc")"
         else
-            if [[ "$doctor_fix" == "true" ]]; then
-                if fix_cli_wrapper 2>/dev/null; then
-                    doc_fixed "PATH configured in $(basename "$shell_rc")"
-                else
-                    doc_fix_failed "PATH — could not update $(basename "$shell_rc")"
-                fi
-            else
-                doc_fail "PATH — ~/.claude/bin not in $(basename "$shell_rc")"
-            fi
+            doc_fail "PATH — ~/.claude/bin not in $(basename "$shell_rc")"
         fi
     else
         doc_warn "Unsupported shell ($(basename "${SHELL:-unknown}")) — add ~/.claude/bin to PATH manually"

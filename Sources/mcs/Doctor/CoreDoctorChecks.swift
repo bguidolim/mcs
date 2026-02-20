@@ -434,7 +434,8 @@ struct DeprecatedMCPServerCheck: DoctorCheck, Sendable {
     let identifier: String
 
     func check() -> CheckResult {
-        let claudeJSONPath = Environment().claudeJSON
+        let env = Environment()
+        let claudeJSONPath = env.claudeJSON
         guard let data = try? Data(contentsOf: claudeJSONPath),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let mcpServers = json["mcpServers"] as? [String: Any],
@@ -442,6 +443,12 @@ struct DeprecatedMCPServerCheck: DoctorCheck, Sendable {
         else {
             return .pass("not present (good)")
         }
+
+        // Only warn if we own it (old installer or mcs installed it)
+        guard isOwnedByMCS(env: env) else {
+            return .pass("present (user-managed, not flagged)")
+        }
+
         return .warn("deprecated '\(identifier)' still registered — remove it")
     }
 
@@ -454,6 +461,15 @@ struct DeprecatedMCPServerCheck: DoctorCheck, Sendable {
         }
         return .failed(result.stderr)
     }
+
+    private func isOwnedByMCS(env: Environment) -> Bool {
+        var ownership = SettingsOwnership(path: env.settingsKeys)
+        // If sidecar doesn't exist yet, try bootstrapping from legacy manifest
+        if ownership.managedKeys.isEmpty {
+            ownership.bootstrapFromLegacyManifest(at: env.setupManifest)
+        }
+        return ownership.owns(keyPath: "mcpServers.\(identifier)")
+    }
 }
 
 struct DeprecatedPluginCheck: DoctorCheck, Sendable {
@@ -462,14 +478,21 @@ struct DeprecatedPluginCheck: DoctorCheck, Sendable {
     let pluginName: String
 
     func check() -> CheckResult {
-        let settingsURL = Environment().claudeSettings
+        let env = Environment()
+        let settingsURL = env.claudeSettings
         guard let settings = try? Settings.load(from: settingsURL) else {
             return .pass("no settings file")
         }
-        if settings.enabledPlugins?[pluginName] == true {
-            return .warn("deprecated '\(pluginName)' still enabled — remove it")
+        guard settings.enabledPlugins?[pluginName] == true else {
+            return .pass("not present (good)")
         }
-        return .pass("not present (good)")
+
+        // Only warn if we own it (old installer or mcs installed it)
+        guard isOwnedByMCS(env: env) else {
+            return .pass("present (user-managed, not flagged)")
+        }
+
+        return .warn("deprecated '\(pluginName)' still enabled — remove it")
     }
 
     func fix() -> FixResult {
@@ -480,6 +503,14 @@ struct DeprecatedPluginCheck: DoctorCheck, Sendable {
             return .fixed("removed deprecated \(pluginName)")
         }
         return .failed(result.stderr)
+    }
+
+    private func isOwnedByMCS(env: Environment) -> Bool {
+        var ownership = SettingsOwnership(path: env.settingsKeys)
+        if ownership.managedKeys.isEmpty {
+            ownership.bootstrapFromLegacyManifest(at: env.setupManifest)
+        }
+        return ownership.owns(keyPath: "enabledPlugins.\(pluginName)")
     }
 }
 

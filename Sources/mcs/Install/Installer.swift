@@ -542,8 +542,15 @@ struct Installer {
 
             _ = try? backup.backupFile(at: destURL)
 
-            // Remove stale keys that mcs previously owned but are no longer in the template
+            // Bootstrap ownership from legacy bash manifest if no sidecar exists yet
             var ownership = SettingsOwnership(path: environment.settingsKeys)
+            if ownership.managedKeys.isEmpty {
+                if ownership.bootstrapFromLegacyManifest(at: environment.setupManifest) {
+                    output.dimmed("Migrated ownership from legacy bash installer manifest")
+                }
+            }
+
+            // Remove stale keys that mcs previously owned but are no longer in the template
             let stale = ownership.staleKeys(comparedTo: template)
             if !stale.isEmpty {
                 existing.removeKeys(stale)

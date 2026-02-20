@@ -102,6 +102,68 @@ struct SettingsOwnership: Sendable {
         return managedKeys.filter { !currentPaths.contains($0) }
     }
 
+    // MARK: - Legacy migration
+
+    /// Bootstrap ownership from an existing old bash installer manifest.
+    ///
+    /// The old bash installer managed a known set of settings keys, MCP servers,
+    /// and plugins — but it never recorded *which* keys it owned.
+    /// If a legacy manifest exists (has `SCRIPT_DIR` pointing to the bash repo),
+    /// we seed the sidecar with the keys the old installer would have written.
+    /// This prevents doctor from warning about deprecated items the user never installed.
+    ///
+    /// Returns true if migration was performed.
+    @discardableResult
+    mutating func bootstrapFromLegacyManifest(at manifestPath: URL) -> Bool {
+        let manifest = Manifest(path: manifestPath)
+        guard manifest.isLegacyBashManifest else { return false }
+        guard entries.isEmpty else { return false } // Don't overwrite existing sidecar
+
+        let legacyVersion = "1.0.0" // Represents the bash installer era
+
+        // The old bash installer's config/settings.json contained these keys
+        let legacySettingsKeys = [
+            "env.ENABLE_TOOL_SEARCH",
+            "env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+            "env.ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "env.CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+            "permissions.defaultMode",
+            "hooks.SessionStart",
+            "hooks.UserPromptSubmit",
+            "alwaysThinkingEnabled",
+        ]
+
+        // The old installer also installed these plugins
+        let legacyPlugins = [
+            "enabledPlugins.explanatory-output-style@claude-plugins-official",
+            "enabledPlugins.pr-review-toolkit@claude-plugins-official",
+            "enabledPlugins.ralph-loop@claude-plugins-official",
+            "enabledPlugins.claude-md-management@claude-plugins-official",
+            // Deprecated plugins the old installer also managed
+            "enabledPlugins.claude-hud@claude-hud",
+            "enabledPlugins.code-simplifier@claude-plugins-official",
+        ]
+
+        for key in legacySettingsKeys + legacyPlugins {
+            record(keyPath: key, version: legacyVersion)
+        }
+
+        // Also record deprecated MCP servers as owned by the old installer.
+        // These are tracked separately via mcpServers.* prefix.
+        let legacyMCPServers = [
+            "mcpServers.serena",
+            "mcpServers.mcp-omnisearch",
+            "mcpServers.XcodeBuildMCP",
+            "mcpServers.sosumi",
+            "mcpServers.docs-mcp-server",
+        ]
+        for key in legacyMCPServers {
+            record(keyPath: key, version: legacyVersion)
+        }
+
+        return true
+    }
+
     // MARK: - File I/O
 
     func save() throws {

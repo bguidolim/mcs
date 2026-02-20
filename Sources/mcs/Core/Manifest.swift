@@ -36,6 +36,20 @@ struct Manifest: Sendable {
         Array(entries.keys).sorted()
     }
 
+    /// The SCRIPT_DIR recorded in the manifest (points to the source repo).
+    var scriptDir: String? {
+        metadata["SCRIPT_DIR"]
+    }
+
+    /// Whether this manifest was created by the old bash installer.
+    /// The bash installer recorded SCRIPT_DIR pointing to a directory containing setup.sh.
+    var isLegacyBashManifest: Bool {
+        guard let dir = scriptDir else { return false }
+        return FileManager.default.fileExists(
+            atPath: URL(fileURLWithPath: dir).appendingPathComponent("setup.sh").path
+        )
+    }
+
     /// Initialize the manifest with a source directory header.
     mutating func initialize(sourceDirectory: String) {
         metadata["SCRIPT_DIR"] = sourceDirectory

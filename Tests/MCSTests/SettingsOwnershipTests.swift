@@ -182,6 +182,88 @@ struct SettingsOwnershipTests {
 
     // MARK: - recordAll
 
+    // MARK: - Legacy manifest bootstrap
+
+    @Test("Bootstrap from legacy bash manifest seeds ownership")
+    func legacyBootstrap() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create a fake legacy manifest with SCRIPT_DIR pointing to a dir that has setup.sh
+        let manifestPath = tmpDir.appendingPathComponent(".setup-manifest")
+        let fakeRepoDir = tmpDir.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: fakeRepoDir, withIntermediateDirectories: true)
+        try "#!/bin/bash\n".write(
+            to: fakeRepoDir.appendingPathComponent("setup.sh"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifestContent = "SCRIPT_DIR=\(fakeRepoDir.path)\nhooks/session_start.sh=abc123\n"
+        try manifestContent.write(to: manifestPath, atomically: true, encoding: .utf8)
+
+        // Bootstrap from it
+        let sidecarPath = tmpDir.appendingPathComponent("keys")
+        var ownership = SettingsOwnership(path: sidecarPath)
+        let migrated = ownership.bootstrapFromLegacyManifest(at: manifestPath)
+
+        #expect(migrated == true)
+        // Should own the known legacy settings
+        #expect(ownership.owns(keyPath: "env.CLAUDE_CODE_DISABLE_AUTO_MEMORY"))
+        #expect(ownership.owns(keyPath: "permissions.defaultMode"))
+        #expect(ownership.owns(keyPath: "alwaysThinkingEnabled"))
+        // Should own legacy deprecated items
+        #expect(ownership.owns(keyPath: "enabledPlugins.claude-hud@claude-hud"))
+        #expect(ownership.owns(keyPath: "mcpServers.serena"))
+        #expect(ownership.owns(keyPath: "mcpServers.mcp-omnisearch"))
+        // Version should be 1.0.0 (legacy era)
+        #expect(ownership.version(for: "env.CLAUDE_CODE_DISABLE_AUTO_MEMORY") == "1.0.0")
+    }
+
+    @Test("Bootstrap does not overwrite existing sidecar")
+    func legacyBootstrapNoOverwrite() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create a fake legacy manifest
+        let manifestPath = tmpDir.appendingPathComponent(".setup-manifest")
+        let fakeRepoDir = tmpDir.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: fakeRepoDir, withIntermediateDirectories: true)
+        try "#!/bin/bash\n".write(
+            to: fakeRepoDir.appendingPathComponent("setup.sh"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "SCRIPT_DIR=\(fakeRepoDir.path)\n".write(
+            to: manifestPath, atomically: true, encoding: .utf8
+        )
+
+        // Existing sidecar with one entry
+        let sidecarPath = tmpDir.appendingPathComponent("keys")
+        var ownership = SettingsOwnership(path: sidecarPath)
+        ownership.record(keyPath: "env.MY_KEY", version: "2.0.0")
+
+        // Bootstrap should NOT overwrite
+        let migrated = ownership.bootstrapFromLegacyManifest(at: manifestPath)
+        #expect(migrated == false)
+        #expect(ownership.managedKeys == ["env.MY_KEY"])
+    }
+
+    @Test("Bootstrap skips when no legacy manifest exists")
+    func legacyBootstrapNoManifest() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let missingManifest = tmpDir.appendingPathComponent("does-not-exist")
+        let sidecarPath = tmpDir.appendingPathComponent("keys")
+        var ownership = SettingsOwnership(path: sidecarPath)
+        let migrated = ownership.bootstrapFromLegacyManifest(at: missingManifest)
+
+        #expect(migrated == false)
+        #expect(ownership.managedKeys.isEmpty)
+    }
+
+    // MARK: - recordAll
+
     @Test("recordAll captures all key paths from a settings template")
     func recordAll() throws {
         let tmpDir = try makeTmpDir()

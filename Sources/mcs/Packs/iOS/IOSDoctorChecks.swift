@@ -46,7 +46,7 @@ struct XcodeBuildMCPServerCheck: DoctorCheck, Sendable {
     let name = "XcodeBuildMCP MCP server"
 
     func check() -> CheckResult {
-        let settingsURL = Environment().claudeSettings
+        let settingsURL = Environment().claudeJSON
         guard let data = try? Data(contentsOf: settingsURL),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let servers = json["mcpServers"] as? [String: Any],
@@ -80,7 +80,7 @@ struct SosumiServerCheck: DoctorCheck, Sendable {
     let name = "Sosumi MCP server"
 
     func check() -> CheckResult {
-        let settingsURL = Environment().claudeSettings
+        let settingsURL = Environment().claudeJSON
         guard let data = try? Data(contentsOf: settingsURL),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let servers = json["mcpServers"] as? [String: Any],
@@ -92,7 +92,7 @@ struct SosumiServerCheck: DoctorCheck, Sendable {
     }
 
     func fix() -> FixResult {
-        let settingsURL = Environment().claudeSettings
+        let settingsURL = Environment().claudeJSON
 
         // Sosumi uses HTTP transport — need to add it directly to settings.json
         guard let data = try? Data(contentsOf: settingsURL),

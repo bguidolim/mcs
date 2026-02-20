@@ -5,7 +5,7 @@ enum CoreComponents {
     /// All core component definitions.
     static let all: [ComponentDefinition] = [
         // Dependencies
-        homebrew, node, gh, ollama, claudeCode,
+        homebrew, node, gh, jq, ollama, claudeCode,
         // MCP Servers
         docsMCPServer,
         // Plugins
@@ -55,6 +55,17 @@ enum CoreComponents {
         dependencies: ["core.homebrew"],
         isRequired: false,
         installAction: .brewInstall(package: "gh")
+    )
+
+    static let jq = ComponentDefinition(
+        id: "core.jq",
+        displayName: "jq",
+        description: "JSON processor (used by session hooks)",
+        type: .brewPackage,
+        packIdentifier: nil,
+        dependencies: ["core.homebrew"],
+        isRequired: false,
+        installAction: .brewInstall(package: "jq")
     )
 
     static let ollama = ComponentDefinition(
@@ -171,7 +182,7 @@ enum CoreComponents {
         description: "Shows git status, branch protection, and open PRs on session start",
         type: .hookFile,
         packIdentifier: nil,
-        dependencies: [],
+        dependencies: ["core.jq"],
         isRequired: true,
         installAction: .copyHook(
             source: "hooks/session_start.sh",

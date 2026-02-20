@@ -15,6 +15,10 @@ extension DoctorRunner {
             fixAction: "brew install node"
         ))
         checks.append(CommandCheck(
+            name: "jq", section: "Dependencies", command: "jq",
+            fixAction: "brew install jq"
+        ))
+        checks.append(CommandCheck(
             name: "Claude Code", section: "Dependencies", command: "claude", fixAction: nil
         ))
         checks.append(CommandCheck(
@@ -53,6 +57,8 @@ extension DoctorRunner {
         // Hooks
         checks.append(HookCheck(hookName: "session_start.sh"))
         checks.append(HookCheck(hookName: "continuous-learning-activator.sh"))
+        checks.append(HookEventCheck(eventName: "SessionStart"))
+        checks.append(HookEventCheck(eventName: "UserPromptSubmit"))
 
         // Settings
         checks.append(SettingsCheck())
@@ -67,8 +73,15 @@ extension DoctorRunner {
         checks.append(DeprecatedMCPServerCheck(
             name: "Serena MCP", identifier: "serena"
         ))
+        checks.append(DeprecatedMCPServerCheck(
+            name: "mcp-omnisearch", identifier: "mcp-omnisearch"
+        ))
         checks.append(DeprecatedPluginCheck(
             name: "claude-hud plugin", pluginName: "claude-hud@claude-hud"
+        ))
+        checks.append(DeprecatedPluginCheck(
+            name: "code-simplifier plugin",
+            pluginName: "code-simplifier@claude-plugins-official"
         ))
         checks.append(contentsOf: MigrationDetector.checks)
 
@@ -257,6 +270,28 @@ struct HookCheck: DoctorCheck, Sendable {
             }
         }
         return .notFixable("Run 'mcs install' to install hooks")
+    }
+}
+
+struct HookEventCheck: DoctorCheck, Sendable {
+    let eventName: String
+
+    var name: String { "\(eventName) hook event" }
+    var section: String { "Hooks" }
+
+    func check() -> CheckResult {
+        let settingsURL = Environment().claudeSettings
+        guard let settings = try? Settings.load(from: settingsURL) else {
+            return .fail("settings.json not found")
+        }
+        guard let hooks = settings.hooks, hooks[eventName] != nil else {
+            return .fail("\(eventName) not registered in settings.json")
+        }
+        return .pass("registered in settings.json")
+    }
+
+    func fix() -> FixResult {
+        .notFixable("Run 'mcs install' to merge settings")
     }
 }
 

@@ -184,6 +184,32 @@ struct DependencyResolverTests {
         #expect(addedIDs.contains("B"))
     }
 
+    @Test("Unknown component ID throws error")
+    func unknownComponentID() throws {
+        let components = [
+            component(id: "A", dependencies: ["nonexistent"]),
+        ]
+
+        #expect(throws: (any Error).self) {
+            try DependencyResolver.resolve(
+                selectedIDs: Set(["A"]),
+                allComponents: components
+            )
+        }
+    }
+
+    @Test("Unknown selected ID throws error")
+    func unknownSelectedID() throws {
+        let components = [component(id: "A")]
+
+        #expect(throws: (any Error).self) {
+            try DependencyResolver.resolve(
+                selectedIDs: Set(["nonexistent"]),
+                allComponents: components
+            )
+        }
+    }
+
     @Test("Explicitly selected dependencies are not in addedDependencies")
     func explicitDepsNotAdded() throws {
         let components = [

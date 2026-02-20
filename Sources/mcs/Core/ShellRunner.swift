@@ -19,7 +19,7 @@ struct ShellRunner: Sendable {
 
     /// Check if a command exists on PATH.
     func commandExists(_ command: String) -> Bool {
-        let result = run("/usr/bin/which", arguments: [command], quiet: true)
+        let result = run("/usr/bin/which", arguments: [command])
         return result.succeeded
     }
 
@@ -29,8 +29,7 @@ struct ShellRunner: Sendable {
         _ executable: String,
         arguments: [String] = [],
         workingDirectory: String? = nil,
-        additionalEnvironment: [String: String] = [:],
-        quiet: Bool = false
+        additionalEnvironment: [String: String] = [:]
     ) -> ShellResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)

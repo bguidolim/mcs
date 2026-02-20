@@ -49,7 +49,7 @@ struct Installer {
         output.info("Detected macOS on \(environment.architecture.rawValue)")
 
         // Check Xcode CLT
-        let xcodeResult = shell.run("/usr/bin/xcode-select", arguments: ["-p"], quiet: true)
+        let xcodeResult = shell.run("/usr/bin/xcode-select", arguments: ["-p"])
         if xcodeResult.succeeded {
             output.info("Xcode Command Line Tools: installed")
         } else {
@@ -426,21 +426,39 @@ struct Installer {
         return result.succeeded
     }
 
+    /// Resolve a bundled resource path relative to Resources/.
+    /// Returns nil (with a warning) if the bundle is missing.
+    private func resolvedResourceURL(_ relativePath: String) -> URL? {
+        guard let resourceURL = Bundle.module.url(
+            forResource: "Resources",
+            withExtension: nil
+        ) else {
+            output.warn("Resources bundle not found")
+            return nil
+        }
+        return resourceURL.appendingPathComponent(relativePath)
+    }
+
+    /// Record a manifest entry, warning on failure.
+    private func recordManifest(
+        _ manifest: inout Manifest,
+        relativePath: String,
+        sourceFile: URL
+    ) {
+        do {
+            try manifest.record(relativePath: relativePath, sourceFile: sourceFile)
+        } catch {
+            output.warn("Could not record manifest entry for \(relativePath)")
+        }
+    }
+
     private mutating func copySkill(
         source: String,
         destination: String,
         manifest: inout Manifest
     ) -> Bool {
         let fm = FileManager.default
-        guard let resourceURL = Bundle.module.url(
-            forResource: "Resources",
-            withExtension: nil
-        ) else {
-            output.warn("Resources bundle not found")
-            return false
-        }
-
-        let sourceURL = resourceURL.appendingPathComponent(source)
+        guard let sourceURL = resolvedResourceURL(source) else { return false }
         let destURL = environment.skillsDirectory.appendingPathComponent(destination)
 
         do {
@@ -457,7 +475,11 @@ struct Installer {
             )
             for file in contents {
                 let destFile = destURL.appendingPathComponent(file.lastPathComponent)
-                _ = try? backup.backupFile(at: destFile)
+                do {
+                    try backup.backupFile(at: destFile)
+                } catch {
+                    output.warn("Could not backup \(destFile.lastPathComponent): \(error.localizedDescription)")
+                }
                 if fm.fileExists(atPath: destFile.path) {
                     try fm.removeItem(at: destFile)
                 }
@@ -465,11 +487,7 @@ struct Installer {
                 try fm.copyItem(at: file, to: destFile)
             }
 
-            do {
-                try manifest.record(relativePath: source, sourceFile: sourceURL)
-            } catch {
-                output.warn("Could not record manifest entry for \(source)")
-            }
+            recordManifest(&manifest, relativePath: source, sourceFile: sourceURL)
             return true
         } catch {
             output.warn(error.localizedDescription)
@@ -483,15 +501,7 @@ struct Installer {
         manifest: inout Manifest
     ) -> Bool {
         let fm = FileManager.default
-        guard let resourceURL = Bundle.module.url(
-            forResource: "Resources",
-            withExtension: nil
-        ) else {
-            output.warn("Resources bundle not found")
-            return false
-        }
-
-        let sourceURL = resourceURL.appendingPathComponent(source)
+        guard let sourceURL = resolvedResourceURL(source) else { return false }
         let destURL = environment.hooksDirectory.appendingPathComponent(destination)
 
         do {
@@ -499,7 +509,11 @@ struct Installer {
                 at: destURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            _ = try? backup.backupFile(at: destURL)
+            do {
+                try backup.backupFile(at: destURL)
+            } catch {
+                output.warn("Could not backup \(destURL.lastPathComponent): \(error.localizedDescription)")
+            }
             if fm.fileExists(atPath: destURL.path) {
                 try fm.removeItem(at: destURL)
             }
@@ -511,11 +525,7 @@ struct Installer {
                 ofItemAtPath: destURL.path
             )
 
-            do {
-                try manifest.record(relativePath: source, sourceFile: sourceURL)
-            } catch {
-                output.warn("Could not record manifest entry for \(source)")
-            }
+            recordManifest(&manifest, relativePath: source, sourceFile: sourceURL)
             return true
         } catch {
             output.warn(error.localizedDescription)
@@ -530,15 +540,7 @@ struct Installer {
         manifest: inout Manifest
     ) -> Bool {
         let fm = FileManager.default
-        guard let resourceURL = Bundle.module.url(
-            forResource: "Resources",
-            withExtension: nil
-        ) else {
-            output.warn("Resources bundle not found")
-            return false
-        }
-
-        let sourceURL = resourceURL.appendingPathComponent(source)
+        guard let sourceURL = resolvedResourceURL(source) else { return false }
         let destURL = environment.commandsDirectory.appendingPathComponent(destination)
 
         do {
@@ -549,13 +551,13 @@ struct Installer {
             var content = try String(contentsOf: sourceURL, encoding: .utf8)
             content = TemplateEngine.substitute(template: content, values: placeholders)
 
-            _ = try? backup.backupFile(at: destURL)
-            try content.write(to: destURL, atomically: true, encoding: .utf8)
             do {
-                try manifest.record(relativePath: source, sourceFile: sourceURL)
+                try backup.backupFile(at: destURL)
             } catch {
-                output.warn("Could not record manifest entry for \(source)")
+                output.warn("Could not backup \(destURL.lastPathComponent): \(error.localizedDescription)")
             }
+            try content.write(to: destURL, atomically: true, encoding: .utf8)
+            recordManifest(&manifest, relativePath: source, sourceFile: sourceURL)
             return true
         } catch {
             output.warn(error.localizedDescription)
@@ -564,24 +566,18 @@ struct Installer {
     }
 
     private mutating func mergeSettings() -> Bool {
-        guard let resourceURL = Bundle.module.url(
-            forResource: "Resources",
-            withExtension: nil
-        ) else {
-            output.warn("Resources bundle not found")
-            return false
-        }
-
-        let sourceURL = resourceURL
-            .appendingPathComponent("config")
-            .appendingPathComponent("settings.json")
+        guard let sourceURL = resolvedResourceURL("config/settings.json") else { return false }
         let destURL = environment.claudeSettings
 
         do {
             let template = try Settings.load(from: sourceURL)
             var existing = try Settings.load(from: destURL)
 
-            _ = try? backup.backupFile(at: destURL)
+            do {
+                try backup.backupFile(at: destURL)
+            } catch {
+                output.warn("Could not backup settings: \(error.localizedDescription)")
+            }
 
             // Bootstrap ownership from legacy bash manifest if no sidecar exists yet
             var ownership = SettingsOwnership(path: environment.settingsKeys)
@@ -626,51 +622,23 @@ struct Installer {
     private func postInstall(_ component: ComponentDefinition) {
         switch component.id {
         case "core.ollama":
-            startOllamaIfNeeded()
-            // Pull the embedding model
+            let ollama = OllamaService(shell: shell, environment: environment)
+            if ollama.isRunning() {
+                output.dimmed("Ollama already running")
+            } else {
+                output.dimmed("Starting Ollama...")
+                if !ollama.start() {
+                    output.warn("Could not start Ollama automatically.")
+                    output.warn("Start it manually with 'ollama serve' or open the Ollama app, then re-run.")
+                }
+            }
             output.dimmed("Pulling nomic-embed-text model...")
-            let modelResult = shell.run("/usr/bin/env", arguments: ["ollama", "list"], quiet: true)
-            if !modelResult.stdout.contains("nomic-embed-text") {
-                shell.run("/usr/bin/env", arguments: ["ollama", "pull", "nomic-embed-text"])
+            if let result = ollama.pullEmbeddingModelIfNeeded(), !result.succeeded {
+                output.warn("Could not pull nomic-embed-text: \(result.stderr)")
             }
         default:
             break
         }
-    }
-
-    /// Try multiple methods to start Ollama, handling both Homebrew and macOS app installs.
-    private func startOllamaIfNeeded() {
-        // Already running?
-        if shell.shell("curl -s --max-time 2 http://localhost:11434/api/tags").succeeded {
-            output.dimmed("Ollama already running")
-            return
-        }
-        output.dimmed("Starting Ollama...")
-
-        // Try brew services (Homebrew install)
-        let brew = Homebrew(shell: shell, environment: environment)
-        if brew.isPackageInstalled("ollama") {
-            brew.startService("ollama")
-            if waitForOllama(seconds: 10) { return }
-        }
-
-        // Try opening the macOS app (app install)
-        shell.shell("open -a Ollama")
-        if waitForOllama(seconds: 10) { return }
-
-        output.warn("Could not start Ollama automatically.")
-        output.warn("Start it manually with 'ollama serve' or open the Ollama app, then re-run.")
-    }
-
-    /// Poll the Ollama API endpoint, returning true if it responds within the timeout.
-    private func waitForOllama(seconds: Int) -> Bool {
-        for _ in 0..<seconds {
-            if shell.shell("curl -s --max-time 2 http://localhost:11434/api/tags").succeeded {
-                return true
-            }
-            Thread.sleep(forTimeInterval: 1)
-        }
-        return false
     }
 
     private func addGitignoreEntries(_ entries: [String]) -> Bool {
@@ -749,7 +717,11 @@ struct Installer {
                 }
             }
 
-            _ = try? backup.backupFile(at: hookFile)
+            do {
+                try backup.backupFile(at: hookFile)
+            } catch {
+                output.warn("Could not backup \(hookFile.lastPathComponent): \(error.localizedDescription)")
+            }
             do {
                 try content.write(to: hookFile, atomically: true, encoding: .utf8)
                 output.success("Injected \(pack.displayName) hook fragment into \(contribution.hookName)")

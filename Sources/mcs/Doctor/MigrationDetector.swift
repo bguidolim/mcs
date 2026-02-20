@@ -82,11 +82,17 @@ struct SerenaMemoryMigrationCheck: DoctorCheck, Sendable {
 
 /// Detects if uv is installed (no longer needed after Serena removal).
 struct DeprecatedUvCheck: DoctorCheck, Sendable {
+    let environment: Environment
+
+    init(environment: Environment = Environment()) {
+        self.environment = environment
+    }
+
     var name: String { "uv (deprecated)" }
     var section: String { "Migration" }
 
     func check() -> CheckResult {
-        let shell = ShellRunner(environment: Environment())
+        let shell = ShellRunner(environment: environment)
         if shell.commandExists("uv") {
             return .warn("'uv' is still installed — no longer needed (was a Serena dependency)")
         }
@@ -94,12 +100,11 @@ struct DeprecatedUvCheck: DoctorCheck, Sendable {
     }
 
     func fix() -> FixResult {
-        let env = Environment()
-        let shell = ShellRunner(environment: env)
-        let brew = Homebrew(shell: shell, environment: env)
+        let shell = ShellRunner(environment: environment)
+        let brew = Homebrew(shell: shell, environment: environment)
 
         if brew.isPackageInstalled("uv") {
-            let result = shell.run(env.brewPath, arguments: ["uninstall", "uv"])
+            let result = shell.run(environment.brewPath, arguments: ["uninstall", "uv"])
             if result.succeeded {
                 return .fixed("uninstalled uv via Homebrew")
             }
@@ -306,7 +311,7 @@ struct LegacyShellRCPathCheck: DoctorCheck, Sendable {
 
             do {
                 var backup = Backup()
-                _ = try? backup.backupFile(at: rcFile)
+                try backup.backupFile(at: rcFile)
                 try content.write(to: rcFile, atomically: true, encoding: .utf8)
                 fixedFiles.append(rcFile.lastPathComponent)
             } catch {

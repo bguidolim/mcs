@@ -125,20 +125,17 @@ struct OllamaCheck: DoctorCheck, Sendable {
     var section: String { "Dependencies" }
 
     func check() -> CheckResult {
-        let shell = ShellRunner(environment: Environment())
+        let env = Environment()
+        let shell = ShellRunner(environment: env)
+        let ollama = OllamaService(shell: shell, environment: env)
 
-        // Check installed
         guard shell.commandExists("ollama") else {
             return .fail("not installed")
         }
-        // Check running
-        let curlResult = shell.shell("curl -s --max-time 2 http://localhost:11434/api/tags")
-        guard curlResult.succeeded else {
+        guard ollama.isRunning() else {
             return .fail("installed but not running")
         }
-        // Check model
-        let modelResult = shell.run("/usr/bin/env", arguments: ["ollama", "list"])
-        guard modelResult.stdout.contains("nomic-embed-text") else {
+        guard ollama.hasEmbeddingModel() else {
             return .fail("running but nomic-embed-text model not installed")
         }
         return .pass("running with nomic-embed-text")
@@ -147,53 +144,20 @@ struct OllamaCheck: DoctorCheck, Sendable {
     func fix() -> FixResult {
         let env = Environment()
         let shell = ShellRunner(environment: env)
-        let brew = Homebrew(shell: shell, environment: env)
+        let ollama = OllamaService(shell: shell, environment: env)
 
         guard shell.commandExists("ollama") else {
             return .notFixable("Install Ollama via 'brew install ollama' or https://ollama.com/download")
         }
 
-        // Try to start if not running
-        var ollamaRunning = shell.shell("curl -s --max-time 2 http://localhost:11434/api/tags").succeeded
-        if !ollamaRunning {
-            // Try brew services (Homebrew install)
-            if brew.isPackageInstalled("ollama") {
-                brew.startService("ollama")
-                for _ in 0..<10 {
-                    if shell.shell("curl -s --max-time 2 http://localhost:11434/api/tags").succeeded {
-                        ollamaRunning = true
-                        break
-                    }
-                    Thread.sleep(forTimeInterval: 1)
-                }
-            }
-        }
-        if !ollamaRunning {
-            // Try opening the macOS app (app install)
-            shell.shell("open -a Ollama")
-            for _ in 0..<10 {
-                if shell.shell("curl -s --max-time 2 http://localhost:11434/api/tags").succeeded {
-                    ollamaRunning = true
-                    break
-                }
-                Thread.sleep(forTimeInterval: 1)
-            }
-        }
-
-        guard ollamaRunning else {
+        guard ollama.start() else {
             return .failed("Ollama did not start — try 'ollama serve' or open the Ollama app manually")
         }
 
-        // Pull model if missing
-        let modelResult = shell.run("/usr/bin/env", arguments: ["ollama", "list"])
-        if !modelResult.stdout.contains("nomic-embed-text") {
-            let pullResult = shell.run("/usr/bin/env", arguments: ["ollama", "pull", "nomic-embed-text"])
-            if !pullResult.succeeded {
-                return .failed("Could not pull nomic-embed-text: \(pullResult.stderr)")
-            }
+        if let result = ollama.pullEmbeddingModelIfNeeded(), !result.succeeded {
+            return .failed("Could not pull nomic-embed-text: \(result.stderr)")
         }
 
-        // Verify final state
         let verifyResult = check()
         if case .pass = verifyResult {
             return .fixed("Ollama running with nomic-embed-text")
@@ -454,7 +418,7 @@ struct CommandFileCheck: DoctorCheck, Sendable {
     }
 
     func fix() -> FixResult {
-        .notFixable("Run 'mcs install' to install, or 'mcs configure-project' to fill placeholders")
+        .notFixable("Run 'mcs install' to install, or 'mcs configure' to fill placeholders")
     }
 }
 

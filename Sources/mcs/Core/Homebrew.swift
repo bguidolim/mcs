@@ -14,8 +14,7 @@ struct Homebrew: Sendable {
     func isPackageInstalled(_ name: String) -> Bool {
         let result = shell.run(
             environment.brewPath,
-            arguments: ["list", name],
-            quiet: true
+            arguments: ["list", name]
         )
         return result.succeeded
     }
@@ -42,8 +41,7 @@ struct Homebrew: Sendable {
     func isServiceRunning(_ name: String) -> Bool {
         let result = shell.run(
             environment.brewPath,
-            arguments: ["services", "list"],
-            quiet: true
+            arguments: ["services", "list"]
         )
         guard result.succeeded else { return false }
         return result.stdout.contains("\(name)") &&

@@ -275,12 +275,12 @@ enum CoreComponents {
     static let gitignoreCore = ComponentDefinition(
         id: "core.gitignore",
         displayName: "Global gitignore",
-        description: "Add .claude, *.local.*, .claude/memories/, .claude/.mcs-project to global gitignore",
+        description: "Add \(GitignoreManager.coreEntries.joined(separator: ", ")) to global gitignore",
         type: .configuration,
         packIdentifier: nil,
         dependencies: [],
         isRequired: true,
-        installAction: .gitignoreEntries(entries: [Constants.FileNames.claudeDirectory, "*.local.*", "\(Constants.FileNames.claudeDirectory)/memories/", "\(Constants.FileNames.claudeDirectory)/\(Constants.FileNames.mcsProject)"])
+        installAction: .gitignoreEntries(entries: GitignoreManager.coreEntries)
     )
 
     // MARK: - Helpers

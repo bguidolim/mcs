@@ -191,7 +191,6 @@ struct DoctorRunner {
     /// Deprecated component checks (migration-era artifacts).
     private func deprecationChecks() -> [any DoctorCheck] {
         [
-            DeprecatedMCPServerCheck(name: "Serena MCP", identifier: "serena"),
             DeprecatedMCPServerCheck(name: "mcp-omnisearch", identifier: "mcp-omnisearch"),
             DeprecatedPluginCheck(name: "claude-hud plugin", pluginName: "claude-hud@claude-hud"),
             DeprecatedPluginCheck(

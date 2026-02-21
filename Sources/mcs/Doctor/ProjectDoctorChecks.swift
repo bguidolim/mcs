@@ -58,7 +58,8 @@ struct CLAUDELocalVersionCheck: DoctorCheck, Sendable {
 
 // MARK: - Project-local Serena memory migration
 
-/// Checks for <project>/.serena/memories/ that should be migrated.
+/// Checks for <project>/.serena/memories/ that should be migrated to .claude/memories/
+/// and replaced with a symlink.
 struct ProjectSerenaMemoryCheck: DoctorCheck, Sendable {
     let projectRoot: URL
 
@@ -67,51 +68,61 @@ struct ProjectSerenaMemoryCheck: DoctorCheck, Sendable {
 
     func check() -> CheckResult {
         let serenaDir = projectRoot
-            .appendingPathComponent(".serena")
-            .appendingPathComponent("memories")
+            .appendingPathComponent(Constants.Serena.directory)
+            .appendingPathComponent(Constants.Serena.memoriesDirectory)
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: serenaDir.path) else {
-            return .pass("no .serena/memories/ found")
+            return .pass("no \(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ found")
         }
+
+        // Already a symlink → already migrated
+        if let attrs = try? fm.attributesOfItem(atPath: serenaDir.path),
+           attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+            return .pass("\(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ is a symlink (migrated)")
+        }
+
         let contents: [String]
         do {
             contents = try fm.contentsOfDirectory(atPath: serenaDir.path)
         } catch {
-            return .warn(".serena/memories/ exists but could not be read: \(error.localizedDescription)")
+            return .fail("\(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ exists but could not be read")
         }
         guard !contents.isEmpty else {
-            return .pass(".serena/memories/ exists but is empty")
+            return .fail("\(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ exists as directory — should be a symlink")
         }
-        return .warn(".serena/memories/ has \(contents.count) file(s) — migrate to .claude/memories/")
+        return .fail("\(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ has \(contents.count) file(s) — migrate to \(Constants.FileNames.claudeDirectory)/\(Constants.Serena.memoriesDirectory)/")
     }
 
     func fix() -> FixResult {
         let fm = FileManager.default
         let serenaDir = projectRoot
-            .appendingPathComponent(".serena")
-            .appendingPathComponent("memories")
+            .appendingPathComponent(Constants.Serena.directory)
+            .appendingPathComponent(Constants.Serena.memoriesDirectory)
         let claudeDir = projectRoot
             .appendingPathComponent(Constants.FileNames.claudeDirectory)
-            .appendingPathComponent("memories")
+            .appendingPathComponent(Constants.Serena.memoriesDirectory)
 
         do {
             if !fm.fileExists(atPath: claudeDir.path) {
                 try fm.createDirectory(at: claudeDir, withIntermediateDirectories: true)
             }
 
-            let files = try fm.contentsOfDirectory(
-                at: serenaDir, includingPropertiesForKeys: nil
-            )
-            var migrated = 0
-            for file in files {
-                let dest = claudeDir.appendingPathComponent(file.lastPathComponent)
-                if !fm.fileExists(atPath: dest.path) {
-                    try fm.copyItem(at: file, to: dest)
-                    migrated += 1
+            // Copy files if any exist
+            if let files = try? fm.contentsOfDirectory(at: serenaDir, includingPropertiesForKeys: nil) {
+                for file in files {
+                    let dest = claudeDir.appendingPathComponent(file.lastPathComponent)
+                    if !fm.fileExists(atPath: dest.path) {
+                        try fm.copyItem(at: file, to: dest)
+                    }
                 }
             }
-            return .fixed("migrated \(migrated) file(s) to .claude/memories/")
+
+            // Replace directory with symlink
+            try fm.removeItem(at: serenaDir)
+            try fm.createSymbolicLink(at: serenaDir, withDestinationURL: claudeDir)
+
+            return .fixed("migrated files and created symlink")
         } catch {
             return .failed(error.localizedDescription)
         }

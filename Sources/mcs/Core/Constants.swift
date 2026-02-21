@@ -67,6 +67,19 @@ enum Constants {
         static let eventUserPromptSubmit = "UserPromptSubmit"
     }
 
+    // MARK: - Serena
+
+    enum Serena {
+        /// The Serena configuration directory name.
+        static let directory = ".serena"
+
+        /// The memories subdirectory name.
+        static let memoriesDirectory = "memories"
+
+        /// The MCP server identifier in claude.json.
+        static let mcpServerName = "serena"
+    }
+
     // MARK: - JSON Keys
 
     enum JSONKeys {

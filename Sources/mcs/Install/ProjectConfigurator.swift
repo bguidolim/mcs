@@ -79,8 +79,8 @@ struct ProjectConfigurator {
             output.info("No template sections to add — skipping CLAUDE.local.md")
         }
 
-        // Memory migration from Serena
-        migrateSerenaMemories(at: projectPath)
+        // Ensure Serena memories symlink
+        ensureSerenaMemoriesSymlink(at: projectPath)
 
         // Ensure .claude entries exist in user's global gitignore
         try ensureGitignoreEntries()
@@ -216,43 +216,92 @@ struct ProjectConfigurator {
         output.success("Generated CLAUDE.local.md")
     }
 
-    // MARK: - Memory Migration
+    // MARK: - Serena Memories Symlink
 
-    private func migrateSerenaMemories(at projectPath: URL) {
+    /// Ensures `.serena/memories` is a symlink to `.claude/memories`.
+    /// - If Serena MCP is not installed → skip.
+    /// - If `.serena/memories` is already a symlink → skip.
+    /// - If `.serena/memories` exists as real directory → copy files, delete, create symlink.
+    /// - If `.serena/memories` doesn't exist → create `.serena/` if needed, create symlink.
+    private func ensureSerenaMemoriesSymlink(at projectPath: URL) {
+        guard isSerenaMCPInstalled() else { return }
+
         let fm = FileManager.default
-        let serenaMemories = projectPath.appendingPathComponent(".serena")
-            .appendingPathComponent("memories")
-        let newMemories = projectPath.appendingPathComponent(Constants.FileNames.claudeDirectory)
-            .appendingPathComponent("memories")
+        let serenaMemories = projectPath
+            .appendingPathComponent(Constants.Serena.directory)
+            .appendingPathComponent(Constants.Serena.memoriesDirectory)
+        let claudeMemories = projectPath
+            .appendingPathComponent(Constants.FileNames.claudeDirectory)
+            .appendingPathComponent(Constants.Serena.memoriesDirectory)
 
-        guard fm.fileExists(atPath: serenaMemories.path) else { return }
-
-        output.info("Found .serena/memories/ -- migrating to .claude/memories/")
-
-        do {
-            if !fm.fileExists(atPath: newMemories.path) {
-                try fm.createDirectory(at: newMemories, withIntermediateDirectories: true)
-            }
-
-            let memoryFiles = try fm.contentsOfDirectory(
-                at: serenaMemories,
-                includingPropertiesForKeys: nil
-            )
-
-            var migrated = 0
-            for file in memoryFiles {
-                let destFile = newMemories.appendingPathComponent(file.lastPathComponent)
-                if !fm.fileExists(atPath: destFile.path) {
-                    try fm.copyItem(at: file, to: destFile)
-                    migrated += 1
-                }
-            }
-
-            output.success("Migrated \(migrated) memory file(s) to .claude/memories/")
-            output.info("Original files preserved in .serena/memories/ -- delete manually after verification")
-        } catch {
-            output.warn("Memory migration failed: \(error.localizedDescription)")
+        // Already a symlink → done
+        if let attrs = try? fm.attributesOfItem(atPath: serenaMemories.path),
+           attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+            return
         }
+
+        // Ensure .claude/memories/ exists
+        if !fm.fileExists(atPath: claudeMemories.path) {
+            do {
+                try fm.createDirectory(at: claudeMemories, withIntermediateDirectories: true)
+            } catch {
+                output.warn("Could not create \(Constants.FileNames.claudeDirectory)/\(Constants.Serena.memoriesDirectory)/: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        // If .serena/memories/ exists as real directory, migrate first
+        if fm.fileExists(atPath: serenaMemories.path) {
+            output.info("Found \(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ — migrating to \(Constants.FileNames.claudeDirectory)/\(Constants.Serena.memoriesDirectory)/")
+            do {
+                let files = try fm.contentsOfDirectory(at: serenaMemories, includingPropertiesForKeys: nil)
+                var migrated = 0
+                for file in files {
+                    let dest = claudeMemories.appendingPathComponent(file.lastPathComponent)
+                    if !fm.fileExists(atPath: dest.path) {
+                        try fm.copyItem(at: file, to: dest)
+                        migrated += 1
+                    }
+                }
+                if migrated > 0 {
+                    output.success("Migrated \(migrated) memory file(s)")
+                }
+                try fm.removeItem(at: serenaMemories)
+            } catch {
+                output.warn("Memory migration failed: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        // Create .serena/ directory if needed
+        let serenaDir = projectPath.appendingPathComponent(Constants.Serena.directory)
+        if !fm.fileExists(atPath: serenaDir.path) {
+            do {
+                try fm.createDirectory(at: serenaDir, withIntermediateDirectories: true)
+            } catch {
+                output.warn("Could not create \(Constants.Serena.directory)/: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        // Create symlink
+        do {
+            try fm.createSymbolicLink(at: serenaMemories, withDestinationURL: claudeMemories)
+            output.success("Created symlink \(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory) → \(Constants.FileNames.claudeDirectory)/\(Constants.Serena.memoriesDirectory)")
+        } catch {
+            output.warn("Could not create symlink: \(error.localizedDescription)")
+        }
+    }
+
+    private func isSerenaMCPInstalled() -> Bool {
+        let claudeJSON = environment.claudeJSON
+        guard let data = try? Data(contentsOf: claudeJSON),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mcpServers = json[Constants.JSONKeys.mcpServers] as? [String: Any]
+        else {
+            return false
+        }
+        return mcpServers[Constants.Serena.mcpServerName] != nil
     }
 
     // MARK: - Gitignore

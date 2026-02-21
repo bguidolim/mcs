@@ -5,9 +5,9 @@ enum CoreComponents {
     /// All core component definitions.
     static let all: [ComponentDefinition] = [
         // Dependencies
-        homebrew, node, gh, jq, ollama, claudeCode,
+        homebrew, node, gh, jq, ollama, uv, claudeCode,
         // MCP Servers
-        docsMCPServer,
+        docsMCPServer, serena,
         // Plugins
         pluginExplanatoryOutput, pluginPRReview, pluginRalphLoop, pluginClaudeMD,
         // Skills
@@ -83,6 +83,17 @@ enum CoreComponents {
         supplementaryChecks: [OllamaRuntimeCheck()]
     )
 
+    static let uv = ComponentDefinition(
+        id: "core.uv",
+        displayName: "uv",
+        description: "Python package runner (for Serena MCP server)",
+        type: .brewPackage,
+        packIdentifier: nil,
+        dependencies: ["core.homebrew"],
+        isRequired: false,
+        installAction: .brewInstall(package: "uv")
+    )
+
     static let claudeCode = ComponentDefinition(
         id: "core.claude-code",
         displayName: "Claude Code",
@@ -116,6 +127,26 @@ enum CoreComponents {
                 "OPENAI_API_BASE": Constants.Ollama.apiBase,
                 "DOCS_MCP_EMBEDDING_MODEL": Constants.Ollama.embeddingModelID,
             ]
+        ))
+    )
+
+    static let serena = ComponentDefinition(
+        id: "core.serena",
+        displayName: "Serena",
+        description: "Semantic code navigation, symbol editing, and project context via LSP",
+        type: .mcpServer,
+        packIdentifier: nil,
+        dependencies: ["core.uv"],
+        isRequired: false,
+        installAction: .mcpServer(MCPServerConfig(
+            name: Constants.Serena.mcpServerName,
+            command: "uvx",
+            args: [
+                "--from", "git+https://github.com/oraios/serena",
+                "serena", "start-mcp-server",
+                "--context=claude-code", "--project-from-cwd",
+            ],
+            env: [:]
         ))
     )
 

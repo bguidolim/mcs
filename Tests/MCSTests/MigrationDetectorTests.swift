@@ -417,8 +417,32 @@ struct MigrationDetectorTests {
         }
     }
 
-    @Test("Warn when .serena/memories/ has files")
-    func serenaMemoriesWarn() throws {
+    @Test("Pass when .serena/memories/ is already a symlink")
+    func serenaMemoriesPassWhenSymlink() throws {
+        let home = try makeTmpHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let env = Environment(home: home)
+        let claudeDir = env.memoriesDirectory
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let serenaDir = home.appendingPathComponent(".serena")
+        try FileManager.default.createDirectory(at: serenaDir, withIntermediateDirectories: true)
+        let serenaMemories = serenaDir.appendingPathComponent("memories")
+        try FileManager.default.createSymbolicLink(at: serenaMemories, withDestinationURL: claudeDir)
+
+        let check = SerenaMemoryMigrationCheck(environment: env)
+        let result = check.check()
+
+        if case .pass(let msg) = result {
+            #expect(msg.contains("symlink"))
+        } else {
+            Issue.record("Expected .pass, got \(result)")
+        }
+    }
+
+    @Test("Fail when .serena/memories/ has files")
+    func serenaMemoriesFail() throws {
         let home = try makeTmpHome()
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -433,15 +457,15 @@ struct MigrationDetectorTests {
         let check = SerenaMemoryMigrationCheck(environment: env)
         let result = check.check()
 
-        if case .warn(let msg) = result {
+        if case .fail(let msg) = result {
             #expect(msg.contains("1 file(s)"))
         } else {
-            Issue.record("Expected .warn, got \(result)")
+            Issue.record("Expected .fail, got \(result)")
         }
     }
 
-    @Test("Pass when .serena/memories/ exists but is empty")
-    func serenaMemoriesEmptyPass() throws {
+    @Test("Fail when .serena/memories/ exists as empty directory (should be symlink)")
+    func serenaMemoriesEmptyDirFail() throws {
         let home = try makeTmpHome()
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -452,14 +476,36 @@ struct MigrationDetectorTests {
         let check = SerenaMemoryMigrationCheck(environment: env)
         let result = check.check()
 
-        if case .pass = result {
-            // Expected — empty directory treated as no files
+        if case .fail(let msg) = result {
+            #expect(msg.contains("should be a symlink"))
         } else {
-            Issue.record("Expected .pass, got \(result)")
+            Issue.record("Expected .fail, got \(result)")
         }
     }
 
-    @Test("Fix copies files from .serena/memories/ to .claude/memories/")
+    @Test("Fix creates symlink for empty .serena/memories/ directory")
+    func serenaMemoriesEmptyDirFix() throws {
+        let home = try makeTmpHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let serenaDir = home.appendingPathComponent(".serena/memories")
+        try FileManager.default.createDirectory(at: serenaDir, withIntermediateDirectories: true)
+
+        let env = Environment(home: home)
+        let check = SerenaMemoryMigrationCheck(environment: env)
+        let result = check.fix()
+
+        if case .fixed(let msg) = result {
+            #expect(msg.contains("0 file(s)"))
+            // Verify symlink was created
+            let attrs = try FileManager.default.attributesOfItem(atPath: serenaDir.path)
+            #expect(attrs[.type] as? FileAttributeType == .typeSymbolicLink)
+        } else {
+            Issue.record("Expected .fixed, got \(result)")
+        }
+    }
+
+    @Test("Fix copies files and creates symlink")
     func serenaMemoriesFix() throws {
         let home = try makeTmpHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -488,12 +534,15 @@ struct MigrationDetectorTests {
             #expect(FileManager.default.fileExists(
                 atPath: claudeDir.appendingPathComponent("decision_arch.md").path
             ))
+            // Verify symlink was created
+            let attrs = try FileManager.default.attributesOfItem(atPath: serenaDir.path)
+            #expect(attrs[.type] as? FileAttributeType == .typeSymbolicLink)
         } else {
             Issue.record("Expected .fixed, got \(result)")
         }
     }
 
-    @Test("Fix does not overwrite existing files in destination")
+    @Test("Fix does not overwrite existing files and creates symlink")
     func serenaMemoriesFixNoOverwrite() throws {
         let home = try makeTmpHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -524,6 +573,9 @@ struct MigrationDetectorTests {
                 encoding: .utf8
             )
             #expect(existing == "new content already here")
+            // Verify symlink was created
+            let attrs = try FileManager.default.attributesOfItem(atPath: serenaDir.path)
+            #expect(attrs[.type] as? FileAttributeType == .typeSymbolicLink)
         } else {
             Issue.record("Expected .fixed, got \(result)")
         }

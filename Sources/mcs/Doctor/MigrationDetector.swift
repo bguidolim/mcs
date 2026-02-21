@@ -9,7 +9,6 @@ enum MigrationDetector {
             LegacyCLIWrapperCheck(),
             LegacyShellRCPathCheck(),
             SerenaMemoryMigrationCheck(),
-            DeprecatedUvCheck(),
         ]
     }
 }
@@ -17,6 +16,8 @@ enum MigrationDetector {
 // MARK: - Serena memory migration
 
 /// Detects .serena/memories/ files that should be migrated to .claude/memories/.
+/// After migration, replaces the directory with a symlink so future Serena writes
+/// land in .claude/memories/ automatically.
 struct SerenaMemoryMigrationCheck: DoctorCheck, Sendable {
     let environment: Environment
 
@@ -28,34 +29,42 @@ struct SerenaMemoryMigrationCheck: DoctorCheck, Sendable {
     var section: String { "Migration" }
 
     func check() -> CheckResult {
-        let serenaDir = environment.homeDirectory.appendingPathComponent(".serena/memories")
+        let serenaDir = environment.homeDirectory
+            .appendingPathComponent(Constants.Serena.directory)
+            .appendingPathComponent(Constants.Serena.memoriesDirectory)
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: serenaDir.path) else {
-            return .pass("no .serena/memories/ found (good)")
+            return .pass("no \(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ found")
         }
 
-        guard let contents = try? fm.contentsOfDirectory(atPath: serenaDir.path),
-              !contents.isEmpty
-        else {
-            return .pass("no .serena/memories/ found (good)")
+        // Already a symlink → already migrated
+        if let attrs = try? fm.attributesOfItem(atPath: serenaDir.path),
+           attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+            return .pass("\(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ is a symlink (migrated)")
         }
 
-        return .warn(
-            ".serena/memories/ has \(contents.count) file(s) — migrate to .claude/memories/"
+        let contents = (try? fm.contentsOfDirectory(atPath: serenaDir.path)) ?? []
+
+        if contents.isEmpty {
+            return .fail(
+                "\(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ exists as directory — should be a symlink"
+            )
+        }
+
+        return .fail(
+            "\(Constants.Serena.directory)/\(Constants.Serena.memoriesDirectory)/ has \(contents.count) file(s) — migrate to \(Constants.FileNames.claudeDirectory)/\(Constants.Serena.memoriesDirectory)/"
         )
     }
 
     func fix() -> FixResult {
         let fm = FileManager.default
-        let serenaDir = environment.homeDirectory.appendingPathComponent(".serena/memories")
+        let serenaDir = environment.homeDirectory
+            .appendingPathComponent(Constants.Serena.directory)
+            .appendingPathComponent(Constants.Serena.memoriesDirectory)
         let claudeDir = environment.memoriesDirectory
 
-        guard let contents = try? fm.contentsOfDirectory(atPath: serenaDir.path),
-              !contents.isEmpty
-        else {
-            return .fixed("nothing to migrate")
-        }
+        let contents = (try? fm.contentsOfDirectory(atPath: serenaDir.path)) ?? []
 
         do {
             if !fm.fileExists(atPath: claudeDir.path) {
@@ -71,46 +80,15 @@ struct SerenaMemoryMigrationCheck: DoctorCheck, Sendable {
                     migrated += 1
                 }
             }
-            return .fixed("migrated \(migrated) file(s) to .claude/memories/")
+
+            // Replace real directory with symlink
+            try fm.removeItem(at: serenaDir)
+            try fm.createSymbolicLink(at: serenaDir, withDestinationURL: claudeDir)
+
+            return .fixed("migrated \(migrated) file(s) and created symlink")
         } catch {
             return .failed(error.localizedDescription)
         }
-    }
-}
-
-// MARK: - Deprecated uv dependency
-
-/// Detects if uv is installed (no longer needed after Serena removal).
-struct DeprecatedUvCheck: DoctorCheck, Sendable {
-    let environment: Environment
-
-    init(environment: Environment = Environment()) {
-        self.environment = environment
-    }
-
-    var name: String { "uv (deprecated)" }
-    var section: String { "Migration" }
-
-    func check() -> CheckResult {
-        let shell = ShellRunner(environment: environment)
-        if shell.commandExists("uv") {
-            return .warn("'uv' is still installed — no longer needed (was a Serena dependency)")
-        }
-        return .pass("not present (good)")
-    }
-
-    func fix() -> FixResult {
-        let shell = ShellRunner(environment: environment)
-        let brew = Homebrew(shell: shell, environment: environment)
-
-        if brew.isPackageInstalled("uv") {
-            let result = shell.run(environment.brewPath, arguments: ["uninstall", "uv"])
-            if result.succeeded {
-                return .fixed("uninstalled uv via Homebrew")
-            }
-            return .failed(result.stderr)
-        }
-        return .notFixable("uv was not installed via Homebrew — remove it manually")
     }
 }
 

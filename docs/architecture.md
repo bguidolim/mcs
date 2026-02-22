@@ -52,6 +52,40 @@ Tracks what mcs has installed using three data structures:
 
 The manifest is the system's source of truth for "what is installed." Doctor checks read it to determine scope; the installer writes to it after each successful component installation.
 
+### Project State (`Core/ProjectState.swift`)
+
+Per-project state stored at `<project>/.claude/.mcs-project`. Tracks:
+
+- **Configured packs**: which packs have had their templates applied to this project's `CLAUDE.local.md`
+- **mcs version**: the version that last wrote the file
+- **Timestamp**: when the file was last updated
+
+Written by `mcs configure` after templates are composed and the project is set up.
+
+### Global vs. Project State
+
+The manifest and project state files serve different scopes:
+
+| | `~/.claude/.mcs-manifest` | `<project>/.claude/.mcs-project` |
+|---|---|---|
+| **Scope** | Machine-wide | Single project |
+| **Written by** | `mcs install` | `mcs configure` |
+| **Tracks** | Globally installed components, pack IDs, file integrity hashes | Which packs are configured for this project |
+
+Pack identifiers appear in both files because installation and configuration are independent operations:
+
+- **Installed but not configured**: `mcs install --pack ios` registers MCP servers and installs brew packages globally, but no project has iOS templates yet. Doctor should still verify these global tools are healthy.
+- **Configured but not installed**: a teammate clones a repo that already has `.mcs-project` listing `ios`, but hasn't run `mcs install`. Doctor inside the project should flag missing components.
+
+The manifest tracks packs globally because the resources it manages (MCP servers via `claude mcp add`, hook files in `~/.claude/hooks/`, settings in `~/.claude/settings.json`, brew packages) are machine-level artifacts, not project-local files.
+
+Doctor resolves which packs to check using a priority chain:
+
+1. `--pack` CLI flag (explicit override)
+2. `.mcs-project` configured packs (authoritative per-project source)
+3. `CLAUDE.local.md` section markers (legacy inference for projects predating `.mcs-project`)
+4. Manifest installed packs (global fallback when outside any project)
+
 ### Backup (`Core/Backup.swift`)
 
 Every file write goes through the backup system. Before overwriting a file, a timestamped copy is created (e.g., `settings.json.backup.20260222_143000`). The `mcs cleanup` command discovers and deletes these backups.

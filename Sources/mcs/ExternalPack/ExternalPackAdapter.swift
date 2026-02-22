@@ -6,6 +6,23 @@ import Foundation
 struct ExternalPackAdapter: TechPack {
     let manifest: ExternalPackManifest
     let packPath: URL
+    let shell: ShellRunner
+    let output: CLIOutput
+    let scriptRunner: ScriptRunner
+
+    init(
+        manifest: ExternalPackManifest,
+        packPath: URL,
+        shell: ShellRunner = ShellRunner(environment: Environment()),
+        output: CLIOutput = CLIOutput(),
+        scriptRunner: ScriptRunner? = nil
+    ) {
+        self.manifest = manifest
+        self.packPath = packPath
+        self.shell = shell
+        self.output = output
+        self.scriptRunner = scriptRunner ?? ScriptRunner(shell: shell, output: output)
+    }
 
     // MARK: - TechPack Identity
 
@@ -26,32 +43,40 @@ struct ExternalPackAdapter: TechPack {
 
     var templates: [TemplateContribution] {
         guard let externalTemplates = manifest.templates else { return [] }
-        return externalTemplates.compactMap { ext in
-            guard let content = try? readPackFile(ext.contentFile) else {
-                return nil
+        var result: [TemplateContribution] = []
+        for ext in externalTemplates {
+            do {
+                let content = try readPackFile(ext.contentFile)
+                result.append(TemplateContribution(
+                    sectionIdentifier: ext.sectionIdentifier,
+                    templateContent: content,
+                    placeholders: ext.placeholders ?? []
+                ))
+            } catch {
+                output.warn("Skipping template '\(ext.sectionIdentifier)': \(error.localizedDescription)")
             }
-            return TemplateContribution(
-                sectionIdentifier: ext.sectionIdentifier,
-                templateContent: content,
-                placeholders: ext.placeholders ?? []
-            )
         }
+        return result
     }
 
     // MARK: - Hook Contributions
 
     var hookContributions: [HookContribution] {
         guard let externalHooks = manifest.hookContributions else { return [] }
-        return externalHooks.compactMap { ext in
-            guard let fragment = try? readPackFile(ext.fragmentFile) else {
-                return nil
+        var result: [HookContribution] = []
+        for ext in externalHooks {
+            do {
+                let fragment = try readPackFile(ext.fragmentFile)
+                result.append(HookContribution(
+                    hookName: ext.hookName,
+                    scriptFragment: fragment,
+                    position: ext.position?.hookPosition ?? .after
+                ))
+            } catch {
+                output.warn("Skipping hook '\(ext.hookName)': \(error.localizedDescription)")
             }
-            return HookContribution(
-                hookName: ext.hookName,
-                scriptFragment: fragment,
-                position: ext.position?.hookPosition ?? .after
-            )
         }
+        return result
     }
 
     // MARK: - Gitignore Entries
@@ -64,12 +89,10 @@ struct ExternalPackAdapter: TechPack {
 
     var supplementaryDoctorChecks: [any DoctorCheck] {
         guard let externalChecks = manifest.supplementaryDoctorChecks else { return [] }
-        let shell = ShellRunner(environment: Environment())
-        let output = CLIOutput()
-        let scriptRunner = ScriptRunner(shell: shell, output: output)
+        let projectRoot = ProjectDetector.findProjectRoot()
 
         return externalChecks.compactMap { ext in
-            convertDoctorCheck(ext, scriptRunner: scriptRunner)
+            convertDoctorCheck(ext, scriptRunner: scriptRunner, projectRoot: projectRoot)
         }
     }
 
@@ -81,8 +104,6 @@ struct ExternalPackAdapter: TechPack {
 
     func templateValues(context: ProjectConfigContext) -> [String: String] {
         guard let prompts = manifest.prompts, !prompts.isEmpty else { return [:] }
-        let shell = ShellRunner(environment: Environment())
-        let scriptRunner = ScriptRunner(shell: shell, output: context.output)
         let executor = PromptExecutor(output: context.output, scriptRunner: scriptRunner)
 
         do {
@@ -102,8 +123,6 @@ struct ExternalPackAdapter: TechPack {
     func configureProject(at path: URL, context: ProjectConfigContext) throws {
         guard let configure = manifest.configureProject else { return }
 
-        let shell = ShellRunner(environment: Environment())
-        let scriptRunner = ScriptRunner(shell: shell, output: context.output)
         let scriptURL = packPath.appendingPathComponent(configure.script)
 
         // Build env vars from resolved template values
@@ -122,25 +141,25 @@ struct ExternalPackAdapter: TechPack {
         )
 
         if !result.succeeded {
-            context.output.warn("Configure script failed: \(result.stderr)")
+            throw PackAdapterError.configureScriptFailed(result.stderr)
         }
     }
 
     // MARK: - File Reading
 
-    /// Read a file from the pack checkout directory. Validates path containment.
+    /// Read a file from the pack checkout directory. Validates path containment
+    /// by resolving symlinks before comparing paths.
     private func readPackFile(_ relativePath: String) throws -> String {
         let fileURL = packPath.appendingPathComponent(relativePath)
-        let resolved = fileURL.standardizedFileURL.path
-        let packPrefix = packPath.standardizedFileURL.path.hasSuffix("/")
-            ? packPath.standardizedFileURL.path
-            : packPath.standardizedFileURL.path + "/"
+        let resolved = fileURL.resolvingSymlinksInPath().path
+        let packBase = packPath.resolvingSymlinksInPath().path
+        let packPrefix = packBase.hasSuffix("/") ? packBase : packBase + "/"
 
-        guard resolved.hasPrefix(packPrefix) || resolved == packPath.standardizedFileURL.path else {
+        guard resolved.hasPrefix(packPrefix) || resolved == packBase else {
             throw PackAdapterError.pathTraversal(relativePath)
         }
 
-        return try String(contentsOf: fileURL, encoding: .utf8)
+        return try String(contentsOf: URL(fileURLWithPath: resolved), encoding: .utf8)
     }
 
     // MARK: - Component Conversion
@@ -150,10 +169,8 @@ struct ExternalPackAdapter: TechPack {
 
         let supplementary: [any DoctorCheck]
         if let checks = ext.doctorChecks {
-            let shell = ShellRunner(environment: Environment())
-            let output = CLIOutput()
-            let scriptRunner = ScriptRunner(shell: shell, output: output)
-            supplementary = checks.compactMap { convertDoctorCheck($0, scriptRunner: scriptRunner) }
+            let projectRoot = ProjectDetector.findProjectRoot()
+            supplementary = checks.compactMap { convertDoctorCheck($0, scriptRunner: scriptRunner, projectRoot: projectRoot) }
         } else {
             supplementary = []
         }
@@ -192,17 +209,16 @@ struct ExternalPackAdapter: TechPack {
             return .settingsMerge
 
         case .settingsFile:
-            // settingsFile is a future feature — for now treat as settingsMerge
+            // TODO: settingsFile is a future feature — for now treat as settingsMerge
             return .settingsMerge
 
         case .copyPackFile(let config):
             let sourceURL = packPath.appendingPathComponent(config.source)
             let fileType: CopyFileType
-            switch config.fileType ?? .generic {
-            case .skill: fileType = .skill
-            case .hook: fileType = .hook
-            case .command: fileType = .command
-            case .generic: fileType = .generic
+            if let extType = config.fileType {
+                fileType = CopyFileType(rawValue: extType.rawValue) ?? .generic
+            } else {
+                fileType = .generic
             }
             return .copyPackFile(
                 source: sourceURL,
@@ -216,10 +232,10 @@ struct ExternalPackAdapter: TechPack {
 
     private func convertDoctorCheck(
         _ ext: ExternalDoctorCheckDefinition,
-        scriptRunner: ScriptRunner
+        scriptRunner: ScriptRunner,
+        projectRoot: URL?
     ) -> (any DoctorCheck)? {
-        let projectRoot = ProjectDetector.findProjectRoot()
-        return ExternalDoctorCheckFactory.makeCheck(
+        ExternalDoctorCheckFactory.makeCheck(
             from: ext,
             packPath: packPath,
             projectRoot: projectRoot,
@@ -232,14 +248,14 @@ struct ExternalPackAdapter: TechPack {
 
 enum PackAdapterError: Error, Equatable, Sendable, LocalizedError {
     case pathTraversal(String)
-    case fileNotFound(String)
+    case configureScriptFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .pathTraversal(let path):
             return "Path traversal attempt: '\(path)' escapes pack directory"
-        case .fileNotFound(let path):
-            return "File not found in pack: '\(path)'"
+        case .configureScriptFailed(let message):
+            return "Configure script failed: \(message)"
         }
     }
 }

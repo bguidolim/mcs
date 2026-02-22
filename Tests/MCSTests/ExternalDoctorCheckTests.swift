@@ -29,7 +29,8 @@ struct ExternalDoctorCheckTests {
             section: "Dependencies",
             command: "/bin/ls",
             args: [],
-            fixCommand: nil
+            fixCommand: nil,
+            scriptRunner: nil
         )
         let result = check.check()
         if case .pass = result {
@@ -46,7 +47,8 @@ struct ExternalDoctorCheckTests {
             section: "Dependencies",
             command: "nonexistent-tool-xyz-12345",
             args: [],
-            fixCommand: nil
+            fixCommand: nil,
+            scriptRunner: nil
         )
         let result = check.check()
         if case .fail = result {
@@ -63,7 +65,8 @@ struct ExternalDoctorCheckTests {
             section: "Dependencies",
             command: "nonexistent",
             args: [],
-            fixCommand: nil
+            fixCommand: nil,
+            scriptRunner: nil
         )
         let result = check.fix()
         if case .notFixable = result {

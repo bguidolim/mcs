@@ -41,7 +41,7 @@ struct ExternalPackLoader: Sendable {
         do {
             registryData = try registry.load()
         } catch {
-            output.warn("Could not read pack registry: \(error.localizedDescription)")
+            output.error("Could not read pack registry at '\(registry.path.path)': \(error.localizedDescription)\n  Fix: rm '\(registry.path.path)' and re-add packs")
             return []
         }
 
@@ -76,7 +76,7 @@ struct ExternalPackLoader: Sendable {
     /// Validate a pack directory contains a valid techpack.yaml.
     /// Returns the parsed and validated manifest.
     func validate(at path: URL) throws -> ExternalPackManifest {
-        let manifestURL = path.appendingPathComponent("techpack.yaml")
+        let manifestURL = path.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: manifestURL.path) else {
@@ -142,10 +142,33 @@ struct ExternalPackLoader: Sendable {
         }
 
         let manifest = try validate(at: packPath)
-        return ExternalPackAdapter(manifest: manifest, packPath: packPath)
+
+        // Verify trusted scripts haven't been tampered with
+        let trustManager = PackTrustManager(output: CLIOutput())
+        let modified = trustManager.verifyTrust(
+            trustedHashes: entry.trustedScriptHashes,
+            packPath: packPath
+        )
+        if !modified.isEmpty {
+            throw LoadError.invalidManifest(
+                identifier: entry.identifier,
+                reason: "Trusted scripts modified: \(modified.joined(separator: ", ")). Run 'mcs pack update \(entry.identifier)' to re-trust."
+            )
+        }
+
+        let shell = ShellRunner(environment: environment)
+        let output = CLIOutput()
+        return ExternalPackAdapter(
+            manifest: manifest,
+            packPath: packPath,
+            shell: shell,
+            output: output
+        )
     }
 
     /// Find files referenced in the manifest that don't exist on disk.
+    /// Note: Does not check doctor check script files (shellScript command, fixScript).
+    /// Those are validated at runtime when the check executes.
     private func findMissingReferencedFiles(
         in manifest: ExternalPackManifest,
         packPath: URL
@@ -204,8 +227,10 @@ enum SemVer {
     /// Check if `current` satisfies `>= required`.
     /// Both must be in `major.minor.patch` format.
     static func isCompatible(current: String, required: String) -> Bool {
-        let currentParts = parse(current)
-        let requiredParts = parse(required)
+        guard let currentParts = parse(current),
+              let requiredParts = parse(required) else {
+            return false  // Unparseable versions are incompatible
+        }
 
         if currentParts.major != requiredParts.major {
             return currentParts.major > requiredParts.major
@@ -217,13 +242,10 @@ enum SemVer {
     }
 
     /// Parse a version string into (major, minor, patch) components.
-    /// Returns (0, 0, 0) for invalid input.
-    static func parse(_ version: String) -> (major: Int, minor: Int, patch: Int) {
+    /// Returns nil if the string does not contain at least three numeric components.
+    static func parse(_ version: String) -> (major: Int, minor: Int, patch: Int)? {
         let parts = version.split(separator: ".").compactMap { Int($0) }
-        return (
-            major: parts.count > 0 ? parts[0] : 0,
-            minor: parts.count > 1 ? parts[1] : 0,
-            patch: parts.count > 2 ? parts[2] : 0
-        )
+        guard parts.count >= 3 else { return nil }
+        return (major: parts[0], minor: parts[1], patch: parts[2])
     }
 }

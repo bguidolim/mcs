@@ -39,18 +39,7 @@ extension ComponentDefinition {
             )
 
         case .copyPackFile(_, let destination, let fileType):
-            let env = Environment()
-            let destURL: URL
-            switch fileType {
-            case .skill:
-                destURL = env.skillsDirectory.appendingPathComponent(destination)
-            case .hook:
-                destURL = env.hooksDirectory.appendingPathComponent(destination)
-            case .command:
-                destURL = env.commandsDirectory.appendingPathComponent(destination)
-            case .generic:
-                destURL = env.claudeDirectory.appendingPathComponent(destination)
-            }
+            let destURL = fileType.destinationURL(in: Environment(), destination: destination)
             return FileExistsCheck(
                 name: displayName,
                 section: type.doctorSection,

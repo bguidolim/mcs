@@ -148,16 +148,17 @@ struct ComponentExecutor {
         manifest: inout Manifest
     ) -> Bool {
         let fm = FileManager.default
-        let destURL: URL
-        switch fileType {
-        case .skill:
-            destURL = environment.skillsDirectory.appendingPathComponent(destination)
-        case .hook:
-            destURL = environment.hooksDirectory.appendingPathComponent(destination)
-        case .command:
-            destURL = environment.commandsDirectory.appendingPathComponent(destination)
-        case .generic:
-            destURL = environment.claudeDirectory.appendingPathComponent(destination)
+        let destURL = fileType.destinationURL(in: environment, destination: destination)
+
+        // Validate destination doesn't escape expected directory via symlinks
+        let resolvedDest = destURL.resolvingSymlinksInPath()
+        let expectedParent = fileType.baseDirectory(in: environment)
+        let parentPath = expectedParent.resolvingSymlinksInPath().path
+        let destPath = resolvedDest.path
+        let parentPrefix = parentPath.hasSuffix("/") ? parentPath : parentPath + "/"
+        guard destPath.hasPrefix(parentPrefix) || destPath == parentPath else {
+            output.warn("Destination '\(destination)' escapes expected directory")
+            return false
         }
 
         guard fm.fileExists(atPath: source.path) else {

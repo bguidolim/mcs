@@ -112,6 +112,46 @@ extension ExternalPackManifest {
                 seenKeys.insert(prompt.key)
             }
         }
+
+        // Doctor check field validation
+        if let checks = supplementaryDoctorChecks {
+            for check in checks {
+                try validateDoctorCheck(check)
+            }
+        }
+        if let components {
+            for component in components {
+                if let checks = component.doctorChecks {
+                    for check in checks {
+                        try validateDoctorCheck(check)
+                    }
+                }
+            }
+        }
+    }
+
+    private func validateDoctorCheck(_ check: ExternalDoctorCheckDefinition) throws {
+        switch check.type {
+        case .commandExists:
+            guard let command = check.command, !command.isEmpty else {
+                throw ManifestError.invalidDoctorCheck(name: check.name, reason: "commandExists requires non-empty 'command'")
+            }
+        case .fileExists, .directoryExists:
+            guard let path = check.path, !path.isEmpty else {
+                throw ManifestError.invalidDoctorCheck(name: check.name, reason: "\(check.type.rawValue) requires non-empty 'path'")
+            }
+        case .fileContains, .fileNotContains:
+            guard let path = check.path, !path.isEmpty else {
+                throw ManifestError.invalidDoctorCheck(name: check.name, reason: "\(check.type.rawValue) requires non-empty 'path'")
+            }
+            guard let pattern = check.pattern, !pattern.isEmpty else {
+                throw ManifestError.invalidDoctorCheck(name: check.name, reason: "\(check.type.rawValue) requires non-empty 'pattern'")
+            }
+        case .shellScript:
+            guard let command = check.command, !command.isEmpty else {
+                throw ManifestError.invalidDoctorCheck(name: check.name, reason: "shellScript requires non-empty 'command'")
+            }
+        }
     }
 }
 
@@ -126,6 +166,7 @@ enum ManifestError: Error, Equatable, Sendable, LocalizedError {
     case duplicateComponentID(String)
     case templateSectionMismatch(sectionIdentifier: String, packIdentifier: String)
     case duplicatePromptKey(String)
+    case invalidDoctorCheck(name: String, reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -143,6 +184,8 @@ enum ManifestError: Error, Equatable, Sendable, LocalizedError {
             return "Template section '\(section)' does not match pack identifier '\(pack)'"
         case .duplicatePromptKey(let key):
             return "Duplicate prompt key: '\(key)'"
+        case .invalidDoctorCheck(let name, let reason):
+            return "Invalid doctor check '\(name)': \(reason)"
         }
     }
 }

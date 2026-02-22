@@ -9,6 +9,7 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
     let command: String
     let args: [String]
     let fixCommand: String?
+    let scriptRunner: ScriptRunner?
 
     func check() -> CheckResult {
         let shell = ShellRunner(environment: Environment())
@@ -27,6 +28,14 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
         guard let fixCommand else {
             return .notFixable("Run 'mcs install' to install dependencies")
         }
+        if let scriptRunner {
+            let result = scriptRunner.runCommand(fixCommand)
+            if result.succeeded {
+                return .fixed("fix command succeeded")
+            }
+            return .failed(result.stderr)
+        }
+        // Fallback for compiled-in checks without script runner
         let shell = ShellRunner(environment: Environment())
         let result = shell.shell(fixCommand)
         if result.succeeded {
@@ -39,7 +48,7 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
 // MARK: - File Exists Check
 
 /// Checks that a file exists at the given path.
-struct ExternalFileExistsCheck: DoctorCheck, Sendable {
+struct ExternalFileExistsCheck: ScopedPathCheck, Sendable {
     let name: String
     let section: String
     let path: String
@@ -55,26 +64,12 @@ struct ExternalFileExistsCheck: DoctorCheck, Sendable {
         }
         return .fail("missing")
     }
-
-    func fix() -> FixResult {
-        .notFixable("Run 'mcs install' to install")
-    }
-
-    private func resolvePath() -> String? {
-        switch scope {
-        case .global:
-            return expandTilde(path)
-        case .project:
-            guard let root = projectRoot else { return nil }
-            return root.appendingPathComponent(path).path
-        }
-    }
 }
 
 // MARK: - Directory Exists Check
 
 /// Checks that a directory exists at the given path.
-struct ExternalDirectoryExistsCheck: DoctorCheck, Sendable {
+struct ExternalDirectoryExistsCheck: ScopedPathCheck, Sendable {
     let name: String
     let section: String
     let path: String
@@ -91,26 +86,12 @@ struct ExternalDirectoryExistsCheck: DoctorCheck, Sendable {
         }
         return .fail("missing")
     }
-
-    func fix() -> FixResult {
-        .notFixable("Run 'mcs install' to install")
-    }
-
-    private func resolvePath() -> String? {
-        switch scope {
-        case .global:
-            return expandTilde(path)
-        case .project:
-            guard let root = projectRoot else { return nil }
-            return root.appendingPathComponent(path).path
-        }
-    }
 }
 
 // MARK: - File Contains Check
 
-/// Checks that a file contains a given substring pattern.
-struct ExternalFileContainsCheck: DoctorCheck, Sendable {
+/// Checks that a file contains a given substring.
+struct ExternalFileContainsCheck: ScopedPathCheck, Sendable {
     let name: String
     let section: String
     let path: String
@@ -130,26 +111,12 @@ struct ExternalFileContainsCheck: DoctorCheck, Sendable {
         }
         return .fail("pattern not found")
     }
-
-    func fix() -> FixResult {
-        .notFixable("Run 'mcs install' to fix")
-    }
-
-    private func resolvePath() -> String? {
-        switch scope {
-        case .global:
-            return expandTilde(path)
-        case .project:
-            guard let root = projectRoot else { return nil }
-            return root.appendingPathComponent(path).path
-        }
-    }
 }
 
 // MARK: - File Not Contains Check
 
-/// Checks that a file does NOT contain a given substring pattern.
-struct ExternalFileNotContainsCheck: DoctorCheck, Sendable {
+/// Checks that a file does NOT contain a given substring.
+struct ExternalFileNotContainsCheck: ScopedPathCheck, Sendable {
     let name: String
     let section: String
     let path: String
@@ -169,20 +136,6 @@ struct ExternalFileNotContainsCheck: DoctorCheck, Sendable {
             return .fail("unwanted pattern found")
         }
         return .pass("pattern absent")
-    }
-
-    func fix() -> FixResult {
-        .notFixable("Run 'mcs install' to fix")
-    }
-
-    private func resolvePath() -> String? {
-        switch scope {
-        case .global:
-            return expandTilde(path)
-        case .project:
-            guard let root = projectRoot else { return nil }
-            return root.appendingPathComponent(path).path
-        }
     }
 }
 
@@ -283,7 +236,8 @@ enum ExternalDoctorCheckFactory {
                 section: section,
                 command: definition.command ?? "",
                 args: definition.args ?? [],
-                fixCommand: definition.fixCommand
+                fixCommand: definition.fixCommand,
+                scriptRunner: scriptRunner
             )
 
         case .fileExists:
@@ -347,10 +301,36 @@ enum ExternalDoctorCheckFactory {
     }
 }
 
+// MARK: - Scoped Path Protocol
+
+/// Shared path resolution for doctor checks that operate on a file or directory
+/// with global or project scope.
+protocol ScopedPathCheck: DoctorCheck {
+    var path: String { get }
+    var scope: ExternalDoctorCheckScope { get }
+    var projectRoot: URL? { get }
+}
+
+extension ScopedPathCheck {
+    func resolvePath() -> String? {
+        switch scope {
+        case .global:
+            return expandTilde(path)
+        case .project:
+            guard let root = projectRoot else { return nil }
+            return root.appendingPathComponent(path).path
+        }
+    }
+
+    func fix() -> FixResult {
+        .notFixable("Run 'mcs install' to install")
+    }
+}
+
 // MARK: - Helpers
 
 /// Expand `~` at the start of a path to the user's home directory.
-private func expandTilde(_ path: String) -> String {
+func expandTilde(_ path: String) -> String {
     if path.hasPrefix("~/") {
         return NSString(string: path).expandingTildeInPath
     }

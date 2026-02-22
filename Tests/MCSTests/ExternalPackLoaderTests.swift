@@ -515,16 +515,15 @@ struct ExternalPackLoaderTests {
     @Test("SemVer.parse extracts components correctly")
     func semverParse() {
         let v = SemVer.parse("3.14.159")
-        #expect(v.major == 3)
-        #expect(v.minor == 14)
-        #expect(v.patch == 159)
+        #expect(v != nil)
+        #expect(v?.major == 3)
+        #expect(v?.minor == 14)
+        #expect(v?.patch == 159)
     }
 
     @Test("SemVer.parse handles invalid input gracefully")
     func semverParseInvalid() {
         let v = SemVer.parse("invalid")
-        #expect(v.major == 0)
-        #expect(v.minor == 0)
-        #expect(v.patch == 0)
+        #expect(v == nil)
     }
 }

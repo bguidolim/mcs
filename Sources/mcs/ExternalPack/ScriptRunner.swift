@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Higher-level wrapper around `ShellRunner` for executing scripts from external packs.
 /// Adds pack-specific concerns: path containment validation, standard environment
@@ -53,16 +54,16 @@ struct ScriptRunner: Sendable {
         workingDirectory: String? = nil,
         timeout: TimeInterval = 30
     ) throws -> ScriptResult {
-        // 1. Path containment: resolve and verify script is within packPath
-        let resolvedScript = script.standardizedFileURL.path
-        let resolvedPack = packPath.standardizedFileURL.path
+        // 1. Path containment: resolve symlinks and verify script is within packPath
+        let resolvedScript = script.resolvingSymlinksInPath().path
+        let resolvedPack = packPath.resolvingSymlinksInPath().path
         let packPrefix = resolvedPack.hasSuffix("/") ? resolvedPack : resolvedPack + "/"
 
         guard resolvedScript.hasPrefix(packPrefix) || resolvedScript == resolvedPack else {
             throw ScriptError.pathTraversal(script: resolvedScript, packPath: resolvedPack)
         }
 
-        // 2. Verify script exists
+        // 2. Verify script exists (using resolved path)
         guard FileManager.default.fileExists(atPath: resolvedScript) else {
             throw ScriptError.scriptNotFound(resolvedScript)
         }
@@ -95,14 +96,17 @@ struct ScriptRunner: Sendable {
         _ command: String,
         timeout: TimeInterval = 10
     ) -> ScriptResult {
-        let result = (try? executeWithTimeout(
-            executable: "/bin/bash",
-            arguments: ["-c", command],
-            workingDirectory: nil,
-            additionalEnvironment: ["MCS_VERSION": MCSVersion.current],
-            timeout: timeout
-        )) ?? ScriptResult(exitCode: 1, stdout: "", stderr: "execution failed")
-        return result
+        do {
+            return try executeWithTimeout(
+                executable: "/bin/bash",
+                arguments: ["-c", command],
+                workingDirectory: nil,
+                additionalEnvironment: ["MCS_VERSION": MCSVersion.current],
+                timeout: timeout
+            )
+        } catch {
+            return ScriptResult(exitCode: 1, stdout: "", stderr: error.localizedDescription)
+        }
     }
 
     // MARK: - Internal Helpers
@@ -111,7 +115,11 @@ struct ScriptRunner: Sendable {
     private func ensureExecutable(at path: String) {
         let fm = FileManager.default
         if !fm.isExecutableFile(atPath: path) {
-            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+            do {
+                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+            } catch {
+                output.warn("Could not set executable permission on '\(path)': \(error.localizedDescription)")
+            }
         }
     }
 
@@ -151,10 +159,10 @@ struct ScriptRunner: Sendable {
         }
 
         // Schedule timeout on a background queue
-        let timedOut = UnsafeSendableBox(value: false)
+        let timedOut = OSAllocatedUnfairLock(initialState: false)
         let workItem = DispatchWorkItem { [process] in
             if process.isRunning {
-                timedOut.value = true
+                timedOut.withLock { $0 = true }
                 process.terminate()
             }
         }
@@ -171,7 +179,7 @@ struct ScriptRunner: Sendable {
         // Cancel timeout if process finished in time
         workItem.cancel()
 
-        if timedOut.value {
+        if timedOut.withLock({ $0 }) {
             throw ScriptError.timeout(timeout)
         }
 
@@ -185,17 +193,5 @@ struct ScriptRunner: Sendable {
             stdout: stdout,
             stderr: stderr
         )
-    }
-}
-
-// MARK: - Thread-safe mutable box
-
-/// A simple mutable box that can be safely captured by `@Sendable` closures.
-/// Used internally by ScriptRunner for the timeout flag.
-private final class UnsafeSendableBox<T>: @unchecked Sendable {
-    var value: T
-
-    init(value: T) {
-        self.value = value
     }
 }

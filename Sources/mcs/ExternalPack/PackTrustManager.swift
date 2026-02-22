@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Manages the trust lifecycle for external packs — analyzing executable content,
@@ -52,7 +53,7 @@ struct PackTrustManager: Sendable {
                 // Doctor check scripts within components
                 if let checks = component.doctorChecks {
                     for check in checks {
-                        items += trustableItems(from: check, packPath: packPath)
+                        items += try trustableItems(from: check, packPath: packPath)
                     }
                 }
             }
@@ -73,7 +74,7 @@ struct PackTrustManager: Sendable {
         // Supplementary doctor checks at the pack level
         if let checks = manifest.supplementaryDoctorChecks {
             for check in checks {
-                items += trustableItems(from: check, packPath: packPath)
+                items += try trustableItems(from: check, packPath: packPath)
             }
         }
 
@@ -186,12 +187,18 @@ struct PackTrustManager: Sendable {
     ) throws -> [TrustableItem] {
         let allItems = try analyzeScripts(manifest: manifest, packPath: updatedPackPath)
 
-        // Filter to items with file paths that are new or changed
+        // Filter to items that are new or changed compared to trusted hashes
         return allItems.filter { item in
             guard let relativePath = item.relativePath else {
-                // Non-file items (inline commands) — check if the content is new
-                // by comparing against known commands; for safety, always flag them
-                return true
+                // Inline command — check synthetic hash against trusted set
+                let contentData = Data(item.content.utf8)
+                let hash = SHA256.hash(data: contentData)
+                    .map { String(format: "%02x", $0) }.joined()
+                let syntheticKey = "inline:\(item.description.hashValue)"
+                if let trustedHash = currentHashes[syntheticKey], trustedHash == hash {
+                    return false // Unchanged
+                }
+                return true // New or changed
             }
             guard let trustedHash = currentHashes[relativePath] else {
                 return true // New script not in trusted set
@@ -216,23 +223,22 @@ struct PackTrustManager: Sendable {
     private func trustableItems(
         from check: ExternalDoctorCheckDefinition,
         packPath: URL
-    ) -> [TrustableItem] {
+    ) throws -> [TrustableItem] {
         var items: [TrustableItem] = []
 
         if check.type == .shellScript, let command = check.command {
             // The command field may be a script file path or inline command
             let scriptFile = packPath.appendingPathComponent(command)
-            let content: String
-            if FileManager.default.fileExists(atPath: scriptFile.path),
-               let fileContent = try? String(contentsOf: scriptFile, encoding: .utf8) {
-                content = fileContent
+            if FileManager.default.fileExists(atPath: scriptFile.path) {
+                let fileContent = try String(contentsOf: scriptFile, encoding: .utf8)
                 items.append(TrustableItem(
                     type: .doctorScript,
                     relativePath: command,
-                    content: content,
+                    content: fileContent,
                     description: "Doctor check script: \(check.name)"
                 ))
             } else {
+                // File doesn't exist — treat as inline command
                 items.append(TrustableItem(
                     type: .doctorScript,
                     relativePath: nil,
@@ -253,25 +259,29 @@ struct PackTrustManager: Sendable {
 
         if let fixScript = check.fixScript {
             let scriptFile = packPath.appendingPathComponent(fixScript)
-            let content: String
-            if FileManager.default.fileExists(atPath: scriptFile.path),
-               let fileContent = try? String(contentsOf: scriptFile, encoding: .utf8) {
-                content = fileContent
+            if FileManager.default.fileExists(atPath: scriptFile.path) {
+                let fileContent = try String(contentsOf: scriptFile, encoding: .utf8)
+                items.append(TrustableItem(
+                    type: .fixScript,
+                    relativePath: fixScript,
+                    content: fileContent,
+                    description: "Fix script for: \(check.name)"
+                ))
             } else {
-                content = fixScript
+                // File doesn't exist — treat as inline fix command
+                items.append(TrustableItem(
+                    type: .fixScript,
+                    relativePath: nil,
+                    content: fixScript,
+                    description: "Fix command for: \(check.name)"
+                ))
             }
-            items.append(TrustableItem(
-                type: .fixScript,
-                relativePath: fixScript,
-                content: content,
-                description: "Fix script for: \(check.name)"
-            ))
         }
 
         return items
     }
 
-    /// Compute SHA-256 hashes for all script files referenced by trustable items.
+    /// Compute SHA-256 hashes for all trustable items — both script files and inline commands.
     private func computeScriptHashes(
         items: [TrustableItem],
         packPath: URL
@@ -279,10 +289,18 @@ struct PackTrustManager: Sendable {
         var hashes: [String: String] = [:]
 
         for item in items {
-            guard let relativePath = item.relativePath else { continue }
-            let fileURL = packPath.appendingPathComponent(relativePath)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                hashes[relativePath] = try Manifest.sha256(of: fileURL)
+            if let relativePath = item.relativePath {
+                let fileURL = packPath.appendingPathComponent(relativePath)
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    hashes[relativePath] = try Manifest.sha256(of: fileURL)
+                }
+            } else {
+                // Inline command — hash the content with a synthetic key
+                let contentData = Data(item.content.utf8)
+                let hash = SHA256.hash(data: contentData)
+                    .map { String(format: "%02x", $0) }.joined()
+                let syntheticKey = "inline:\(item.description.hashValue)"
+                hashes[syntheticKey] = hash
             }
         }
 
@@ -300,7 +318,7 @@ struct TrustableItem: Sendable {
     let description: String    // Human-readable description
 
     enum TrustableType: Sendable {
-        case shellCommand      // From component install actions
+        case shellCommand      // From component install actions and hook fragments
         case configureScript   // From configureProject
         case doctorScript      // From shellScript doctor checks
         case fixScript         // From fix scripts / fix commands

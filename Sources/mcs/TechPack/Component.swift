@@ -76,6 +76,21 @@ enum CopyFileType: String, Sendable {
     case generic
 }
 
+extension CopyFileType {
+    func baseDirectory(in environment: Environment) -> URL {
+        switch self {
+        case .skill: return environment.skillsDirectory
+        case .hook: return environment.hooksDirectory
+        case .command: return environment.commandsDirectory
+        case .generic: return environment.claudeDirectory
+        }
+    }
+
+    func destinationURL(in environment: Environment, destination: String) -> URL {
+        baseDirectory(in: environment).appendingPathComponent(destination)
+    }
+}
+
 /// Configuration for an MCP server
 struct MCPServerConfig: Sendable {
     let name: String

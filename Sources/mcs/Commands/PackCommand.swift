@@ -73,22 +73,12 @@ struct AddPack: ParsableCommand {
             throw ExitCode.failure
         }
 
-        let existingInputs = registryData.packs.map { entry in
-            // Build collision inputs from registry entries by loading their manifests
-            PackRegistryFile.CollisionInput(
-                identifier: entry.identifier,
-                mcpServerNames: [],
-                skillDirectories: [],
-                templateSectionIDs: [],
-                componentIDs: []
-            )
-        }
-
         // Build collision input from loaded manifests for better detection
-        let existingManifestInputs: [PackRegistryFile.CollisionInput] = registryData.packs.compactMap { entry in
+        let existingManifestInputs: [PackRegistryFile.CollisionInput] = registryData.packs.map { entry in
             let packPath = env.packsDirectory.appendingPathComponent(entry.localPath)
-            let manifestURL = packPath.appendingPathComponent("techpack.yaml")
+            let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
             guard let existingManifest = try? ExternalPackManifest.load(from: manifestURL) else {
+                output.warn("Could not load manifest for '\(entry.identifier)', collision detection may be incomplete")
                 return PackRegistryFile.CollisionInput(
                     identifier: entry.identifier,
                     mcpServerNames: [],
@@ -516,9 +506,9 @@ struct ListPacks: ParsableCommand {
             return "(missing checkout)"
         }
 
-        let manifestURL = packPath.appendingPathComponent("techpack.yaml")
+        let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
         guard fm.fileExists(atPath: manifestURL.path) else {
-            return "(invalid — no techpack.yaml)"
+            return "(invalid — no \(Constants.ExternalPacks.manifestFilename))"
         }
 
         return entry.sourceURL

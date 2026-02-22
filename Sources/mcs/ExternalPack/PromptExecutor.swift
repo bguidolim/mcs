@@ -10,7 +10,6 @@ struct PromptExecutor: Sendable {
     enum PromptError: Error, Equatable, Sendable, LocalizedError {
         case noFilesDetected(pattern: String)
         case scriptFailed(key: String, stderr: String)
-        case unsupportedPromptType(String)
 
         var errorDescription: String? {
             switch self {
@@ -18,8 +17,6 @@ struct PromptExecutor: Sendable {
                 return "No files matching '\(pattern)' were found"
             case .scriptFailed(let key, let stderr):
                 return "Script for prompt '\(key)' failed: \(stderr)"
-            case .unsupportedPromptType(let type):
-                return "Unsupported prompt type: '\(type)'"
             }
         }
     }
@@ -150,7 +147,8 @@ struct PromptExecutor: Sendable {
             .sorted()
     }
 
-    /// Instance method wrapper for testing convenience.
+    /// Instance method that delegates to the static implementation.
+    /// Enables tests to override file detection via dependency injection.
     private func detectFiles(matching pattern: String, in directory: URL) -> [String] {
         Self.detectFiles(matching: pattern, in: directory)
     }

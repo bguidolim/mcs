@@ -62,11 +62,6 @@ struct PackRegistryFile: Sendable {
         data.packs.first { $0.identifier == identifier }
     }
 
-    /// All registered packs.
-    func allPacks(in data: RegistryData) -> [PackEntry] {
-        data.packs
-    }
-
     // MARK: - Mutations
 
     /// Add or update a pack entry. If a pack with the same identifier exists, it is replaced.

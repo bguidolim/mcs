@@ -38,6 +38,25 @@ extension ComponentDefinition {
                 path: Environment().commandsDirectory.appendingPathComponent(destination)
             )
 
+        case .copyPackFile(_, let destination, let fileType):
+            let env = Environment()
+            let destURL: URL
+            switch fileType {
+            case .skill:
+                destURL = env.skillsDirectory.appendingPathComponent(destination)
+            case .hook:
+                destURL = env.hooksDirectory.appendingPathComponent(destination)
+            case .command:
+                destURL = env.commandsDirectory.appendingPathComponent(destination)
+            case .generic:
+                destURL = env.claudeDirectory.appendingPathComponent(destination)
+            }
+            return FileExistsCheck(
+                name: displayName,
+                section: type.doctorSection,
+                path: destURL
+            )
+
         case .shellCommand, .settingsMerge, .gitignoreEntries:
             return nil
         }

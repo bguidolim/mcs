@@ -65,6 +65,15 @@ enum ComponentInstallAction: Sendable {
     case shellCommand(command: String)
     case settingsMerge
     case gitignoreEntries(entries: [String])
+    case copyPackFile(source: URL, destination: String, fileType: CopyFileType)
+}
+
+/// File type for `copyPackFile` actions — determines the target directory.
+enum CopyFileType: String, Sendable {
+    case skill
+    case hook
+    case command
+    case generic
 }
 
 /// Configuration for an MCP server

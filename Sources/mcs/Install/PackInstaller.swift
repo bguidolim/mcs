@@ -9,17 +9,20 @@ struct PackInstaller {
     let output: CLIOutput
     let shell: ShellRunner
     var backup: Backup
+    let registry: TechPackRegistry
 
     init(
         environment: Environment,
         output: CLIOutput,
         shell: ShellRunner,
-        backup: Backup = Backup()
+        backup: Backup = Backup(),
+        registry: TechPackRegistry = .shared
     ) {
         self.environment = environment
         self.output = output
         self.shell = shell
         self.backup = backup
+        self.registry = registry
     }
 
     private var executor: ComponentExecutor {
@@ -35,7 +38,7 @@ struct PackInstaller {
     @discardableResult
     mutating func installPack(_ pack: any TechPack) -> Bool {
         let coreComponents = CoreComponents.all
-        let allComponents = TechPackRegistry.shared.allComponents(includingCore: coreComponents)
+        let allComponents = registry.allComponents(includingCore: coreComponents)
 
         // Select all pack components
         let selectedIDs = Set(pack.components.map(\.id))
@@ -143,6 +146,21 @@ struct PackInstaller {
 
         case .gitignoreEntries(let entries):
             return exec.addGitignoreEntries(entries)
+
+        case .copyPackFile(let source, let destination, let fileType):
+            var mutableExec = ComponentExecutor(
+                environment: environment,
+                output: output,
+                shell: shell,
+                backup: backup
+            )
+            var manifest = Manifest(path: environment.setupManifest)
+            return mutableExec.installCopyPackFile(
+                source: source,
+                destination: destination,
+                fileType: fileType,
+                manifest: &manifest
+            )
 
         case .copySkill, .copyHook, .copyCommand, .settingsMerge:
             // These are core-only actions, not used by pack components

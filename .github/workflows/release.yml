@@ -78,9 +78,6 @@ jobs:
 
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/bguidolim/homebrew-tap.git" tap
           cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           cat > Formula/my-claude-setup.rb << FORMULA
           class MyClaudeSetup < Formula
             desc "Configure Claude Code with MCP servers, plugins, skills, and hooks"

@@ -105,14 +105,51 @@ enum TemplateComposer {
         return userLines.joined(separator: "\n")
     }
 
+    /// Validate that all section markers in the content are properly paired.
+    /// Returns identifiers of sections that have a begin marker but no matching end marker.
+    static func unpairedSections(in content: String) -> [String] {
+        let lines = content.components(separatedBy: "\n")
+        var openSections: [String] = []
+        var unpaired: [String] = []
+
+        for line in lines {
+            if let parsed = parseBeginMarker(line) {
+                // If there was already an open section, it's unpaired
+                if let previous = openSections.last {
+                    unpaired.append(previous)
+                }
+                openSections.append(parsed.identifier)
+            } else if let identifier = parseEndMarker(line) {
+                if openSections.last == identifier {
+                    openSections.removeLast()
+                }
+            }
+        }
+
+        // Any remaining open sections are unpaired
+        unpaired.append(contentsOf: openSections)
+        return unpaired
+    }
+
     /// Replace a specific section in an existing composed file.
     /// Preserves all content outside the target section markers.
+    ///
+    /// If the target section has a begin marker but no matching end marker,
+    /// returns the original content unchanged to prevent data loss.
+    /// Check `unpairedSections(in:)` to detect this condition beforehand.
     static func replaceSection(
         in existingContent: String,
         sectionIdentifier: String,
         newContent: String,
         newVersion: String
     ) -> String {
+        // Safety check: refuse to modify if the target section has an unpaired marker.
+        // Without this, a missing end marker would cause all subsequent content to be dropped.
+        let unpaired = unpairedSections(in: existingContent)
+        if unpaired.contains(sectionIdentifier) {
+            return existingContent
+        }
+
         let lines = existingContent.components(separatedBy: "\n")
         var result: [String] = []
         var skipUntilEnd = false

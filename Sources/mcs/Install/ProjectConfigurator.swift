@@ -159,6 +159,15 @@ struct ProjectConfigurator {
         let composed: String
         if fm.fileExists(atPath: claudeLocalPath.path) {
             let existingContent = try String(contentsOf: claudeLocalPath, encoding: .utf8)
+
+            // Warn about unpaired section markers that would prevent safe updates
+            let unpaired = TemplateComposer.unpairedSections(in: existingContent)
+            if !unpaired.isEmpty {
+                output.warn("Unpaired section markers in CLAUDE.local.md: \(unpaired.joined(separator: ", "))")
+                output.warn("Sections with missing end markers will not be updated to prevent data loss.")
+                output.warn("Add the missing end markers manually, then re-run mcs configure.")
+            }
+
             let userContent = TemplateComposer.extractUserContent(from: existingContent)
 
             // Update core section

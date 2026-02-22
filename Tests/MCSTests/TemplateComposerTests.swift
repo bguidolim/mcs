@@ -175,6 +175,68 @@ struct TemplateComposerTests {
         #expect(result.contains("Core content"))
     }
 
+    // MARK: - Unpaired marker detection
+
+    @Test("Detect unpaired begin marker with missing end marker")
+    func unpairedBeginMarker() {
+        let content = """
+            <!-- mcs:begin core v1.0.0 -->
+            Core stuff
+            """
+        let unpaired = TemplateComposer.unpairedSections(in: content)
+        #expect(unpaired == ["core"])
+    }
+
+    @Test("No unpaired markers in well-formed content")
+    func noPairedMarkers() {
+        let content = """
+            <!-- mcs:begin core v1.0.0 -->
+            Core stuff
+            <!-- mcs:end core -->
+            """
+        let unpaired = TemplateComposer.unpairedSections(in: content)
+        #expect(unpaired.isEmpty)
+    }
+
+    @Test("replaceSection preserves content when target section has unpaired marker")
+    func replaceSectionUnpairedSafety() {
+        let original = """
+            <!-- mcs:begin core v1.0.0 -->
+            Core stuff
+            User content below
+            """
+        let result = TemplateComposer.replaceSection(
+            in: original,
+            sectionIdentifier: "core",
+            newContent: "New core",
+            newVersion: "2.0.0"
+        )
+        // Should return original unchanged to prevent data loss
+        #expect(result == original)
+    }
+
+    @Test("replaceSection works normally when a different section is unpaired")
+    func replaceSectionOtherUnpaired() {
+        let original = """
+            <!-- mcs:begin core v1.0.0 -->
+            Core stuff
+            <!-- mcs:end core -->
+            <!-- mcs:begin ios v1.0.0 -->
+            iOS stuff without end marker
+            """
+        let result = TemplateComposer.replaceSection(
+            in: original,
+            sectionIdentifier: "core",
+            newContent: "New core",
+            newVersion: "2.0.0"
+        )
+        // Core section should be replaced (it's well-formed)
+        #expect(result.contains("New core"))
+        #expect(!result.contains("Core stuff"))
+        // iOS section preserved as-is (not the target)
+        #expect(result.contains("iOS stuff without end marker"))
+    }
+
     // MARK: - Round-trip
 
     @Test("Compose then parse round-trip preserves content")

@@ -14,7 +14,7 @@ struct IOSTechPackTests {
 
     // MARK: - Project detection
 
-    @Test("detectXcodeProject finds .xcodeproj")
+    @Test("detectXcodeProjects finds .xcodeproj")
     func detectXcodeproj() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -22,12 +22,12 @@ struct IOSTechPackTests {
         let projDir = tmpDir.appendingPathComponent("MyApp.xcodeproj")
         try FileManager.default.createDirectory(at: projDir, withIntermediateDirectories: true)
 
-        let result = IOSTechPack.detectXcodeProject(in: tmpDir)
-        #expect(result == "MyApp.xcodeproj")
+        let result = IOSTechPack.detectXcodeProjects(in: tmpDir)
+        #expect(result == ["MyApp.xcodeproj"])
     }
 
-    @Test("detectXcodeProject prefers .xcworkspace over .xcodeproj")
-    func detectPrefersWorkspace() throws {
+    @Test("detectXcodeProjects lists workspaces before projects")
+    func detectListsWorkspacesFirst() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
@@ -36,17 +36,17 @@ struct IOSTechPackTests {
         try FileManager.default.createDirectory(at: projDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
 
-        let result = IOSTechPack.detectXcodeProject(in: tmpDir)
-        #expect(result == "MyApp.xcworkspace")
+        let result = IOSTechPack.detectXcodeProjects(in: tmpDir)
+        #expect(result == ["MyApp.xcworkspace", "MyApp.xcodeproj"])
     }
 
-    @Test("detectXcodeProject returns nil when no project found")
+    @Test("detectXcodeProjects returns empty when no project found")
     func detectNoProject() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let result = IOSTechPack.detectXcodeProject(in: tmpDir)
-        #expect(result == nil)
+        let result = IOSTechPack.detectXcodeProjects(in: tmpDir)
+        #expect(result.isEmpty)
     }
 
     // MARK: - Pack identity

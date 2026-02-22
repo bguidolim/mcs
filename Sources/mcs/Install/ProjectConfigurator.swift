@@ -61,6 +61,24 @@ struct ProjectConfigurator {
             repoName = projectPath.lastPathComponent
         }
 
+        // Build initial context for template value resolution
+        var context = ProjectConfigContext(
+            projectPath: projectPath,
+            repoName: repoName,
+            output: output
+        )
+
+        // Resolve pack-specific template values (may prompt user, e.g. Xcode project selection)
+        let packValues = pack.templateValues(context: context)
+
+        // Rebuild context with resolved values so configureProject can access them
+        context = ProjectConfigContext(
+            projectPath: projectPath,
+            repoName: repoName,
+            output: output,
+            resolvedValues: packValues
+        )
+
         // Gather all template contributions
         let allContributions = gatherTemplateContributions(
             projectPath: projectPath,
@@ -69,7 +87,8 @@ struct ProjectConfigurator {
 
         // Only create/update CLAUDE.local.md if there's content to add
         if !allContributions.isEmpty {
-            let values: [String: String] = ["REPO_NAME": repoName]
+            var values: [String: String] = ["REPO_NAME": repoName]
+            values.merge(packValues) { _, new in new }
             try writeClaudeLocal(
                 at: projectPath,
                 contributions: allContributions,
@@ -86,10 +105,6 @@ struct ProjectConfigurator {
         try ensureGitignoreEntries()
 
         // Run pack-specific configuration
-        let context = ProjectConfigContext(
-            projectPath: projectPath,
-            repoName: repoName
-        )
         try pack.configureProject(at: projectPath, context: context)
         output.success("Applied \(pack.displayName) configuration")
 
@@ -157,8 +172,16 @@ struct ProjectConfigurator {
         let coreContent = coreContribution?.templateContent ?? ""
 
         let composed: String
-        if fm.fileExists(atPath: claudeLocalPath.path) {
-            let existingContent = try String(contentsOf: claudeLocalPath, encoding: .utf8)
+        let existingContent: String? = fm.fileExists(atPath: claudeLocalPath.path)
+            ? try String(contentsOf: claudeLocalPath, encoding: .utf8)
+            : nil
+
+        let hasMarkers = existingContent.map {
+            !TemplateComposer.parseSections(from: $0).isEmpty
+        } ?? false
+
+        if let existingContent, hasMarkers {
+            // v2 update path — file has section markers, update in place
 
             // Warn about unpaired section markers that would prevent safe updates
             let unpaired = TemplateComposer.unpairedSections(in: existingContent)
@@ -205,6 +228,11 @@ struct ProjectConfigurator {
 
             composed = updated
         } else {
+            // Compose path — fresh file or v1 migration
+            if existingContent != nil {
+                output.info("Migrating CLAUDE.local.md from v1 to v2 format")
+            }
+
             composed = TemplateComposer.compose(
                 coreContent: coreContent,
                 packContributions: otherContributions,

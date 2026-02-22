@@ -49,7 +49,7 @@ struct CoreTechPackTests {
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let pack = CoreTechPack()
-        let context = ProjectConfigContext(projectPath: tmpDir, repoName: "test")
+        let context = ProjectConfigContext(projectPath: tmpDir, repoName: "test", output: CLIOutput())
         try pack.configureProject(at: tmpDir, context: context)
 
         let contents = try FileManager.default.contentsOfDirectory(atPath: tmpDir.path)

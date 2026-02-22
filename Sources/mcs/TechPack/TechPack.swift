@@ -4,6 +4,16 @@ import Foundation
 struct ProjectConfigContext: Sendable {
     let projectPath: URL
     let repoName: String
+    let output: CLIOutput
+    /// Template values resolved by `templateValues(context:)`, available in `configureProject`.
+    let resolvedValues: [String: String]
+
+    init(projectPath: URL, repoName: String, output: CLIOutput, resolvedValues: [String: String] = [:]) {
+        self.projectPath = projectPath
+        self.repoName = repoName
+        self.output = output
+        self.resolvedValues = resolvedValues
+    }
 }
 
 /// Template contribution from a tech pack
@@ -42,10 +52,15 @@ protocol TechPack: Sendable {
     var migrations: [any PackMigration] { get }
 
     func configureProject(at path: URL, context: ProjectConfigContext) throws
+
+    /// Resolve pack-specific placeholder values for CLAUDE.local.md templates.
+    /// Called before template substitution so packs can supply values like `__PROJECT__`.
+    func templateValues(context: ProjectConfigContext) -> [String: String]
 }
 
 extension TechPack {
     var migrations: [any PackMigration] { [] }
+    func templateValues(context: ProjectConfigContext) -> [String: String] { [:] }
 }
 
 /// Protocol for doctor checks (used by both core and packs)

@@ -15,7 +15,7 @@ enum CoreComponents {
         // Hooks
         hookSessionStart, hookContinuousLearning,
         // Commands
-        commandPR,
+        commandPR, commandCommit,
         // Configuration
         settingsMerge, gitignoreCore,
     ]
@@ -255,6 +255,21 @@ enum CoreComponents {
         installAction: .copyCommand(
             source: "commands/pr.md",
             destination: "pr.md",
+            placeholders: ["BRANCH_PREFIX": "feature"]
+        )
+    )
+
+    static let commandCommit = ComponentDefinition(
+        id: "core.command.commit",
+        displayName: "/commit command",
+        description: "Stages, commits, and pushes changes without PR creation",
+        type: .command,
+        packIdentifier: nil,
+        dependencies: [],
+        isRequired: false,
+        installAction: .copyCommand(
+            source: "commands/commit.md",
+            destination: "commit.md",
             placeholders: ["BRANCH_PREFIX": "feature"]
         )
     )

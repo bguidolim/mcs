@@ -4,15 +4,18 @@ Automate the full commit-push-PR pipeline. This is a **git-only workflow** — n
 
 Arguments: $ARGUMENTS (optional — additional instructions for this PR, e.g. `target develop` or `skip commit`)
 
+## Branch naming convention
+
+Branches follow the pattern: `__BRANCH_PREFIX__/{ticket}-short-description` (e.g. `__BRANCH_PREFIX__/ABC-123-fix-login`).
+
 ## Steps
 
 1. **Check KB/memory** for any relevant PR conventions or context related to the current branch/feature.
 
 2. **Analyze changes**:
-   - Detect the repo's default branch: try `git symbolic-ref refs/remotes/origin/HEAD` first (local, no network), fall back to `gh repo view --json defaultBranchRef -q '.defaultBranchRef.name'` if unset.
    - Run `git status` (never use `-uall`) and `git diff` (staged + unstaged) in parallel.
-   - Run `git log <default-branch>..HEAD --oneline` to see existing commits on this branch.
-   - Extract the **ticket number** from the branch name (pattern: `__BRANCH_PREFIX__/{ticket}-*` or `{ticket}-*`) or from commit messages. If not found, ask the user.
+   - Run `git log origin/HEAD..HEAD --oneline` to see commits on this branch (if `origin/HEAD` is not set, fall back to `git log --oneline`).
+   - Extract the **ticket number** from the branch name (pattern: `__BRANCH_PREFIX__/{ticket}-*` or `{ticket}-*`). If not found, ask the user.
 
 3. **Stage and commit**:
    - Stage relevant files (prefer specific files over `git add -A`; never stage `.env` or credentials).

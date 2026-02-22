@@ -846,7 +846,7 @@ struct Installer {
     // MARK: - Interactive Selection Helpers
 
     private func askBranchPrefix(_ state: inout SelectionState) {
-        if state.isSelected("core.command.pr") {
+        if state.isSelected("core.command.pr") || state.isSelected("core.command.commit") {
             output.plain("")
             output.plain("  Your name for branch naming (e.g. bruno \u{2192} bruno/ABC-123-fix-login)")
             state.branchPrefix = output.promptInline("Branch prefix", default: "feature")

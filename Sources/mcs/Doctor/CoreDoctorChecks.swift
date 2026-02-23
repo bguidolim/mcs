@@ -256,31 +256,14 @@ struct SettingsOwnershipCheck: DoctorCheck, Sendable {
         let ownership = SettingsOwnership(path: env.settingsKeys)
 
         guard !ownership.managedKeys.isEmpty else {
-            return .skip("no ownership sidecar — run 'mcs install' to create")
+            return .skip("no ownership sidecar")
         }
 
-        // Load current template to find stale keys
-        guard let resourceURL = Bundle.module.url(forResource: "Resources", withExtension: nil)
-        else {
-            return .skip("resources bundle not found")
-        }
-
-        let templateURL = resourceURL
-            .appendingPathComponent("config")
-            .appendingPathComponent("settings.json")
-        guard let template = try? Settings.load(from: templateURL) else {
-            return .skip("could not load settings template")
-        }
-
-        let stale = ownership.staleKeys(comparedTo: template)
-        if stale.isEmpty {
-            return .pass("\(ownership.managedKeys.count) managed key(s), none stale")
-        }
-        return .warn("\(stale.count) stale key(s): \(stale.joined(separator: ", "))")
+        return .pass("\(ownership.managedKeys.count) managed key(s)")
     }
 
     func fix() -> FixResult {
-        .notFixable("Run 'mcs install' to clean up stale settings")
+        .notFixable("Settings ownership is tracked automatically")
     }
 }
 

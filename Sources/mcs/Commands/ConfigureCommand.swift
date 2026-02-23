@@ -1,7 +1,7 @@
 import ArgumentParser
 import Foundation
 
-struct ConfigureCommand: ParsableCommand {
+struct ConfigureCommand: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "configure",
         abstract: "Configure a project with tech packs"
@@ -22,7 +22,9 @@ struct ConfigureCommand: ParsableCommand {
     @Flag(name: .long, help: "Fetch latest pack versions and update mcs.lock.yaml")
     var update = false
 
-    mutating func run() throws {
+    var skipLock: Bool { dryRun }
+
+    func perform() throws {
         let env = Environment()
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)

@@ -71,6 +71,11 @@ struct Environment: Sendable {
         claudeDirectory.appendingPathComponent(Constants.ExternalPacks.registryFilename)
     }
 
+    /// POSIX lock file for preventing concurrent mcs execution.
+    var lockFile: URL {
+        claudeDirectory.appendingPathComponent(Constants.FileNames.mcsLock)
+    }
+
     /// PATH string that includes the Homebrew bin directory.
     var pathWithBrew: String {
         let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"

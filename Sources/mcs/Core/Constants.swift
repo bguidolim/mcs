@@ -22,6 +22,9 @@ enum Constants {
 
         /// The continuous learning activator hook script.
         static let continuousLearningHook = "continuous-learning-activator.sh"
+
+        /// The process lock file preventing concurrent mcs execution.
+        static let mcsLock = ".mcs-lock"
     }
 
     // MARK: - CLI

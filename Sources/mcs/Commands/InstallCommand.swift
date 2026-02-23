@@ -1,7 +1,7 @@
 import ArgumentParser
 import Foundation
 
-struct InstallCommand: ParsableCommand {
+struct InstallCommand: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "install",
         abstract: "Install and configure Claude Code components"
@@ -16,7 +16,9 @@ struct InstallCommand: ParsableCommand {
     @Option(name: .long, help: "Tech pack to install (e.g. ios)")
     var pack: String?
 
-    func run() throws {
+    var skipLock: Bool { dryRun }
+
+    func perform() throws {
         let env = Environment()
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)

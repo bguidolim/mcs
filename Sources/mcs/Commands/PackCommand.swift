@@ -11,7 +11,7 @@ struct PackCommand: ParsableCommand {
 
 // MARK: - Add
 
-struct AddPack: ParsableCommand {
+struct AddPack: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "add",
         abstract: "Add an external tech pack from a Git repository"
@@ -26,7 +26,9 @@ struct AddPack: ParsableCommand {
     @Flag(name: .long, help: "Preview pack contents without installing")
     var preview: Bool = false
 
-    func run() throws {
+    var skipLock: Bool { preview }
+
+    func perform() throws {
         let env = Environment()
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)
@@ -256,7 +258,7 @@ struct AddPack: ParsableCommand {
 
 // MARK: - Remove
 
-struct RemovePack: ParsableCommand {
+struct RemovePack: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "remove",
         abstract: "Remove an external tech pack"
@@ -268,7 +270,7 @@ struct RemovePack: ParsableCommand {
     @Flag(name: .long, help: "Skip confirmation prompt")
     var force: Bool = false
 
-    func run() throws {
+    func perform() throws {
         let env = Environment()
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)
@@ -389,7 +391,7 @@ struct RemovePack: ParsableCommand {
 
 // MARK: - Update
 
-struct UpdatePack: ParsableCommand {
+struct UpdatePack: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "update",
         abstract: "Update an external tech pack to the latest version"
@@ -398,7 +400,7 @@ struct UpdatePack: ParsableCommand {
     @Argument(help: "Pack identifier to update (omit for all)")
     var identifier: String?
 
-    func run() throws {
+    func perform() throws {
         let env = Environment()
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)

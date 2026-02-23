@@ -11,6 +11,7 @@ struct GitignoreManager: Sendable {
         "*.local.*",
         "\(Constants.FileNames.claudeDirectory)/memories/",
         "\(Constants.FileNames.claudeDirectory)/\(Constants.FileNames.mcsProject)",
+        "\(Constants.FileNames.claudeDirectory)/\(Constants.FileNames.mcsLock)",
         "\(Constants.Serena.directory)"
     ]
 

@@ -598,6 +598,504 @@ struct PackSettingsMergeTests {
     }
 }
 
+// MARK: - Copy With Substitution Tests
+
+@Suite("ComponentExecutor — copyWithSubstitution")
+struct CopyWithSubstitutionTests {
+    private func makeTmpDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-copysub-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test("Substitutes placeholders in text file")
+    func substitutesPlaceholders() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let source = tmpDir.appendingPathComponent("template.md")
+        try "Branch: __BRANCH_PREFIX__/{ticket}".write(
+            to: source, atomically: true, encoding: .utf8
+        )
+
+        let dest = tmpDir.appendingPathComponent("output.md")
+        try ComponentExecutor.copyWithSubstitution(
+            from: source,
+            to: dest,
+            values: ["BRANCH_PREFIX": "feature"]
+        )
+
+        let result = try String(contentsOf: dest, encoding: .utf8)
+        #expect(result == "Branch: feature/{ticket}")
+        #expect(!result.contains("__BRANCH_PREFIX__"))
+    }
+
+    @Test("Multiple placeholders in same file")
+    func multiplePlaceholders() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let source = tmpDir.appendingPathComponent("cmd.md")
+        try "Project: __PROJECT__\nBranch: __BRANCH_PREFIX__/topic".write(
+            to: source, atomically: true, encoding: .utf8
+        )
+
+        let dest = tmpDir.appendingPathComponent("output.md")
+        try ComponentExecutor.copyWithSubstitution(
+            from: source,
+            to: dest,
+            values: ["PROJECT": "MyApp.xcodeproj", "BRANCH_PREFIX": "bruno"]
+        )
+
+        let result = try String(contentsOf: dest, encoding: .utf8)
+        #expect(result.contains("MyApp.xcodeproj"))
+        #expect(result.contains("bruno/topic"))
+    }
+
+    @Test("Empty values dict falls back to raw copy")
+    func emptyValuesFallsBackToRawCopy() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let source = tmpDir.appendingPathComponent("raw.md")
+        try "Keep __PLACEHOLDER__ as-is".write(
+            to: source, atomically: true, encoding: .utf8
+        )
+
+        let dest = tmpDir.appendingPathComponent("output.md")
+        try ComponentExecutor.copyWithSubstitution(
+            from: source,
+            to: dest,
+            values: [:]
+        )
+
+        let result = try String(contentsOf: dest, encoding: .utf8)
+        #expect(result.contains("__PLACEHOLDER__"))
+    }
+
+    @Test("Binary file falls back to raw copy")
+    func binaryFileFallsBack() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Write invalid UTF-8 bytes
+        let source = tmpDir.appendingPathComponent("binary.bin")
+        let bytes: [UInt8] = [0xFF, 0xFE, 0x00, 0x01, 0x80, 0x81]
+        try Data(bytes).write(to: source)
+
+        let dest = tmpDir.appendingPathComponent("output.bin")
+        try ComponentExecutor.copyWithSubstitution(
+            from: source,
+            to: dest,
+            values: ["FOO": "bar"]
+        )
+
+        let result = try Data(contentsOf: dest)
+        #expect(result == Data(bytes))
+    }
+
+    @Test("Substitution preserves file content around placeholders")
+    func preservesSurroundingContent() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let source = tmpDir.appendingPathComponent("hook.sh")
+        try """
+        #!/bin/bash
+        # Branch naming: __BRANCH_PREFIX__/{ticket}
+        echo "done"
+        """.write(to: source, atomically: true, encoding: .utf8)
+
+        let dest = tmpDir.appendingPathComponent("output.sh")
+        try ComponentExecutor.copyWithSubstitution(
+            from: source,
+            to: dest,
+            values: ["BRANCH_PREFIX": "fix"]
+        )
+
+        let result = try String(contentsOf: dest, encoding: .utf8)
+        #expect(result.contains("#!/bin/bash"))
+        #expect(result.contains("fix/{ticket}"))
+        #expect(result.contains("echo \"done\""))
+    }
+}
+
+// MARK: - installProjectFile Substitution Tests
+
+@Suite("ComponentExecutor — installProjectFile substitution")
+struct InstallProjectFileSubstitutionTests {
+    private let output = CLIOutput(colorsEnabled: false)
+
+    private func makeTmpDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-install-sub-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeExecutor() -> ComponentExecutor {
+        let env = Environment()
+        return ComponentExecutor(
+            environment: env,
+            output: output,
+            shell: ShellRunner(environment: env)
+        )
+    }
+
+    @Test("installProjectFile substitutes placeholders in single file")
+    func singleFileSubstitution() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let projectPath = tmpDir.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: projectPath, withIntermediateDirectories: true)
+
+        // Create a source file with placeholder
+        let packDir = tmpDir.appendingPathComponent("pack")
+        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
+        let source = packDir.appendingPathComponent("pr.md")
+        try "Branch: __BRANCH_PREFIX__/{ticket}".write(
+            to: source, atomically: true, encoding: .utf8
+        )
+
+        var exec = makeExecutor()
+        let paths = exec.installProjectFile(
+            source: source,
+            destination: "pr.md",
+            fileType: .command,
+            projectPath: projectPath,
+            resolvedValues: ["BRANCH_PREFIX": "feature"]
+        )
+
+        #expect(!paths.isEmpty)
+
+        // Read the installed file
+        let installed = projectPath
+            .appendingPathComponent(".claude/commands/pr.md")
+        let content = try String(contentsOf: installed, encoding: .utf8)
+        #expect(content.contains("feature/{ticket}"))
+        #expect(!content.contains("__BRANCH_PREFIX__"))
+    }
+
+    @Test("installProjectFile substitutes placeholders in directory files")
+    func directoryFileSubstitution() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let projectPath = tmpDir.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: projectPath, withIntermediateDirectories: true)
+
+        // Create a source directory with files containing placeholders
+        let packDir = tmpDir.appendingPathComponent("pack/my-skill")
+        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
+        try "Skill for __REPO_NAME__".write(
+            to: packDir.appendingPathComponent("SKILL.md"),
+            atomically: true, encoding: .utf8
+        )
+
+        var exec = makeExecutor()
+        let paths = exec.installProjectFile(
+            source: packDir,
+            destination: "my-skill",
+            fileType: .skill,
+            projectPath: projectPath,
+            resolvedValues: ["REPO_NAME": "my-app"]
+        )
+
+        #expect(!paths.isEmpty)
+
+        let installed = projectPath
+            .appendingPathComponent(".claude/skills/my-skill/SKILL.md")
+        let content = try String(contentsOf: installed, encoding: .utf8)
+        #expect(content.contains("my-app"))
+        #expect(!content.contains("__REPO_NAME__"))
+    }
+
+    @Test("installProjectFile without resolvedValues does raw copy")
+    func noValuesRawCopy() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let projectPath = tmpDir.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: projectPath, withIntermediateDirectories: true)
+
+        let packDir = tmpDir.appendingPathComponent("pack")
+        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
+        let source = packDir.appendingPathComponent("commit.md")
+        try "Keep __PLACEHOLDER__ intact".write(
+            to: source, atomically: true, encoding: .utf8
+        )
+
+        var exec = makeExecutor()
+        _ = exec.installProjectFile(
+            source: source,
+            destination: "commit.md",
+            fileType: .command,
+            projectPath: projectPath
+        )
+
+        let installed = projectPath
+            .appendingPathComponent(".claude/commands/commit.md")
+        let content = try String(contentsOf: installed, encoding: .utf8)
+        #expect(content.contains("__PLACEHOLDER__"))
+    }
+}
+
+// MARK: - Auto-Derived Hook & Plugin Tests
+
+@Suite("ProjectConfigurator — auto-derived hooks and plugins")
+struct AutoDerivedSettingsTests {
+    private let output = CLIOutput(colorsEnabled: false)
+
+    private func makeTmpDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-autoderive-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeConfigurator() -> ProjectConfigurator {
+        let env = Environment()
+        return ProjectConfigurator(
+            environment: env,
+            output: output,
+            shell: ShellRunner(environment: env)
+        )
+    }
+
+    /// Create a pack with a hookFile component that has hookEvent set.
+    private func makeHookPack(tmpDir: URL) throws -> MockTechPack {
+        // Create the hook source file
+        let packDir = tmpDir.appendingPathComponent("pack/hooks")
+        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
+        let hookSource = packDir.appendingPathComponent("session_start.sh")
+        try "#!/bin/bash\necho session".write(
+            to: hookSource, atomically: true, encoding: .utf8
+        )
+
+        return MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [ComponentDefinition(
+                id: "test-pack.hook-session",
+                displayName: "Session hook",
+                description: "Session start hook",
+                type: .hookFile,
+                packIdentifier: "test-pack",
+                dependencies: [],
+                isRequired: true,
+                hookEvent: "SessionStart",
+                installAction: .copyPackFile(
+                    source: hookSource,
+                    destination: "session_start.sh",
+                    fileType: .hook
+                )
+            )]
+        )
+    }
+
+    /// Create a pack with a plugin component.
+    private func makePluginPack() -> MockTechPack {
+        MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [ComponentDefinition(
+                id: "test-pack.plugin-review",
+                displayName: "PR Review",
+                description: "PR review plugin",
+                type: .plugin,
+                packIdentifier: "test-pack",
+                dependencies: [],
+                isRequired: true,
+                installAction: .plugin(name: "pr-review-toolkit@claude-plugins-official")
+            )]
+        )
+    }
+
+    @Test("hookFile with hookEvent auto-derives settings entry")
+    func hookEventAutoDerivesSettings() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let pack = try makeHookPack(tmpDir: tmpDir)
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let configurator = makeConfigurator()
+        try configurator.configure(at: tmpDir, packs: [pack])
+
+        let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
+        let result = try Settings.load(from: settingsPath)
+
+        // Should have SessionStart hook with project-relative path
+        let sessionGroups = result.hooks?["SessionStart"] ?? []
+        #expect(!sessionGroups.isEmpty)
+        let command = sessionGroups.first?.hooks?.first?.command
+        #expect(command == "bash .claude/hooks/session_start.sh")
+        // Should NOT use global path
+        #expect(command?.contains("~/.claude") != true)
+    }
+
+    @Test("plugin component auto-derives enabledPlugins entry")
+    func pluginAutoDerivesEnabledPlugins() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let pack = makePluginPack()
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let configurator = makeConfigurator()
+        try configurator.configure(at: tmpDir, packs: [pack])
+
+        let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
+        let result = try Settings.load(from: settingsPath)
+
+        #expect(result.enabledPlugins?["pr-review-toolkit@claude-plugins-official"] == true)
+    }
+
+    @Test("hookFile without hookEvent does not generate settings entry")
+    func noHookEventNoSettingsEntry() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create hook source
+        let packDir = tmpDir.appendingPathComponent("pack/hooks")
+        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
+        let hookSource = packDir.appendingPathComponent("helper.sh")
+        try "#!/bin/bash".write(to: hookSource, atomically: true, encoding: .utf8)
+
+        let pack = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [ComponentDefinition(
+                id: "test-pack.hook-helper",
+                displayName: "Helper hook",
+                description: "No hookEvent",
+                type: .hookFile,
+                packIdentifier: "test-pack",
+                dependencies: [],
+                isRequired: true,
+                // hookEvent is nil
+                installAction: .copyPackFile(
+                    source: hookSource,
+                    destination: "helper.sh",
+                    fileType: .hook
+                )
+            )]
+        )
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let configurator = makeConfigurator()
+        try configurator.configure(at: tmpDir, packs: [pack])
+
+        // No settings.local.json should be created (no derivable entries)
+        let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
+        #expect(!FileManager.default.fileExists(atPath: settingsPath.path))
+    }
+
+    @Test("Auto-derived hooks deduplicate with settingsFile merge")
+    func hookDeduplicationWithSettingsFile() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create hook source
+        let packDir = tmpDir.appendingPathComponent("pack/hooks")
+        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
+        let hookSource = packDir.appendingPathComponent("session_start.sh")
+        try "#!/bin/bash".write(to: hookSource, atomically: true, encoding: .utf8)
+
+        // Create a settings file that also declares the same hook (old-style path)
+        var packSettings = Settings()
+        packSettings.hooks = [
+            "SessionStart": [
+                Settings.HookGroup(
+                    matcher: nil,
+                    hooks: [Settings.HookEntry(
+                        type: "command",
+                        command: "bash ~/.claude/hooks/session_start.sh"
+                    )]
+                )
+            ]
+        ]
+        let settingsURL = tmpDir.appendingPathComponent("pack-settings.json")
+        try packSettings.save(to: settingsURL)
+
+        let pack = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.hook-session",
+                    displayName: "Session hook",
+                    description: "Hook with event",
+                    type: .hookFile,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: true,
+                    hookEvent: "SessionStart",
+                    installAction: .copyPackFile(
+                        source: hookSource,
+                        destination: "session_start.sh",
+                        fileType: .hook
+                    )
+                ),
+                ComponentDefinition(
+                    id: "test-pack.settings",
+                    displayName: "Settings",
+                    description: "Pack settings",
+                    type: .configuration,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: true,
+                    installAction: .settingsMerge(source: settingsURL)
+                ),
+            ]
+        )
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let configurator = makeConfigurator()
+        try configurator.configure(at: tmpDir, packs: [pack])
+
+        let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
+        let result = try Settings.load(from: settingsPath)
+
+        // Should have both entries (different commands — project-local vs global)
+        let sessionGroups = result.hooks?["SessionStart"] ?? []
+        let commands = sessionGroups.compactMap { $0.hooks?.first?.command }
+        #expect(commands.contains("bash .claude/hooks/session_start.sh"))
+        #expect(commands.contains("bash ~/.claude/hooks/session_start.sh"))
+        #expect(sessionGroups.count == 2)
+    }
+
+    @Test("hookCommands tracked in artifact record")
+    func hookCommandsInArtifactRecord() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let pack = try makeHookPack(tmpDir: tmpDir)
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let configurator = makeConfigurator()
+        try configurator.configure(at: tmpDir, packs: [pack])
+
+        // Read project state and check hookCommands
+        let state = ProjectState(projectRoot: tmpDir)
+        let artifacts = state.artifacts(for: "test-pack")
+        #expect(artifacts != nil)
+        #expect(artifacts?.hookCommands.contains("bash .claude/hooks/session_start.sh") == true)
+    }
+}
+
 /// Minimal TechPack implementation for dry-run tests.
 private struct MockTechPack: TechPack {
     let identifier: String

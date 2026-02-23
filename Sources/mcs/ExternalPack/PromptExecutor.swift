@@ -71,13 +71,14 @@ struct PromptExecutor: Sendable {
 
     // MARK: - File Detect
 
-    /// Scan for files matching a glob pattern and present a selector.
+    /// Scan for files matching one or more patterns and present a selector.
     private func executeFileDetect(
         prompt: ExternalPromptDefinition,
         projectPath: URL
     ) throws -> String {
-        let pattern = prompt.detectPattern ?? "*"
-        let files = detectFiles(matching: pattern, in: projectPath)
+        let patterns = prompt.detectPatterns ?? ["*"]
+        let files = Self.detectFiles(matching: patterns, in: projectPath)
+        let patternDesc = patterns.joined(separator: ", ")
 
         switch files.count {
         case 0:
@@ -85,7 +86,7 @@ struct PromptExecutor: Sendable {
             let label = prompt.label ?? "Enter value for \(prompt.key)"
             let entered = output.promptInline(label, default: prompt.defaultValue)
             if entered.isEmpty {
-                throw PromptError.noFilesDetected(pattern: pattern)
+                throw PromptError.noFilesDetected(pattern: patternDesc)
             }
             return entered
 
@@ -102,6 +103,22 @@ struct PromptExecutor: Sendable {
             let selected = output.singleSelect(title: label, items: items)
             return files[selected]
         }
+    }
+
+    /// Detect files matching multiple patterns in a directory.
+    /// Results are returned in pattern order (first pattern's matches first),
+    /// deduplicated, so earlier patterns take priority.
+    static func detectFiles(matching patterns: [String], in directory: URL) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for pattern in patterns {
+            for file in detectFiles(matching: pattern, in: directory) {
+                if seen.insert(file).inserted {
+                    result.append(file)
+                }
+            }
+        }
+        return result
     }
 
     /// Detect files matching a simple extension-based pattern in a directory.
@@ -145,11 +162,6 @@ struct PromptExecutor: Sendable {
         return contents
             .map(\.lastPathComponent)
             .sorted()
-    }
-
-    /// Delegates to the static implementation for consistent file detection.
-    private func detectFiles(matching pattern: String, in directory: URL) -> [String] {
-        Self.detectFiles(matching: pattern, in: directory)
     }
 
     // MARK: - Input

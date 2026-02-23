@@ -114,6 +114,110 @@ struct PromptExecutorTests {
         #expect(matches == ["Makefile"])
     }
 
+    // MARK: - Multi-pattern detection
+
+    @Test("detectFiles with multiple patterns returns results in pattern order")
+    func detectFilesMultiplePatterns() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try "".write(to: tmpDir.appendingPathComponent("App.xcodeproj"), atomically: true, encoding: .utf8)
+        try "".write(to: tmpDir.appendingPathComponent("App.xcworkspace"), atomically: true, encoding: .utf8)
+        try "".write(to: tmpDir.appendingPathComponent("Lib.xcodeproj"), atomically: true, encoding: .utf8)
+        try "".write(to: tmpDir.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+
+        // Workspaces first, then projects
+        let matches = PromptExecutor.detectFiles(
+            matching: ["*.xcworkspace", "*.xcodeproj"],
+            in: tmpDir
+        )
+
+        #expect(matches == ["App.xcworkspace", "App.xcodeproj", "Lib.xcodeproj"])
+        #expect(!matches.contains("README.md"))
+    }
+
+    @Test("detectFiles with multiple patterns deduplicates across patterns")
+    func detectFilesMultiPatternDedup() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try "".write(to: tmpDir.appendingPathComponent("App.xcodeproj"), atomically: true, encoding: .utf8)
+
+        // Same file matched by both patterns — should appear only once
+        let matches = PromptExecutor.detectFiles(
+            matching: ["*.xcodeproj", "*.xcodeproj"],
+            in: tmpDir
+        )
+
+        #expect(matches == ["App.xcodeproj"])
+    }
+
+    @Test("detectFiles with empty patterns array returns empty")
+    func detectFilesEmptyPatterns() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try "".write(to: tmpDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+
+        let matches = PromptExecutor.detectFiles(matching: [], in: tmpDir)
+
+        #expect(matches.isEmpty)
+    }
+
+    // MARK: - YAML deserialization (string vs array)
+
+    @Test("detectPattern YAML string deserializes to single-element array")
+    func detectPatternYAMLString() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: test
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            prompts:
+              - key: project
+                type: fileDetect
+                label: "Project"
+                detectPattern: "*.xcodeproj"
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        #expect(manifest.prompts?[0].detectPatterns == ["*.xcodeproj"])
+    }
+
+    @Test("detectPattern YAML array deserializes to array")
+    func detectPatternYAMLArray() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: test
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            prompts:
+              - key: project
+                type: fileDetect
+                label: "Project"
+                detectPattern:
+                  - "*.xcworkspace"
+                  - "*.xcodeproj"
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        #expect(manifest.prompts?[0].detectPatterns == ["*.xcworkspace", "*.xcodeproj"])
+    }
+
     // MARK: - Script Prompt Execution
 
     @Test("Script prompt captures stdout as value")
@@ -130,7 +234,7 @@ struct PromptExecutorTests {
             label: "Detected version",
             defaultValue: nil,
             options: nil,
-            detectPattern: nil,
+            detectPatterns: nil,
             scriptCommand: "echo 2.1.0"
         )
 
@@ -158,7 +262,7 @@ struct PromptExecutorTests {
             label: "Broken script",
             defaultValue: nil,
             options: nil,
-            detectPattern: nil,
+            detectPatterns: nil,
             scriptCommand: "echo error >&2 && exit 1"
         )
 
@@ -183,7 +287,7 @@ struct PromptExecutorTests {
             label: "No script",
             defaultValue: "default-val",
             options: nil,
-            detectPattern: nil,
+            detectPatterns: nil,
             scriptCommand: nil
         )
 
@@ -214,7 +318,7 @@ struct PromptExecutorTests {
                 label: nil,
                 defaultValue: nil,
                 options: nil,
-                detectPattern: nil,
+                detectPatterns: nil,
                 scriptCommand: "echo 1.0.0"
             ),
             ExternalPromptDefinition(
@@ -223,7 +327,7 @@ struct PromptExecutorTests {
                 label: nil,
                 defaultValue: nil,
                 options: nil,
-                detectPattern: nil,
+                detectPatterns: nil,
                 scriptCommand: "echo my-app"
             ),
         ]
@@ -252,7 +356,7 @@ struct PromptExecutorTests {
             label: "Pick one",
             defaultValue: "fallback",
             options: [],
-            detectPattern: nil,
+            detectPatterns: nil,
             scriptCommand: nil
         )
 
@@ -277,7 +381,7 @@ struct PromptExecutorTests {
             label: "Pick one",
             defaultValue: "default-pick",
             options: nil,
-            detectPattern: nil,
+            detectPatterns: nil,
             scriptCommand: nil
         )
 

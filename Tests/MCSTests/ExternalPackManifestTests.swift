@@ -1052,7 +1052,7 @@ struct ExternalPackManifestTests {
         #expect(prompts.count == 4)
 
         #expect(prompts[0].type == .fileDetect)
-        #expect(prompts[0].detectPattern == "*.xcodeproj")
+        #expect(prompts[0].detectPatterns == ["*.xcodeproj"])
 
         #expect(prompts[1].type == .input)
         #expect(prompts[1].defaultValue == "MyApp")
@@ -1273,6 +1273,289 @@ struct ExternalPackManifestTests {
         #expect(component.dependencies == nil)
         #expect(component.isRequired == nil)
         #expect(component.doctorChecks == nil)
+    }
+
+    // MARK: - Hook contribution default position
+
+    // MARK: - Normalization (auto-prefix)
+
+    @Test("normalized() auto-prefixes short component IDs with pack identifier")
+    func normalizeShortIDs() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+              - id: brew
+                displayName: Brew
+                description: A package
+                type: brewPackage
+                installAction:
+                  type: brewInstall
+                  package: my-pkg
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        #expect(normalized.components?[0].id == "my-pack.server")
+        #expect(normalized.components?[1].id == "my-pack.brew")
+    }
+
+    @Test("normalized() leaves already-prefixed IDs unchanged")
+    func normalizeAlreadyPrefixed() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: my-pack.server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        #expect(normalized.components?[0].id == "my-pack.server")
+    }
+
+    @Test("normalized() auto-prefixes intra-pack dependencies")
+    func normalizeIntraPackDeps() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: brew
+                displayName: Brew
+                description: A package
+                type: brewPackage
+                installAction:
+                  type: brewInstall
+                  package: my-pkg
+              - id: server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                dependencies:
+                  - brew
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        #expect(normalized.components?[1].dependencies == ["my-pack.brew"])
+    }
+
+    @Test("normalized() leaves cross-pack dependencies unchanged")
+    func normalizeCrossPackDeps() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                dependencies:
+                  - other-pack.tool
+                  - brew
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        #expect(normalized.components?[0].dependencies == ["other-pack.tool", "my-pack.brew"])
+    }
+
+    @Test("normalized() with no components returns manifest unchanged")
+    func normalizeNoComponents() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        #expect(normalized.components == nil)
+        #expect(normalized.identifier == "my-pack")
+    }
+
+    @Test("normalized() then validate() accepts short IDs")
+    func normalizeAndValidate() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        // Should not throw — normalized IDs now have the correct prefix
+        try normalized.validate()
+    }
+
+    // MARK: - Template section normalization
+
+    @Test("normalized() auto-prefixes short template section identifiers")
+    func normalizeTemplateSections() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: My Pack
+            description: Test
+            version: "1.0.0"
+            templates:
+              - sectionIdentifier: ios
+                contentFile: templates/ios.md
+              - sectionIdentifier: git
+                contentFile: templates/git.md
+            """
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        #expect(normalized.templates?[0].sectionIdentifier == "my-pack.ios")
+        #expect(normalized.templates?[1].sectionIdentifier == "my-pack.git")
+    }
+
+    @Test("normalized() leaves already-prefixed template sections unchanged")
+    func normalizeTemplateSectionsAlreadyPrefixed() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: My Pack
+            description: Test
+            version: "1.0.0"
+            templates:
+              - sectionIdentifier: my-pack.ios
+                contentFile: templates/ios.md
+            """
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        #expect(normalized.templates?[0].sectionIdentifier == "my-pack.ios")
+    }
+
+    @Test("normalized() then validate() accepts short template section identifiers")
+    func normalizeAndValidateTemplateSections() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: My Pack
+            description: Test
+            version: "1.0.0"
+            templates:
+              - sectionIdentifier: ios
+                contentFile: templates/ios.md
+            """
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = raw.normalized()
+
+        // Should not throw — normalized section IDs now have the correct prefix
+        try normalized.validate()
     }
 
     // MARK: - Hook contribution default position

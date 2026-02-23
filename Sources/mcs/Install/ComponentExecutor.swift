@@ -166,12 +166,15 @@ struct ComponentExecutor {
     // MARK: - Project-Scoped File Installation
 
     /// Copy a file or directory from an external pack into the project's `.claude/` tree.
+    /// Text files are run through the template engine so `__PLACEHOLDER__` tokens
+    /// are replaced with resolved prompt values.
     /// Returns the project-relative paths of installed files (for artifact tracking).
     mutating func installProjectFile(
         source: URL,
         destination: String,
         fileType: CopyFileType,
-        projectPath: URL
+        projectPath: URL,
+        resolvedValues: [String: String] = [:]
     ) -> [String] {
         let fm = FileManager.default
         let baseDir = fileType.projectBaseDirectory(projectPath: projectPath)
@@ -200,14 +203,14 @@ struct ComponentExecutor {
                     if fm.fileExists(atPath: destFile.path) {
                         try fm.removeItem(at: destFile)
                     }
-                    try fm.copyItem(at: file, to: destFile)
+                    try Self.copyWithSubstitution(from: file, to: destFile, values: resolvedValues)
                     installedPaths.append(projectRelativePath(destFile, projectPath: projectPath))
                 }
             } else {
                 if fm.fileExists(atPath: destURL.path) {
                     try fm.removeItem(at: destURL)
                 }
-                try fm.copyItem(at: source, to: destURL)
+                try Self.copyWithSubstitution(from: source, to: destURL, values: resolvedValues)
                 if fileType == .hook {
                     try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destURL.path)
                 }
@@ -217,6 +220,22 @@ struct ComponentExecutor {
         } catch {
             output.warn(error.localizedDescription)
             return []
+        }
+    }
+
+    /// Copy a file, substituting `__PLACEHOLDER__` values in text files.
+    /// Falls back to binary copy for non-UTF-8 files or when no values are provided.
+    static func copyWithSubstitution(
+        from source: URL,
+        to destination: URL,
+        values: [String: String]
+    ) throws {
+        if !values.isEmpty,
+           let text = try? String(contentsOf: source, encoding: .utf8) {
+            let substituted = TemplateEngine.substitute(template: text, values: values)
+            try substituted.write(to: destination, atomically: true, encoding: .utf8)
+        } else {
+            try FileManager.default.copyItem(at: source, to: destination)
         }
     }
 
@@ -255,9 +274,9 @@ struct ComponentExecutor {
     /// doctor checks used by `mcs doctor`, ensuring install and doctor always use
     /// the same detection logic.
     static func isAlreadyInstalled(_ component: ComponentDefinition) -> Bool {
-        // Idempotent actions: always re-run
+        // Convergent actions: always re-run to pick up config changes
         switch component.installAction {
-        case .settingsMerge, .gitignoreEntries, .copyPackFile:
+        case .settingsMerge, .gitignoreEntries, .copyPackFile, .mcpServer:
             return false
         default:
             break

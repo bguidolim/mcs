@@ -25,6 +25,9 @@ struct ComponentDefinition: Sendable, Identifiable {
     let packIdentifier: String? // nil for core components
     let dependencies: [String] // IDs of components this depends on
     let isRequired: Bool // If true, always installed with its pack/core
+    /// Claude Code hook event name (e.g. "SessionStart") for hookFile components.
+    /// When set, the engine auto-registers this hook in settings.local.json.
+    let hookEvent: String?
     let installAction: ComponentInstallAction
 
     /// Additional doctor checks that cannot be auto-derived from installAction.
@@ -39,6 +42,7 @@ struct ComponentDefinition: Sendable, Identifiable {
         packIdentifier: String?,
         dependencies: [String],
         isRequired: Bool,
+        hookEvent: String? = nil,
         installAction: ComponentInstallAction,
         supplementaryChecks: [any DoctorCheck] = []
     ) {
@@ -49,6 +53,7 @@ struct ComponentDefinition: Sendable, Identifiable {
         self.packIdentifier = packIdentifier
         self.dependencies = dependencies
         self.isRequired = isRequired
+        self.hookEvent = hookEvent
         self.installAction = installAction
         self.supplementaryChecks = supplementaryChecks
     }

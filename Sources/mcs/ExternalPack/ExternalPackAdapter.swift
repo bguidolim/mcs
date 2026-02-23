@@ -182,6 +182,7 @@ struct ExternalPackAdapter: TechPack {
             packIdentifier: manifest.identifier,
             dependencies: ext.dependencies ?? [],
             isRequired: ext.isRequired ?? false,
+            hookEvent: ext.hookEvent,
             installAction: action,
             supplementaryChecks: supplementary
         )

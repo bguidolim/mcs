@@ -166,6 +166,49 @@ extension ExternalPackManifest {
     }
 }
 
+// MARK: - Normalization
+
+extension ExternalPackManifest {
+    /// Returns a copy with short component IDs and intra-pack dependencies auto-prefixed
+    /// with the pack identifier. IDs that already contain a dot are left as-is.
+    func normalized() -> ExternalPackManifest {
+        let prefix = "\(identifier)."
+        let normalizedComponents = components?.map { component -> ExternalComponentDefinition in
+            var c = component
+            if !c.id.contains(".") {
+                c.id = prefix + c.id
+            }
+            c.dependencies = c.dependencies?.map { dep in
+                dep.contains(".") ? dep : prefix + dep
+            }
+            return c
+        }
+        let normalizedTemplates = templates?.map { template -> ExternalTemplateDefinition in
+            var t = template
+            if !t.sectionIdentifier.contains(".") {
+                t.sectionIdentifier = prefix + t.sectionIdentifier
+            }
+            return t
+        }
+        return ExternalPackManifest(
+            schemaVersion: schemaVersion,
+            identifier: identifier,
+            displayName: displayName,
+            description: description,
+            version: version,
+            minMCSVersion: minMCSVersion,
+            peerDependencies: peerDependencies,
+            components: normalizedComponents,
+            templates: normalizedTemplates,
+            hookContributions: hookContributions,
+            gitignoreEntries: gitignoreEntries,
+            prompts: prompts,
+            configureProject: configureProject,
+            supplementaryDoctorChecks: supplementaryDoctorChecks
+        )
+    }
+}
+
 // MARK: - Errors
 
 /// Errors that can occur during manifest loading or validation.
@@ -212,12 +255,15 @@ struct PeerDependency: Codable, Sendable, Equatable {
 
 /// Declarative definition of an installable component within an external pack.
 struct ExternalComponentDefinition: Codable, Sendable {
-    let id: String
+    var id: String
     let displayName: String
     let description: String
     let type: ExternalComponentType
-    let dependencies: [String]?
+    var dependencies: [String]?
     let isRequired: Bool?
+    /// Claude Code hook event name (e.g. "SessionStart", "PreToolUse") for `hookFile` components.
+    /// When set, the engine auto-registers this hook in `settings.local.json`.
+    let hookEvent: String?
     let installAction: ExternalInstallAction
     let doctorChecks: [ExternalDoctorCheckDefinition]?
 }
@@ -423,7 +469,7 @@ enum ExternalCopyFileType: String, Codable, Sendable {
 
 /// A template contribution declared in an external pack manifest.
 struct ExternalTemplateDefinition: Codable, Sendable {
-    let sectionIdentifier: String
+    var sectionIdentifier: String
     let placeholders: [String]?
     let contentFile: String
 }
@@ -465,7 +511,9 @@ struct ExternalPromptDefinition: Codable, Sendable {
     let label: String?
     let defaultValue: String?
     let options: [ExternalPromptOption]?
-    let detectPattern: String?
+    /// File patterns to detect. Accepts a single string or an array in YAML.
+    /// Results are returned in pattern order (first pattern's matches first).
+    let detectPatterns: [String]?
     let scriptCommand: String?
 
     enum CodingKeys: String, CodingKey {
@@ -474,8 +522,49 @@ struct ExternalPromptDefinition: Codable, Sendable {
         case label
         case defaultValue = "default"
         case options
-        case detectPattern
+        case detectPatterns = "detectPattern"
         case scriptCommand
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        type = try container.decode(ExternalPromptType.self, forKey: .type)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        defaultValue = try container.decodeIfPresent(String.self, forKey: .defaultValue)
+        options = try container.decodeIfPresent([ExternalPromptOption].self, forKey: .options)
+        scriptCommand = try container.decodeIfPresent(String.self, forKey: .scriptCommand)
+
+        // detectPattern: accept String or [String]
+        if container.contains(.detectPatterns) {
+            if let array = try? container.decode([String].self, forKey: .detectPatterns) {
+                detectPatterns = array
+            } else if let single = try? container.decode(String.self, forKey: .detectPatterns) {
+                detectPatterns = [single]
+            } else {
+                detectPatterns = nil
+            }
+        } else {
+            detectPatterns = nil
+        }
+    }
+
+    init(
+        key: String,
+        type: ExternalPromptType,
+        label: String?,
+        defaultValue: String?,
+        options: [ExternalPromptOption]?,
+        detectPatterns: [String]?,
+        scriptCommand: String?
+    ) {
+        self.key = key
+        self.type = type
+        self.label = label
+        self.defaultValue = defaultValue
+        self.options = options
+        self.detectPatterns = detectPatterns
+        self.scriptCommand = scriptCommand
     }
 }
 

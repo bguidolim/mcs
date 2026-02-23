@@ -278,48 +278,52 @@ struct ProjectConfigurator {
             autoInstallGlobalDependencies(pack)
         }
 
-        // 3. Install per-project files for additions and updates
+        // 3. Resolve all template/placeholder values upfront (single pass)
+        let repoName = resolveRepoName(at: projectPath)
+        var allValues = resolveAllTemplateValues(packs: packs, projectPath: projectPath, repoName: repoName)
+
+        // 4. Auto-prompt for undeclared placeholders in pack files
+        let undeclared = scanForUndeclaredPlaceholders(packs: packs, resolvedValues: allValues)
+        for key in undeclared {
+            let value = output.promptInline("Set value for \(key)", default: nil)
+            allValues[key] = value
+        }
+
+        // 5. Install per-project files with resolved values
         for pack in packs {
             let isNew = additions.contains(pack.identifier)
             let label = isNew ? "Configuring" : "Updating"
             output.info("\(label) \(pack.displayName)...")
-            let artifacts = installProjectArtifacts(pack, at: projectPath)
+            let artifacts = installProjectArtifacts(pack, at: projectPath, resolvedValues: allValues)
             projectState.setArtifacts(artifacts, for: pack.identifier)
             projectState.recordPack(pack.identifier)
         }
 
-        // 4. Compose settings.local.json from ALL selected packs
+        // 6. Compose settings.local.json from ALL selected packs
         composeProjectSettings(at: projectPath, packs: packs)
 
-        // 5. Compose CLAUDE.local.md from ALL selected packs
-        let repoName = resolveRepoName(at: projectPath)
-        try composeClaudeLocal(at: projectPath, packs: packs, repoName: repoName)
+        // 7. Compose CLAUDE.local.md with pre-resolved values
+        try composeClaudeLocal(at: projectPath, packs: packs, values: allValues)
 
-        // 6. Run pack-specific configureProject hooks
+        // 8. Run pack-specific configureProject hooks with resolved values
         for pack in packs {
-            var context = ProjectConfigContext(
-                projectPath: projectPath,
-                repoName: repoName,
-                output: output
-            )
-            let packValues = pack.templateValues(context: context)
-            context = ProjectConfigContext(
+            let context = ProjectConfigContext(
                 projectPath: projectPath,
                 repoName: repoName,
                 output: output,
-                resolvedValues: packValues
+                resolvedValues: allValues
             )
             try pack.configureProject(at: projectPath, context: context)
         }
 
-        // 7. Ensure gitignore entries
+        // 9. Ensure gitignore entries
         try ensureGitignoreEntries()
         for pack in packs {
             let exec = makeExecutor()
             exec.addPackGitignoreEntries(from: pack)
         }
 
-        // 8. Save project state
+        // 10. Save project state
         do {
             try projectState.save()
             output.success("Updated .claude/.mcs-project")
@@ -355,6 +359,30 @@ struct ProjectConfigurator {
         for path in artifacts.files {
             exec.removeProjectFile(relativePath: path, projectPath: projectPath)
             output.dimmed("  Removed: \(path)")
+        }
+
+        // Remove auto-derived hook commands from settings.local.json
+        if !artifacts.hookCommands.isEmpty {
+            let settingsPath = projectPath
+                .appendingPathComponent(Constants.FileNames.claudeDirectory)
+                .appendingPathComponent("settings.local.json")
+            if var settings = try? Settings.load(from: settingsPath) {
+                let commandsToRemove = Set(artifacts.hookCommands)
+                if var hooks = settings.hooks {
+                    for (event, groups) in hooks {
+                        hooks[event] = groups.filter { group in
+                            guard let cmd = group.hooks?.first?.command else { return true }
+                            return !commandsToRemove.contains(cmd)
+                        }
+                    }
+                    hooks = hooks.filter { !$0.value.isEmpty }
+                    settings.hooks = hooks.isEmpty ? nil : hooks
+                }
+                try? settings.save(to: settingsPath)
+                for cmd in artifacts.hookCommands {
+                    output.dimmed("  Removed hook: \(cmd)")
+                }
+            }
         }
 
         // Remove template sections from CLAUDE.local.md
@@ -402,12 +430,21 @@ struct ProjectConfigurator {
     /// Returns a `PackArtifactRecord` tracking what was installed.
     private func installProjectArtifacts(
         _ pack: any TechPack,
-        at projectPath: URL
+        at projectPath: URL,
+        resolvedValues: [String: String] = [:]
     ) -> PackArtifactRecord {
         var artifacts = PackArtifactRecord()
         var exec = makeExecutor()
 
         for component in pack.components {
+            // Check doctor checks before running install — skip if already installed.
+            // Convergent actions (copyPackFile, settingsMerge, mcpServer, gitignore)
+            // always report not-installed so they re-run to pick up changes.
+            if ComponentExecutor.isAlreadyInstalled(component) {
+                output.dimmed("  \(component.displayName) already installed, skipping")
+                continue
+            }
+
             switch component.installAction {
             case .mcpServer(let config):
                 if exec.installMCPServer(config) {
@@ -423,9 +460,16 @@ struct ProjectConfigurator {
                     source: source,
                     destination: destination,
                     fileType: fileType,
-                    projectPath: projectPath
+                    projectPath: projectPath,
+                    resolvedValues: resolvedValues
                 )
                 artifacts.files.append(contentsOf: paths)
+                // Track auto-derived hook commands for convergence cleanup
+                if component.type == .hookFile,
+                   component.hookEvent != nil,
+                   fileType == .hook {
+                    artifacts.hookCommands.append("bash .claude/hooks/\(destination)")
+                }
                 if !paths.isEmpty {
                     output.success("  \(component.displayName) installed")
                 }
@@ -488,6 +532,41 @@ struct ProjectConfigurator {
             }
         }
 
+        // Auto-derive hook entries from hookFile components with hookEvent
+        for pack in packs {
+            for component in pack.components {
+                if component.type == .hookFile,
+                   let hookEvent = component.hookEvent,
+                   case .copyPackFile(_, let destination, .hook) = component.installAction {
+                    let command = "bash .claude/hooks/\(destination)"
+                    let entry = Settings.HookEntry(type: "command", command: command)
+                    let group = Settings.HookGroup(matcher: nil, hooks: [entry])
+                    var existing = settings.hooks ?? [:]
+                    var groups = existing[hookEvent] ?? []
+                    if !groups.contains(where: { $0.hooks?.first?.command == command }) {
+                        groups.append(group)
+                    }
+                    existing[hookEvent] = groups
+                    settings.hooks = existing
+                    hasContent = true
+                }
+            }
+        }
+
+        // Auto-derive enabledPlugins from plugin components
+        for pack in packs {
+            for component in pack.components {
+                if case .plugin(let name) = component.installAction {
+                    var plugins = settings.enabledPlugins ?? [:]
+                    if plugins[name] == nil {
+                        plugins[name] = true
+                    }
+                    settings.enabledPlugins = plugins
+                    hasContent = true
+                }
+            }
+        }
+
         // Merge settings files from packs
         for pack in packs {
             for component in pack.components {
@@ -536,20 +615,12 @@ struct ProjectConfigurator {
     private func composeClaudeLocal(
         at projectPath: URL,
         packs: [any TechPack],
-        repoName: String
+        values: [String: String]
     ) throws {
         var allContributions: [TemplateContribution] = []
-        var allValues: [String: String] = ["REPO_NAME": repoName]
 
         for pack in packs {
             allContributions.append(contentsOf: pack.templates)
-            let context = ProjectConfigContext(
-                projectPath: projectPath,
-                repoName: repoName,
-                output: output
-            )
-            let packValues = pack.templateValues(context: context)
-            allValues.merge(packValues) { _, new in new }
         }
 
         guard !allContributions.isEmpty else {
@@ -560,7 +631,7 @@ struct ProjectConfigurator {
         try writeClaudeLocal(
             at: projectPath,
             contributions: allContributions,
-            values: allValues
+            values: values
         )
     }
 
@@ -655,6 +726,90 @@ struct ProjectConfigurator {
     private func ensureGitignoreEntries() throws {
         let manager = GitignoreManager(shell: shell)
         try manager.addCoreEntries()
+    }
+
+    // MARK: - Value Resolution
+
+    /// Resolve all template/placeholder values from pack prompts in a single pass.
+    /// Returns a merged dictionary with `REPO_NAME` and all pack-declared prompt values.
+    private func resolveAllTemplateValues(
+        packs: [any TechPack],
+        projectPath: URL,
+        repoName: String
+    ) -> [String: String] {
+        var allValues: [String: String] = ["REPO_NAME": repoName]
+        let context = ProjectConfigContext(
+            projectPath: projectPath,
+            repoName: repoName,
+            output: output
+        )
+        for pack in packs {
+            let packValues = pack.templateValues(context: context)
+            allValues.merge(packValues) { _, new in new }
+        }
+        return allValues
+    }
+
+    /// Scan all `copyPackFile` sources and template content for `__PLACEHOLDER__` tokens
+    /// that are not covered by resolved values. Returns the undeclared keys sorted alphabetically.
+    private func scanForUndeclaredPlaceholders(
+        packs: [any TechPack],
+        resolvedValues: [String: String]
+    ) -> [String] {
+        var undeclared = Set<String>()
+        let resolvedKeys = Set(resolvedValues.keys)
+
+        for pack in packs {
+            // Scan copyPackFile sources
+            for component in pack.components {
+                if case .copyPackFile(let source, _, _) = component.installAction {
+                    for placeholder in Self.findPlaceholdersInSource(source) {
+                        let key = Self.stripPlaceholderDelimiters(placeholder)
+                        if !resolvedKeys.contains(key) {
+                            undeclared.insert(key)
+                        }
+                    }
+                }
+            }
+
+            // Scan template content
+            for template in pack.templates {
+                for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
+                    let key = Self.stripPlaceholderDelimiters(placeholder)
+                    if !resolvedKeys.contains(key) {
+                        undeclared.insert(key)
+                    }
+                }
+            }
+        }
+
+        return undeclared.sorted()
+    }
+
+    /// Find all `__PLACEHOLDER__` tokens in a file or directory of files.
+    private static func findPlaceholdersInSource(_ source: URL) -> [String] {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: source.path, isDirectory: &isDir) else { return [] }
+
+        let files: [URL]
+        if isDir.boolValue {
+            files = (try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)) ?? []
+        } else {
+            files = [source]
+        }
+
+        var results: [String] = []
+        for file in files {
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            results.append(contentsOf: TemplateEngine.findUnreplacedPlaceholders(in: text))
+        }
+        return results
+    }
+
+    /// Strip `__` delimiters from a placeholder token: `__FOO__` → `FOO`.
+    private static func stripPlaceholderDelimiters(_ placeholder: String) -> String {
+        String(placeholder.dropFirst(2).dropLast(2))
     }
 
     // MARK: - Helpers

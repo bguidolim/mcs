@@ -80,11 +80,6 @@ struct Installer {
             throw MCSError.dependencyMissing("Homebrew")
         }
 
-        // Migrate old manifest file name if present
-        if environment.migrateManifestIfNeeded() {
-            output.dimmed("Migrated .setup-manifest → .mcs-manifest")
-        }
-
         output.plain("")
         output.info("Required dependencies are auto-resolved based on your choices.")
     }
@@ -417,10 +412,9 @@ struct Installer {
             backup = exec.backup
             return success
 
-        case .copySkill, .copyHook, .copyCommand, .settingsMerge:
-            // Legacy actions from compiled-in packs — no longer used.
-            // External packs use .copyPackFile and .settingsFile instead.
-            output.dimmed("Skipped legacy action for \(component.displayName)")
+        case .settingsMerge:
+            // Settings merge is handled at the project level by ProjectConfigurator.
+            output.dimmed("Skipped settingsMerge for \(component.displayName)")
             return true
         }
     }

@@ -244,8 +244,8 @@ struct ProjectConfigurator {
                     output.warn("  \(component.displayName) failed: \(String(result.stderr.prefix(200)))")
                 }
 
-            case .copySkill, .copyHook, .copyCommand, .settingsMerge:
-                // Legacy actions — no-op
+            case .settingsMerge:
+                // Settings merge is handled at the project level.
                 break
             }
         }

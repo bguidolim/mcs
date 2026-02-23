@@ -140,8 +140,8 @@ struct PackInstaller {
             backup = exec.backup
             return success
 
-        case .copySkill, .copyHook, .copyCommand, .settingsMerge:
-            // These are core-only actions, not used by pack components
+        case .settingsMerge:
+            // Settings merge is handled at the project level by ProjectConfigurator.
             return true
         }
     }

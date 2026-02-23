@@ -58,9 +58,6 @@ struct ComponentDefinition: Sendable, Identifiable {
 enum ComponentInstallAction: Sendable {
     case mcpServer(MCPServerConfig)
     case plugin(name: String)
-    case copySkill(source: String, destination: String)
-    case copyHook(source: String, destination: String)
-    case copyCommand(source: String, destination: String, placeholders: [String: String])
     case brewInstall(package: String)
     case shellCommand(command: String)
     case settingsMerge

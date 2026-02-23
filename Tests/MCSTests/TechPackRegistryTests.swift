@@ -39,47 +39,6 @@ struct TechPackRegistryTests {
         #expect(entries.isEmpty)
     }
 
-    // MARK: - installedPacks from manifest
-
-    @Test("installedPacks returns matching packs from manifest")
-    func installedPacksFromManifest() throws {
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mcs-registry-test-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let fakePack = FakeTechPack(identifier: "test-pack")
-        let registry = TechPackRegistry.withExternalPacks([fakePack])
-
-        let manifestFile = tmpDir.appendingPathComponent("manifest")
-        var manifest = Manifest(path: manifestFile)
-        manifest.initialize(sourceDirectory: "/test")
-        manifest.recordInstalledPack("test-pack")
-        try manifest.save()
-
-        let reloaded = Manifest(path: manifestFile)
-        let packs = registry.installedPacks(from: reloaded)
-        #expect(packs.count == 1)
-        #expect(packs.first?.identifier == "test-pack")
-    }
-
-    @Test("installedPacks returns empty when manifest has no packs")
-    func installedPacksEmptyManifest() throws {
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mcs-registry-test-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let manifestFile = tmpDir.appendingPathComponent("manifest")
-        var manifest = Manifest(path: manifestFile)
-        manifest.initialize(sourceDirectory: "/test")
-        try manifest.save()
-
-        let reloaded = Manifest(path: manifestFile)
-        let packs = TechPackRegistry.shared.installedPacks(from: reloaded)
-        #expect(packs.isEmpty)
-    }
-
     // MARK: - Template contributions
 
     @Test("templateContributions returns templates for registered pack")

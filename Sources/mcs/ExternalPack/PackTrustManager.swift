@@ -212,7 +212,7 @@ struct PackTrustManager: Sendable {
             }
 
             do {
-                let currentHash = try Manifest.sha256(of: fileURL)
+                let currentHash = try FileHasher.sha256(of: fileURL)
                 if currentHash != expectedHash {
                     modified.append(relativePath)
                 }
@@ -253,7 +253,7 @@ struct PackTrustManager: Sendable {
             let fileURL = updatedPackPath.appendingPathComponent(relativePath)
             let hash: String
             do {
-                hash = try Manifest.sha256(of: fileURL)
+                hash = try FileHasher.sha256(of: fileURL)
             } catch {
                 return true // Can't verify — flag for re-trust
             }
@@ -364,7 +364,7 @@ struct PackTrustManager: Sendable {
             if let relativePath = item.relativePath {
                 let fileURL = packPath.appendingPathComponent(relativePath)
                 if FileManager.default.fileExists(atPath: fileURL.path) {
-                    hashes[relativePath] = try Manifest.sha256(of: fileURL)
+                    hashes[relativePath] = try FileHasher.sha256(of: fileURL)
                 }
             } else {
                 // Inline command — hash the content with a deterministic synthetic key

@@ -3,12 +3,11 @@ import Foundation
 /// Orchestrates all doctor checks grouped by section, with optional fix mode.
 ///
 /// **Scope of `--fix`**: Cleanup, migration, and trivial repairs only.
-/// Additive operations (install/register/copy) are deferred to `mcs install`
-/// because only install manages the manifest and records file hashes.
+/// Additive operations (install/register/copy) are deferred to `mcs install`.
 /// See CoreDoctorChecks.swift header for the full responsibility boundary.
 struct DoctorRunner {
     let fixMode: Bool
-    /// Explicit pack filter. If nil, uses packs recorded in the manifest.
+    /// Explicit pack filter. If nil, uses packs from project state or pack registry.
     let packFilter: String?
     let registry: TechPackRegistry
 
@@ -28,8 +27,11 @@ struct DoctorRunner {
         output.header("My Claude Setup — Doctor")
 
         let env = Environment()
-        let manifest = Manifest(path: env.setupManifest)
         let registry = self.registry
+
+        // Resolve registered pack IDs from the YAML registry (replaces legacy .mcs-manifest)
+        let packRegistry = PackRegistryFile(path: env.packsRegistry)
+        let registeredPackIDs = Set((try? packRegistry.load())?.packs.map(\.identifier) ?? [])
 
         // Detect project root
         let projectRoot = ProjectDetector.findProjectRoot()
@@ -71,17 +73,17 @@ struct DoctorRunner {
                         installedPackIDs = inferred
                         packSource = "project: \(projectName ?? "unknown") (inferred)"
                     } else {
-                        installedPackIDs = manifest.installedPacks
+                        installedPackIDs = registeredPackIDs
                         packSource = "global"
                     }
                 } else {
-                    installedPackIDs = manifest.installedPacks
+                    installedPackIDs = registeredPackIDs
                     packSource = "global"
                 }
             }
         } else {
-            // 4. Not in a project — fall back to global manifest
-            installedPackIDs = manifest.installedPacks
+            // 4. Not in a project — fall back to pack registry
+            installedPackIDs = registeredPackIDs
             packSource = "global"
         }
 
@@ -107,7 +109,7 @@ struct DoctorRunner {
         allChecks.append(contentsOf: registry.supplementaryDoctorChecks(installedPacks: installedPackIDs))
 
         // Layer 4: Standalone checks (not tied to any component)
-        allChecks.append(contentsOf: standaloneDoctorChecks())
+        allChecks.append(contentsOf: standaloneDoctorChecks(installedPackIDs: installedPackIDs))
 
         // Layer 5: Project-scoped checks (only when inside a project)
         if let root = projectRoot {
@@ -146,7 +148,7 @@ struct DoctorRunner {
     // MARK: - Standalone checks (not tied to any component)
 
     /// Checks that cannot be derived from any ComponentDefinition.
-    private func standaloneDoctorChecks() -> [any DoctorCheck] {
+    private func standaloneDoctorChecks(installedPackIDs: Set<String>) -> [any DoctorCheck] {
         var checks: [any DoctorCheck] = []
 
         // Hook event registration in settings.json
@@ -157,7 +159,7 @@ struct DoctorRunner {
         checks.append(SettingsCheck())
 
         // Gitignore (cross-component aggregation)
-        checks.append(GitignoreCheck(registry: registry))
+        checks.append(GitignoreCheck(registry: registry, installedPackIDs: installedPackIDs))
 
         return checks
     }

@@ -70,12 +70,6 @@ struct TechPackRegistry: Sendable {
         coreComponents + allPackComponents
     }
 
-    /// Filter packs to only those that were explicitly installed.
-    func installedPacks(from manifest: Manifest) -> [any TechPack] {
-        let ids = manifest.installedPacks
-        return availablePacks.filter { ids.contains($0.identifier) }
-    }
-
     /// Get supplementary doctor checks only for installed packs.
     /// These are pack-level checks that cannot be auto-derived from components.
     func supplementaryDoctorChecks(installedPacks ids: Set<String>) -> [any DoctorCheck] {

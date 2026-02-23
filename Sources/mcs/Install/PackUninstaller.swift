@@ -60,26 +60,6 @@ struct PackUninstaller {
             }
         }
 
-        // 4. Clean manifest entries
-        var manifestTracker = Manifest(path: environment.setupManifest)
-        if let components = manifest.components {
-            for component in components {
-                if manifestTracker.removeInstalledComponent(component.id) {
-                    summary.manifestEntries.append(component.id)
-                }
-            }
-        }
-        manifestTracker.removeInstalledPack(manifest.identifier)
-        let hashCount = manifestTracker.removeHashesWithPrefix("packs/\(manifest.identifier)/")
-        if hashCount > 0 {
-            summary.manifestEntries.append("\(hashCount) file hash(es)")
-        }
-        do {
-            try manifestTracker.save()
-        } catch {
-            summary.errors.append("Manifest save: \(error.localizedDescription)")
-        }
-
         return summary
     }
 

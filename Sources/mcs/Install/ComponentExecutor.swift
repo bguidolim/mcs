@@ -129,8 +129,7 @@ struct ComponentExecutor {
     mutating func installCopyPackFile(
         source: URL,
         destination: String,
-        fileType: CopyFileType,
-        manifest: inout Manifest
+        fileType: CopyFileType
     ) -> Bool {
         let fm = FileManager.default
         let destURL = fileType.destinationURL(in: environment, destination: destination)
@@ -175,15 +174,6 @@ struct ComponentExecutor {
                         try fm.removeItem(at: destFile)
                     }
                     try fm.copyItem(at: file, to: destFile)
-                }
-                // Record per-file hashes
-                let fileHashes = try Manifest.directoryFileHashes(at: source)
-                let sourceRelative = source.lastPathComponent
-                for entry in fileHashes {
-                    manifest.recordHash(
-                        relativePath: "packs/\(sourceRelative)/\(entry.relativePath)",
-                        hash: entry.hash
-                    )
                 }
             } else {
                 // Source is a single file

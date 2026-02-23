@@ -227,10 +227,6 @@ struct Installer {
 
         output.header("Installing...")
 
-        // Initialize manifest
-        var manifest = Manifest(path: environment.setupManifest)
-        manifest.initialize(sourceDirectory: environment.claudeDirectory.path)
-
         // Ensure directories exist
         let fm = FileManager.default
         let dirs = [
@@ -256,18 +252,15 @@ struct Installer {
             if isAlreadyInstalled(component) {
                 skippedItems.append("\(component.displayName) (already installed)")
                 output.dimmed("Already installed, skipping")
-                manifest.recordInstalledComponent(component.id)
                 continue
             }
 
             let success = installComponent(
                 component,
-                state: state,
-                manifest: &manifest
+                state: state
             )
             if success {
                 installedItems.append(component.displayName)
-                manifest.recordInstalledComponent(component.id)
                 output.success("\(component.displayName) installed")
             } else {
                 skippedItems.append("\(component.displayName) (failed)")
@@ -275,27 +268,16 @@ struct Installer {
             }
         }
 
-        // Record which packs were installed
+        // Post-processing: add pack gitignore entries
         let installedPackIDs = Set(
             plan.orderedComponents.compactMap(\.packIdentifier)
         )
-        for packID in installedPackIDs {
-            manifest.recordInstalledPack(packID)
-        }
-
-        // Post-processing: add pack gitignore entries
         for packID in installedPackIDs {
             if let pack = registry.pack(for: packID) {
                 addPackGitignoreEntries(from: pack)
             }
         }
 
-        // Save manifest
-        do {
-            try manifest.save()
-        } catch {
-            output.warn("Could not save manifest: \(error.localizedDescription)")
-        }
     }
 
     // MARK: - Phase 5: Post-Summary
@@ -374,8 +356,7 @@ struct Installer {
 
     private mutating func installComponent(
         _ component: ComponentDefinition,
-        state: SelectionState,
-        manifest: inout Manifest
+        state: SelectionState
     ) -> Bool {
         switch component.installAction {
         case .brewInstall(let package):
@@ -406,8 +387,7 @@ struct Installer {
             let success = exec.installCopyPackFile(
                 source: source,
                 destination: destination,
-                fileType: fileType,
-                manifest: &manifest
+                fileType: fileType
             )
             backup = exec.backup
             return success

@@ -151,10 +151,10 @@ struct DerivedDoctorCheckTests {
 
 }
 
-// MARK: - Manifest directory hashing
+// MARK: - FileHasher directory hashing
 
-@Suite("ManifestDirectoryHashing")
-struct ManifestDirectoryHashingTests {
+@Suite("FileHasherDirectoryHashing")
+struct FileHasherDirectoryHashingTests {
     private func makeTmpDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("mcs-dirhash-test-\(UUID().uuidString)")
@@ -173,7 +173,7 @@ struct ManifestDirectoryHashingTests {
         try "file1".write(to: tmpDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
         try "file2".write(to: subDir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
 
-        let hashes = try Manifest.directoryFileHashes(at: tmpDir)
+        let hashes = try FileHasher.directoryFileHashes(at: tmpDir)
         let paths = hashes.map(\.relativePath)
 
         #expect(paths.contains("a.txt"))
@@ -190,7 +190,7 @@ struct ManifestDirectoryHashingTests {
         try "a".write(to: tmpDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
         try "b".write(to: tmpDir.appendingPathComponent("m.txt"), atomically: true, encoding: .utf8)
 
-        let hashes = try Manifest.directoryFileHashes(at: tmpDir)
+        let hashes = try FileHasher.directoryFileHashes(at: tmpDir)
         let paths = hashes.map(\.relativePath)
 
         #expect(paths == ["a.txt", "m.txt", "z.txt"])
@@ -204,7 +204,7 @@ struct ManifestDirectoryHashingTests {
         try "visible".write(to: tmpDir.appendingPathComponent("visible.txt"), atomically: true, encoding: .utf8)
         try "hidden".write(to: tmpDir.appendingPathComponent(".hidden"), atomically: true, encoding: .utf8)
 
-        let hashes = try Manifest.directoryFileHashes(at: tmpDir)
+        let hashes = try FileHasher.directoryFileHashes(at: tmpDir)
         #expect(hashes.count == 1)
         #expect(hashes.first?.relativePath == "visible.txt")
     }

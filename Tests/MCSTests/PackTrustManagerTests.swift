@@ -19,9 +19,9 @@ struct PackTrustManagerTests {
         try content.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// Compute SHA-256 of a file, matching what Manifest.sha256 does.
+    /// Compute SHA-256 of a file, matching what FileHasher.sha256 does.
     private func sha256(of url: URL) throws -> String {
-        try Manifest.sha256(of: url)
+        try FileHasher.sha256(of: url)
     }
 
     /// Write YAML to a temp directory and load as ExternalPackManifest.

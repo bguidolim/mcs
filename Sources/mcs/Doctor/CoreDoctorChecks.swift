@@ -11,8 +11,7 @@ import Foundation
 //
 // `doctor --fix` does NOT handle:
 // - **Additive operations**: Installing packages, registering servers, copying hooks/skills/commands.
-//   These are `mcs install`'s responsibility because only install manages the manifest
-//   (the system's source of truth for what's installed and at what hash).
+//   These are `mcs install`'s responsibility.
 //
 // This separation prevents inconsistent state where a file is present but
 // the manifest doesn't know about it, causing repeated false doctor warnings.
@@ -251,9 +250,11 @@ struct GitignoreCheck: DoctorCheck, Sendable {
     var name: String { "Global gitignore" }
     var section: String { "Gitignore" }
     let registry: TechPackRegistry
+    let installedPackIDs: Set<String>
 
-    init(registry: TechPackRegistry = .shared) {
+    init(registry: TechPackRegistry = .shared, installedPackIDs: Set<String> = []) {
         self.registry = registry
+        self.installedPackIDs = installedPackIDs
     }
 
     func check() -> CheckResult {
@@ -265,10 +266,8 @@ struct GitignoreCheck: DoctorCheck, Sendable {
         else {
             return .fail("global gitignore not found")
         }
-        // Check core entries + installed pack gitignore entries
-        let manifest = Manifest(path: Environment().setupManifest)
         let allEntries = GitignoreManager.coreEntries
-            + registry.gitignoreEntries(installedPacks: manifest.installedPacks)
+            + registry.gitignoreEntries(installedPacks: installedPackIDs)
         var missing: [String] = []
         for entry in allEntries {
             if !content.contains(entry) {
@@ -286,9 +285,7 @@ struct GitignoreCheck: DoctorCheck, Sendable {
         let gitignoreManager = GitignoreManager(shell: shell)
         do {
             try gitignoreManager.addCoreEntries()
-            // Also add installed pack entries
-            let manifest = Manifest(path: Environment().setupManifest)
-            for entry in registry.gitignoreEntries(installedPacks: manifest.installedPacks) {
+            for entry in registry.gitignoreEntries(installedPacks: installedPackIDs) {
                 try gitignoreManager.addEntry(entry)
             }
             return .fixed("added missing entries")

@@ -85,16 +85,6 @@ struct PackInstaller {
         let exec = executor
         exec.addPackGitignoreEntries(from: pack)
 
-        // Record pack in manifest
-        var manifest = Manifest(path: environment.setupManifest)
-        manifest.recordInstalledPack(pack.identifier)
-
-        do {
-            try manifest.save()
-        } catch {
-            output.warn("Could not save manifest: \(error.localizedDescription)")
-        }
-
         return allSucceeded
     }
 
@@ -128,15 +118,11 @@ struct PackInstaller {
             return exec.addGitignoreEntries(entries)
 
         case .copyPackFile(let source, let destination, let fileType):
-            var manifest = Manifest(path: environment.setupManifest)
             let success = exec.installCopyPackFile(
                 source: source,
                 destination: destination,
-                fileType: fileType,
-                manifest: &manifest
+                fileType: fileType
             )
-            // Persist manifest and sync backup state
-            try? manifest.save()
             backup = exec.backup
             return success
 

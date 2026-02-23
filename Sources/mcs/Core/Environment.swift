@@ -10,7 +10,6 @@ struct Environment: Sendable {
     let skillsDirectory: URL
     let commandsDirectory: URL
     let memoriesDirectory: URL
-    let setupManifest: URL
     let binDirectory: URL
 
     let architecture: Architecture
@@ -35,7 +34,6 @@ struct Environment: Sendable {
         self.skillsDirectory = claudeDir.appendingPathComponent("skills")
         self.commandsDirectory = claudeDir.appendingPathComponent("commands")
         self.memoriesDirectory = claudeDir.appendingPathComponent("memories")
-        self.setupManifest = claudeDir.appendingPathComponent(".mcs-manifest")
         self.binDirectory = claudeDir.appendingPathComponent("bin")
 
         #if arch(arm64)

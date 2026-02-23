@@ -242,9 +242,12 @@ enum SemVer {
     }
 
     /// Parse a version string into (major, minor, patch) components.
+    /// Strips pre-release suffixes (e.g., "2.1.0-alpha" → 2.1.0).
     /// Returns nil if the string does not contain at least three numeric components.
     static func parse(_ version: String) -> (major: Int, minor: Int, patch: Int)? {
-        let parts = version.split(separator: ".").compactMap { Int($0) }
+        // Strip pre-release suffix: "2.1.0-alpha" → "2.1.0"
+        let base = version.split(separator: "-", maxSplits: 1).first.map(String.init) ?? version
+        let parts = base.split(separator: ".").compactMap { Int($0) }
         guard parts.count >= 3 else { return nil }
         return (major: parts[0], minor: parts[1], patch: parts[2])
     }

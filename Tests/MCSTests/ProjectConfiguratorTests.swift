@@ -165,6 +165,46 @@ struct WriteClaudeLocalTests {
 
     // MARK: - Template substitution
 
+    // MARK: - Section removal on unconfigure
+
+    @Test("Unconfiguring a pack removes its template section from CLAUDE.local.md")
+    func unconfigureRemovesTemplateSection() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Set up a CLAUDE.local.md with core + ios sections
+        let claudeLocal = tmpDir.appendingPathComponent("CLAUDE.local.md")
+        let composed = TemplateComposer.compose(
+            coreContent: "Core rules",
+            packContributions: [iosContribution("iOS rules")],
+            values: [:]
+        )
+        try composed.write(to: claudeLocal, atomically: true, encoding: .utf8)
+
+        // Verify both sections exist
+        let before = try String(contentsOf: claudeLocal, encoding: .utf8)
+        let sectionsBefore = TemplateComposer.parseSections(from: before)
+        #expect(sectionsBefore.count == 2)
+
+        // Simulate unconfigure by removing the ios section (same logic as unconfigurePack)
+        let artifacts = PackArtifactRecord(templateSections: ["ios"])
+        var updated = before
+        for sectionID in artifacts.templateSections {
+            updated = TemplateComposer.removeSection(in: updated, sectionIdentifier: sectionID)
+        }
+        try updated.write(to: claudeLocal, atomically: true, encoding: .utf8)
+
+        // Verify only core remains
+        let after = try String(contentsOf: claudeLocal, encoding: .utf8)
+        let sectionsAfter = TemplateComposer.parseSections(from: after)
+        #expect(sectionsAfter.count == 1)
+        #expect(sectionsAfter[0].identifier == "core")
+        #expect(!after.contains("mcs:begin ios"))
+        #expect(!after.contains("mcs:end ios"))
+    }
+
+    // MARK: - Template substitution
+
     @Test("Pack template values are substituted during compose")
     func packValuesSubstituted() throws {
         let tmpDir = try makeTmpDir()

@@ -526,4 +526,25 @@ struct ExternalPackLoaderTests {
         let v = SemVer.parse("invalid")
         #expect(v == nil)
     }
+
+    @Test("SemVer.parse strips pre-release suffix")
+    func semverParsePreRelease() {
+        let v = SemVer.parse("2.1.0-alpha")
+        #expect(v != nil)
+        #expect(v?.major == 2)
+        #expect(v?.minor == 1)
+        #expect(v?.patch == 0)
+    }
+
+    @Test("SemVer.isCompatible with pre-release current version")
+    func semverPreReleaseCompatible() {
+        #expect(SemVer.isCompatible(current: "2.1.0-alpha", required: "2.1.0"))
+        #expect(SemVer.isCompatible(current: "2.1.0-alpha", required: "2.0.0"))
+        #expect(!SemVer.isCompatible(current: "2.1.0-alpha", required: "2.2.0"))
+    }
+
+    @Test("SemVer.isCompatible with pre-release required version")
+    func semverPreReleaseRequired() {
+        #expect(SemVer.isCompatible(current: "2.1.0", required: "2.1.0-beta"))
+    }
 }

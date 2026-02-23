@@ -17,7 +17,7 @@ struct HookInjectionTests {
         let endMarker = "# --- mcs:end \(packID) ---"
 
         // Remove existing section for idempotency (matches both versioned and unversioned markers)
-        let pattern = #"# --- mcs:begin \#(packID)( v[0-9]+\.[0-9]+\.[0-9]+)? ---"#
+        let pattern = #"# --- mcs:begin \#(packID)( v[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9._-]*)? ---"#
         if let beginRange = content.range(of: pattern, options: .regularExpression),
            let endRange = content.range(of: endMarker) {
             var removeEnd = endRange.upperBound

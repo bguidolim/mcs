@@ -173,6 +173,21 @@ struct ProjectConfigurator {
             output.dimmed("  Removed: \(path)")
         }
 
+        // Remove template sections from CLAUDE.local.md
+        if !artifacts.templateSections.isEmpty {
+            let claudeLocalPath = projectPath.appendingPathComponent(Constants.FileNames.claudeLocalMD)
+            if let content = try? String(contentsOf: claudeLocalPath, encoding: .utf8) {
+                var updated = content
+                for sectionID in artifacts.templateSections {
+                    updated = TemplateComposer.removeSection(in: updated, sectionIdentifier: sectionID)
+                    output.dimmed("  Removed template section: \(sectionID)")
+                }
+                if updated != content {
+                    try? updated.write(to: claudeLocalPath, atomically: true, encoding: .utf8)
+                }
+            }
+        }
+
         state.removePack(packID)
     }
 

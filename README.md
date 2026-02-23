@@ -5,6 +5,9 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 [![Homebrew Tap](https://img.shields.io/badge/homebrew-tap-yellow.svg)]()
 
+> [!WARNING]
+> **This project is under active development.** Expect breaking changes, bugs, and incomplete features. Migrations between versions are not guaranteed. Use at your own risk.
+
 ## Reproducible AI infrastructure for Claude Code.
 
 `mcs` installs and manages MCP servers, semantic memory, PR automation agents, session hooks, and stack-specific tooling — turning Claude Code into a persistent, context-aware AI development environment.

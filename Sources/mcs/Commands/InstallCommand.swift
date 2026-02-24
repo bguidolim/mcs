@@ -23,6 +23,10 @@ struct InstallCommand: LockedCommand {
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)
 
+        guard ensureClaudeCLI(shell: shell, environment: env, output: output) else {
+            throw ExitCode.failure
+        }
+
         let registry = TechPackRegistry.loadWithExternalPacks(
             environment: env,
             output: output

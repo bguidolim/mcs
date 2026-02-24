@@ -29,6 +29,10 @@ struct ConfigureCommand: LockedCommand {
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)
 
+        guard ensureClaudeCLI(shell: shell, environment: env, output: output) else {
+            throw ExitCode.failure
+        }
+
         let projectPath: URL
         if let p = path {
             projectPath = URL(fileURLWithPath: p)

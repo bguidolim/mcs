@@ -409,12 +409,12 @@ struct ProjectConfigurator {
     private func autoInstallGlobalDependencies(_ pack: any TechPack) {
         let exec = makeExecutor()
         for component in pack.components {
+            guard !ComponentExecutor.isAlreadyInstalled(component) else { continue }
+
             switch component.installAction {
             case .brewInstall(let package):
-                if !shell.commandExists(package) {
-                    output.dimmed("  Installing \(component.displayName)...")
-                    _ = exec.installBrewPackage(package)
-                }
+                output.dimmed("  Installing \(component.displayName)...")
+                _ = exec.installBrewPackage(package)
             case .plugin(let name):
                 output.dimmed("  Installing plugin \(component.displayName)...")
                 _ = exec.installPlugin(name)

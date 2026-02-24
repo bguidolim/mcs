@@ -8,6 +8,7 @@ enum MCSError: Error, LocalizedError {
     case dependencyMissing(String)
     case templateError(String)
     case configurationFailed(reason: String)
+    case corruptStateFile(path: String, underlying: String)
 
     var errorDescription: String? {
         switch self {
@@ -23,6 +24,8 @@ enum MCSError: Error, LocalizedError {
             return "Template error: \(message)"
         case .configurationFailed(let reason):
             return "Configuration failed: \(reason)"
+        case .corruptStateFile(let path, let underlying):
+            return "State file corrupt at \(path): \(underlying). Run 'mcs doctor --fix' to regenerate, or delete the file manually."
         }
     }
 }

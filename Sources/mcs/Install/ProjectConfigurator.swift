@@ -29,6 +29,11 @@ struct ProjectConfigurator {
 
         // Load previous state to pre-select previously configured packs
         let previousState = ProjectState(projectRoot: projectPath)
+        if let loadError = previousState.loadError {
+            let statePath = projectPath.appendingPathComponent(Constants.FileNames.claudeDirectory)
+                .appendingPathComponent(Constants.FileNames.mcsProject).path
+            throw MCSError.corruptStateFile(path: statePath, underlying: loadError.localizedDescription)
+        }
         let previousPacks = previousState.configuredPacks
 
         // Build selection groups — one group with all packs
@@ -101,6 +106,12 @@ struct ProjectConfigurator {
         let selectedIDs = Set(packs.map(\.identifier))
 
         let projectState = ProjectState(projectRoot: projectPath)
+        if let loadError = projectState.loadError {
+            let statePath = projectPath.appendingPathComponent(Constants.FileNames.claudeDirectory)
+                .appendingPathComponent(Constants.FileNames.mcsProject).path
+            output.error("State file corrupt at \(statePath): \(loadError.localizedDescription). Run 'mcs doctor --fix' to regenerate, or delete the file manually.")
+            return
+        }
         let previousIDs = projectState.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)
@@ -269,6 +280,11 @@ struct ProjectConfigurator {
 
         // Load previous state
         var projectState = ProjectState(projectRoot: projectPath)
+        if let loadError = projectState.loadError {
+            let statePath = projectPath.appendingPathComponent(Constants.FileNames.claudeDirectory)
+                .appendingPathComponent(Constants.FileNames.mcsProject).path
+            throw MCSError.corruptStateFile(path: statePath, underlying: loadError.localizedDescription)
+        }
         let previousIDs = projectState.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)

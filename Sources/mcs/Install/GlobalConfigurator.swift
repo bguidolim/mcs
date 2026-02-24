@@ -28,6 +28,9 @@ struct GlobalConfigurator {
         }
 
         let previousState = ProjectState(stateFile: environment.globalStateFile)
+        if let loadError = previousState.loadError {
+            throw MCSError.corruptStateFile(path: environment.globalStateFile.path, underlying: loadError.localizedDescription)
+        }
         let previousPacks = previousState.configuredPacks
 
         var number = 1
@@ -97,6 +100,10 @@ struct GlobalConfigurator {
         let selectedIDs = Set(packs.map(\.identifier))
 
         let state = ProjectState(stateFile: environment.globalStateFile)
+        if let loadError = state.loadError {
+            output.error("State file corrupt at \(environment.globalStateFile.path): \(loadError.localizedDescription). Run 'mcs doctor --fix' to regenerate, or delete the file manually.")
+            return
+        }
         let previousIDs = state.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)
@@ -220,6 +227,9 @@ struct GlobalConfigurator {
         let selectedIDs = Set(packs.map(\.identifier))
 
         var state = ProjectState(stateFile: environment.globalStateFile)
+        if let loadError = state.loadError {
+            throw MCSError.corruptStateFile(path: environment.globalStateFile.path, underlying: loadError.localizedDescription)
+        }
         let previousIDs = state.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)

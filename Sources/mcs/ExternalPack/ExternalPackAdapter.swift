@@ -201,22 +201,17 @@ struct ExternalPackAdapter: TechPack {
 
         case .settingsFile(let source):
             guard let sourceURL = resolvePackPath(source) else {
-                output.warn("Settings source '\(source)' escapes pack directory — skipping component")
+                output.warn("Source '\(source)' escapes pack directory — skipping component")
                 return nil
             }
             return .settingsMerge(source: sourceURL)
 
         case .copyPackFile(let config):
             guard let sourceURL = resolvePackPath(config.source) else {
-                output.warn("Pack source '\(config.source)' escapes pack directory — skipping component")
+                output.warn("Source '\(config.source)' escapes pack directory — skipping component")
                 return nil
             }
-            let fileType: CopyFileType
-            if let extType = config.fileType {
-                fileType = CopyFileType(rawValue: extType.rawValue) ?? .generic
-            } else {
-                fileType = .generic
-            }
+            let fileType = config.fileType.flatMap { CopyFileType(rawValue: $0.rawValue) } ?? .generic
             return .copyPackFile(
                 source: sourceURL,
                 destination: config.destination,

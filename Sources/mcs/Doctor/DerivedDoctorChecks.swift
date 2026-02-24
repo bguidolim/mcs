@@ -12,7 +12,7 @@ extension ComponentDefinition {
             return MCPServerCheck(name: displayName, serverName: config.name)
 
         case .plugin(let pluginName):
-            return PluginCheck(pluginName: pluginName)
+            return PluginCheck(pluginRef: PluginRef(pluginName))
 
         case .brewInstall(let package):
             return CommandCheck(

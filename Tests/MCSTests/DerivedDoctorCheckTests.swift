@@ -41,6 +41,7 @@ struct DerivedDoctorCheckTests {
         )
         let check = component.deriveDoctorCheck()
         #expect(check != nil)
+        #expect(check?.name == "test-plugin")
         #expect(check?.section == "Plugins")
     }
 

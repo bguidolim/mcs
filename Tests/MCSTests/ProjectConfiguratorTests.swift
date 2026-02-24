@@ -954,7 +954,7 @@ struct AutoDerivedSettingsTests {
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let result = try Settings.load(from: settingsPath)
 
-        #expect(result.enabledPlugins?["pr-review-toolkit@claude-plugins-official"] == true)
+        #expect(result.enabledPlugins?["pr-review-toolkit"] == true)
     }
 
     @Test("hookFile without hookEvent does not generate settings entry")

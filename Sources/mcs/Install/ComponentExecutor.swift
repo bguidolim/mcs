@@ -62,7 +62,8 @@ struct ComponentExecutor {
             return false
         }
         let claude = ClaudeIntegration(shell: shell)
-        let result = claude.pluginInstall(fullName: fullName)
+        let ref = PluginRef(fullName)
+        let result = claude.pluginInstall(ref: ref)
         return result.succeeded
     }
 

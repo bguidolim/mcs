@@ -82,11 +82,12 @@ struct PackUninstaller {
 
         case .plugin(let name):
             let claude = ClaudeIntegration(shell: shell)
-            let result = claude.pluginRemove(fullName: name)
+            let ref = PluginRef(name)
+            let result = claude.pluginRemove(ref: ref)
             if result.succeeded {
-                summary.plugins.append(name)
+                summary.plugins.append(ref.bareName)
             } else {
-                summary.errors.append("Plugin '\(name)': \(result.stderr)")
+                summary.errors.append("Plugin '\(ref.bareName)': \(result.stderr)")
             }
 
         case .copyPackFile(let config):

@@ -202,7 +202,7 @@ struct ProjectConfigurator {
         // Plugins
         let plugins = pack.components.compactMap { component -> String? in
             if case .plugin(let name) = component.installAction {
-                return name
+                return PluginRef(name).bareName
             }
             return nil
         }
@@ -557,9 +557,10 @@ struct ProjectConfigurator {
         for pack in packs {
             for component in pack.components {
                 if case .plugin(let name) = component.installAction {
+                    let ref = PluginRef(name)
                     var plugins = settings.enabledPlugins ?? [:]
-                    if plugins[name] == nil {
-                        plugins[name] = true
+                    if plugins[ref.bareName] == nil {
+                        plugins[ref.bareName] = true
                     }
                     settings.enabledPlugins = plugins
                     hasContent = true

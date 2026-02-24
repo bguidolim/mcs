@@ -70,8 +70,8 @@ struct MCPServerCheck: DoctorCheck, Sendable {
 }
 
 struct PluginCheck: DoctorCheck, Sendable {
-    let pluginName: String
-    var name: String { pluginName.components(separatedBy: "@").first ?? pluginName }
+    let pluginRef: PluginRef
+    var name: String { pluginRef.bareName }
     var section: String { "Plugins" }
 
     func check() -> CheckResult {
@@ -85,7 +85,7 @@ struct PluginCheck: DoctorCheck, Sendable {
         } catch {
             return .fail("settings.json is invalid: \(error.localizedDescription)")
         }
-        if settings.enabledPlugins?[pluginName] == true {
+        if settings.enabledPlugins?[pluginRef.bareName] == true {
             return .pass("enabled")
         }
         return .fail("not enabled")

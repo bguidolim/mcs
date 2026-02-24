@@ -75,8 +75,14 @@ struct ExternalFileExistsCheck: ScopedPathCheck, Sendable {
     let projectRoot: URL?
 
     func check() -> CheckResult {
-        guard let resolved = resolvePath() else {
+        let resolved: String
+        switch resolvePath() {
+        case .noProjectRoot:
             return .skip("no project root for project-scoped check")
+        case .pathTraversal:
+            return .fail("path '\(path)' escapes project root — possible path traversal")
+        case .resolved(let path):
+            resolved = path
         }
         if FileManager.default.fileExists(atPath: resolved) {
             return .pass("present")
@@ -96,8 +102,14 @@ struct ExternalDirectoryExistsCheck: ScopedPathCheck, Sendable {
     let projectRoot: URL?
 
     func check() -> CheckResult {
-        guard let resolved = resolvePath() else {
+        let resolved: String
+        switch resolvePath() {
+        case .noProjectRoot:
             return .skip("no project root for project-scoped check")
+        case .pathTraversal:
+            return .fail("path '\(path)' escapes project root — possible path traversal")
+        case .resolved(let path):
+            resolved = path
         }
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir), isDir.boolValue {
@@ -119,8 +131,14 @@ struct ExternalFileContainsCheck: ScopedPathCheck, Sendable {
     let projectRoot: URL?
 
     func check() -> CheckResult {
-        guard let resolved = resolvePath() else {
+        let resolved: String
+        switch resolvePath() {
+        case .noProjectRoot:
             return .skip("no project root for project-scoped check")
+        case .pathTraversal:
+            return .fail("path '\(path)' escapes project root — possible path traversal")
+        case .resolved(let path):
+            resolved = path
         }
         guard let content = try? String(contentsOfFile: resolved, encoding: .utf8) else {
             return .fail("file not found or unreadable")
@@ -144,8 +162,14 @@ struct ExternalFileNotContainsCheck: ScopedPathCheck, Sendable {
     let projectRoot: URL?
 
     func check() -> CheckResult {
-        guard let resolved = resolvePath() else {
+        let resolved: String
+        switch resolvePath() {
+        case .noProjectRoot:
             return .skip("no project root for project-scoped check")
+        case .pathTraversal:
+            return .fail("path '\(path)' escapes project root — possible path traversal")
+        case .resolved(let path):
+            resolved = path
         }
         guard let content = try? String(contentsOfFile: resolved, encoding: .utf8) else {
             // File not found — pattern is not present, so this passes
@@ -473,17 +497,23 @@ protocol ScopedPathCheck: DoctorCheck {
     var projectRoot: URL? { get }
 }
 
+enum PathResolveResult {
+    case resolved(String)
+    case noProjectRoot
+    case pathTraversal
+}
+
 extension ScopedPathCheck {
-    func resolvePath() -> String? {
+    func resolvePath() -> PathResolveResult {
         switch scope {
         case .global:
-            return expandTilde(path)
+            return .resolved(expandTilde(path))
         case .project:
-            guard let root = projectRoot else { return nil }
+            guard let root = projectRoot else { return .noProjectRoot }
             guard let safe = PathContainment.safePath(relativePath: path, within: root) else {
-                return nil
+                return .pathTraversal
             }
-            return safe.resolvingSymlinksInPath().path
+            return .resolved(safe.resolvingSymlinksInPath().path)
         }
     }
 

@@ -223,7 +223,7 @@ enum PackFetchError: Error, LocalizedError, Sendable {
         case .invalidRef(let ref):
             return "Invalid git ref '\(ref)': contains unsafe characters"
         case .pathEscapesPacksDirectory(let path):
-            return "Path '\(path)' escapes packs directory — refusing to remove"
+            return "Path '\(path)' escapes packs directory"
         }
     }
 }

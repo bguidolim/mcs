@@ -130,8 +130,8 @@ struct ExternalPackAdapter: TechPack {
 
     // MARK: - File Reading
 
-    /// Read a file from the pack checkout directory. Validates path containment
-    /// by resolving symlinks before comparing paths.
+    /// Read a file from the pack checkout directory. Rejects paths that escape
+    /// the pack root via traversal or symlinks.
     private func readPackFile(_ relativePath: String) throws -> String {
         guard let fileURL = PathContainment.safePath(relativePath: relativePath, within: packPath) else {
             throw PackAdapterError.pathTraversal(relativePath)

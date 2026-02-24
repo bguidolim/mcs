@@ -96,7 +96,7 @@ struct ProjectStateTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let state = ProjectState(projectRoot: tmpDir)
+        let state = try ProjectState(projectRoot: tmpDir)
         #expect(!state.exists)
         #expect(state.configuredPacks.isEmpty)
     }
@@ -106,12 +106,12 @@ struct ProjectStateTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("ios")
         try state.save()
 
         // Reload
-        let loaded = ProjectState(projectRoot: tmpDir)
+        let loaded = try ProjectState(projectRoot: tmpDir)
         #expect(loaded.exists)
         #expect(loaded.configuredPacks == Set(["ios"]))
         #expect(loaded.mcsVersion == MCSVersion.current)
@@ -122,12 +122,12 @@ struct ProjectStateTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("web")
         state.recordPack("ios")
         try state.save()
 
-        let loaded = ProjectState(projectRoot: tmpDir)
+        let loaded = try ProjectState(projectRoot: tmpDir)
         #expect(loaded.configuredPacks == Set(["ios", "web"]))
     }
 
@@ -137,27 +137,41 @@ struct ProjectStateTests {
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         // First save
-        var state1 = ProjectState(projectRoot: tmpDir)
+        var state1 = try ProjectState(projectRoot: tmpDir)
         state1.recordPack("ios")
         try state1.save()
 
         // Second save adds another pack
-        var state2 = ProjectState(projectRoot: tmpDir)
+        var state2 = try ProjectState(projectRoot: tmpDir)
         state2.recordPack("web")
         try state2.save()
 
-        let loaded = ProjectState(projectRoot: tmpDir)
+        let loaded = try ProjectState(projectRoot: tmpDir)
         #expect(loaded.configuredPacks == Set(["ios", "web"]))
     }
 
-    @Test("loadError is nil when file does not exist")
-    func loadErrorNilForMissing() throws {
+    @Test("init does not throw when file does not exist")
+    func missingFileDoesNotThrow() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let state = ProjectState(projectRoot: tmpDir)
-        #expect(state.loadError == nil)
+        let state = try ProjectState(projectRoot: tmpDir)
         #expect(!state.exists)
+    }
+
+    @Test("init throws when file is corrupt")
+    func corruptFileThrows() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        let stateFile = claudeDir.appendingPathComponent(".mcs-project")
+        try Data("{ not valid json !!!".utf8).write(to: stateFile)
+
+        #expect(throws: (any Error).self) {
+            _ = try ProjectState(projectRoot: tmpDir)
+        }
     }
 
     @Test("removePack removes from configuredPacks and artifacts")
@@ -165,7 +179,7 @@ struct ProjectStateTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("ios")
         state.recordPack("web")
         state.setArtifacts(PackArtifactRecord(
@@ -173,11 +187,11 @@ struct ProjectStateTests {
         ), for: "ios")
         try state.save()
 
-        var loaded = ProjectState(projectRoot: tmpDir)
+        var loaded = try ProjectState(projectRoot: tmpDir)
         loaded.removePack("ios")
         try loaded.save()
 
-        let final = ProjectState(projectRoot: tmpDir)
+        let final = try ProjectState(projectRoot: tmpDir)
         #expect(final.configuredPacks == Set(["web"]))
         #expect(final.artifacts(for: "ios") == nil)
     }
@@ -187,7 +201,7 @@ struct ProjectStateTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("ios")
         let artifacts = PackArtifactRecord(
             mcpServers: [MCPServerRef(name: "xcodebuildmcp", scope: "local")],
@@ -199,7 +213,7 @@ struct ProjectStateTests {
         state.setArtifacts(artifacts, for: "ios")
         try state.save()
 
-        let loaded = ProjectState(projectRoot: tmpDir)
+        let loaded = try ProjectState(projectRoot: tmpDir)
         let loadedArtifacts = loaded.artifacts(for: "ios")
         #expect(loadedArtifacts == artifacts)
         #expect(loadedArtifacts?.mcpServers.count == 1)
@@ -219,11 +233,10 @@ struct ProjectStateTests {
         let legacy = "CONFIGURED_AT=2025-06-01T00:00:00Z\nCONFIGURED_PACKS=ios,web\nMCS_VERSION=2.0.0\n"
         try legacy.write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let state = ProjectState(projectRoot: tmpDir)
+        let state = try ProjectState(projectRoot: tmpDir)
         #expect(state.exists)
         #expect(state.configuredPacks == Set(["ios", "web"]))
         #expect(state.mcsVersion == "2.0.0")
-        #expect(state.loadError == nil)
     }
 
     @Test("stateFile init loads from direct path")
@@ -232,7 +245,7 @@ struct ProjectStateTests {
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         // Save using projectRoot init
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("ios")
         state.setArtifacts(PackArtifactRecord(
             mcpServers: [MCPServerRef(name: "test-server", scope: "user")]
@@ -243,7 +256,7 @@ struct ProjectStateTests {
         let stateFile = tmpDir
             .appendingPathComponent(".claude")
             .appendingPathComponent(".mcs-project")
-        let loaded = ProjectState(stateFile: stateFile)
+        let loaded = try ProjectState(stateFile: stateFile)
         #expect(loaded.exists)
         #expect(loaded.configuredPacks == Set(["ios"]))
         #expect(loaded.artifacts(for: "ios")?.mcpServers.first?.scope == "user")
@@ -256,13 +269,13 @@ struct ProjectStateTests {
 
         let customFile = tmpDir.appendingPathComponent("global-state.json")
 
-        var state = ProjectState(stateFile: customFile)
+        var state = try ProjectState(stateFile: customFile)
         #expect(!state.exists)
 
         state.recordPack("web")
         try state.save()
 
-        let loaded = ProjectState(stateFile: customFile)
+        let loaded = try ProjectState(stateFile: customFile)
         #expect(loaded.exists)
         #expect(loaded.configuredPacks == Set(["web"]))
     }
@@ -272,7 +285,7 @@ struct ProjectStateTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("ios")
         try state.save()
 
@@ -514,7 +527,7 @@ struct ProjectDoctorCheckTests {
             to: tmpDir.appendingPathComponent("CLAUDE.local.md"),
             atomically: true, encoding: .utf8
         )
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("ios")
         try state.save()
 
@@ -549,7 +562,7 @@ struct ProjectDoctorCheckTests {
         let fixResult = check.fix()
         if case .fixed = fixResult {
             // Verify the state file was created
-            let state = ProjectState(projectRoot: tmpDir)
+            let state = try ProjectState(projectRoot: tmpDir)
             #expect(state.exists)
             #expect(state.configuredPacks.contains("ios"))
         } else {

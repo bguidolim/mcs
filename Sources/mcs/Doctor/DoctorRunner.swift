@@ -46,8 +46,8 @@ struct DoctorRunner {
             installedPackIDs = Set(filter.components(separatedBy: ","))
             packSource = "--pack flag"
         } else if let root = projectRoot {
-            let state = ProjectState(projectRoot: root)
-            if state.exists, !state.configuredPacks.isEmpty {
+            let stateResult = try? ProjectState(projectRoot: root)
+            if let state = stateResult, state.exists, !state.configuredPacks.isEmpty {
                 // 2. Project .mcs-project file
                 installedPackIDs = state.configuredPacks
                 packSource = "project: \(projectName ?? "unknown")"

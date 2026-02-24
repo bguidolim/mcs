@@ -75,7 +75,7 @@ struct SyncCommand: LockedCommand {
             registry: registry
         )
 
-        let persistedExclusions = ProjectState(stateFile: env.globalStateFile).allExcludedComponents
+        let persistedExclusions = try ProjectState(stateFile: env.globalStateFile).allExcludedComponents
 
         if all {
             let allPacks = registry.availablePacks
@@ -90,7 +90,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(packs: allPacks)
+                try configurator.dryRun(packs: allPacks)
             } else {
                 try configurator.configure(packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
@@ -116,7 +116,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(packs: resolvedPacks)
+                try configurator.dryRun(packs: resolvedPacks)
             } else {
                 try configurator.configure(packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
@@ -164,7 +164,7 @@ struct SyncCommand: LockedCommand {
         )
 
         // Load persisted exclusions for non-interactive paths
-        let persistedExclusions = ProjectState(projectRoot: projectPath).allExcludedComponents
+        let persistedExclusions = try ProjectState(projectRoot: projectPath).allExcludedComponents
 
         if all {
             // Apply all registered packs (CI-friendly)
@@ -180,7 +180,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(at: projectPath, packs: allPacks)
+                try configurator.dryRun(at: projectPath, packs: allPacks)
             } else {
                 try configurator.configure(at: projectPath, packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
@@ -207,7 +207,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(at: projectPath, packs: resolvedPacks)
+                try configurator.dryRun(at: projectPath, packs: resolvedPacks)
             } else {
                 try configurator.configure(at: projectPath, packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")

@@ -42,19 +42,19 @@ struct ProjectState {
         var resolvedValues: [String: String]?
     }
 
-    init(projectRoot: URL) {
+    init(projectRoot: URL) throws {
         self.path = projectRoot
             .appendingPathComponent(Constants.FileNames.claudeDirectory)
             .appendingPathComponent(Constants.FileNames.mcsProject)
         self.storage = StateStorage()
-        load()
+        try load()
     }
 
     /// Initialize with a specific state file path (used for global state at `~/.mcs/global-state.json`).
-    init(stateFile: URL) {
+    init(stateFile: URL) throws {
         self.path = stateFile
         self.storage = StateStorage()
-        load()
+        try load()
     }
 
     /// Whether the state file exists on disk.
@@ -151,25 +151,17 @@ struct ProjectState {
         try data.write(to: path)
     }
 
-    /// Non-nil if `load()` encountered an error reading an existing file.
-    /// Callers can check this to distinguish "file doesn't exist" from "file is corrupt/unreadable".
-    private(set) var loadError: Error?
-
     // MARK: - Private
 
-    private mutating func load() {
+    private mutating func load() throws {
         guard FileManager.default.fileExists(atPath: path.path) else { return }
-        do {
-            let data = try Data(contentsOf: path)
-            // Try JSON first (new format)
-            if data.first == UInt8(ascii: "{") {
-                storage = try JSONDecoder().decode(StateStorage.self, from: data)
-            } else {
-                // Legacy flat key=value format — migrate
-                migrateLegacyFormat(data)
-            }
-        } catch {
-            self.loadError = error
+        let data = try Data(contentsOf: path)
+        // Try JSON first (new format)
+        if data.first == UInt8(ascii: "{") {
+            storage = try JSONDecoder().decode(StateStorage.self, from: data)
+        } else {
+            // Legacy flat key=value format — migrate
+            migrateLegacyFormat(data)
         }
     }
 

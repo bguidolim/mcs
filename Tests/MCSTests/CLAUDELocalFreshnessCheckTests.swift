@@ -35,7 +35,7 @@ struct CLAUDELocalFreshnessCheckTests {
         packs: [String],
         resolvedValues: [String: String]? = nil
     ) throws {
-        var state = ProjectState(projectRoot: projectRoot)
+        var state = try ProjectState(projectRoot: projectRoot)
         for pack in packs {
             state.recordPack(pack)
         }
@@ -242,13 +242,13 @@ struct CLAUDELocalFreshnessCheckTests {
 
         let values = ["PROJECT": "MyApp", "REPO": "my-repo", "CUSTOM_KEY": "custom-value"]
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("test-pack")
         state.setResolvedValues(values)
         try state.save()
 
         // Reload from disk
-        let loaded = ProjectState(projectRoot: tmpDir)
+        let loaded = try ProjectState(projectRoot: tmpDir)
         #expect(loaded.resolvedValues == values)
         #expect(loaded.configuredPacks.contains("test-pack"))
     }

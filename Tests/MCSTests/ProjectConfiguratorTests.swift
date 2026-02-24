@@ -263,7 +263,7 @@ struct DryRunTests {
         )
 
         let configurator = makeConfigurator()
-        configurator.dryRun(at: tmpDir, packs: [pack])
+        try configurator.dryRun(at: tmpDir, packs: [pack])
 
         // No CLAUDE.local.md should be created
         let claudeLocal = tmpDir.appendingPathComponent("CLAUDE.local.md")
@@ -283,7 +283,7 @@ struct DryRunTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("existing-pack")
         state.setArtifacts(
             PackArtifactRecord(templateSections: ["existing"]),
@@ -297,7 +297,7 @@ struct DryRunTests {
         // Run dry-run with a different pack
         let pack = MockTechPack(identifier: "new-pack", displayName: "New Pack")
         let configurator = makeConfigurator()
-        configurator.dryRun(at: tmpDir, packs: [pack])
+        try configurator.dryRun(at: tmpDir, packs: [pack])
 
         // State file should be unchanged
         let stateAfter = try Data(contentsOf: stateFile)
@@ -313,7 +313,7 @@ struct DryRunTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("pack-a")
         state.setArtifacts(
             PackArtifactRecord(
@@ -353,10 +353,10 @@ struct DryRunTests {
         let configurator = makeConfigurator()
 
         // Capture that it doesn't throw and doesn't modify state
-        configurator.dryRun(at: tmpDir, packs: [packB])
+        try configurator.dryRun(at: tmpDir, packs: [packB])
 
         // Verify state file is unchanged (pack-a still configured)
-        let updatedState = ProjectState(projectRoot: tmpDir)
+        let updatedState = try ProjectState(projectRoot: tmpDir)
         #expect(updatedState.configuredPacks.contains("pack-a"))
         #expect(!updatedState.configuredPacks.contains("pack-b"))
     }
@@ -367,7 +367,7 @@ struct DryRunTests {
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let configurator = makeConfigurator()
-        configurator.dryRun(at: tmpDir, packs: [])
+        try configurator.dryRun(at: tmpDir, packs: [])
 
         // Should not create any files
         let claudeDir = tmpDir.appendingPathComponent(".claude")
@@ -443,7 +443,7 @@ struct PackSettingsMergeTests {
 
         // Simulate what configure does: compose settings
         // We need to call the private method indirectly — use a full configure
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("test-pack")
         try state.save()
 
@@ -1089,7 +1089,7 @@ struct AutoDerivedSettingsTests {
         try configurator.configure(at: tmpDir, packs: [pack])
 
         // Read project state and check hookCommands
-        let state = ProjectState(projectRoot: tmpDir)
+        let state = try ProjectState(projectRoot: tmpDir)
         let artifacts = state.artifacts(for: "test-pack")
         #expect(artifacts != nil)
         #expect(artifacts?.hookCommands.contains("bash .claude/hooks/session_start.sh") == true)
@@ -1175,13 +1175,13 @@ struct ProjectConfiguratorExcludedComponentsTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("my-pack")
         state.setExcludedComponents(["my-pack.mcp-server", "my-pack.hook"], for: "my-pack")
         try state.save()
 
         // Reload from disk
-        let reloaded = ProjectState(projectRoot: tmpDir)
+        let reloaded = try ProjectState(projectRoot: tmpDir)
         let excluded = reloaded.excludedComponents(for: "my-pack")
         #expect(excluded == ["my-pack.mcp-server", "my-pack.hook"])
     }
@@ -1191,15 +1191,69 @@ struct ProjectConfiguratorExcludedComponentsTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        var state = ProjectState(projectRoot: tmpDir)
+        var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("my-pack")
         state.setExcludedComponents(["my-pack.mcp-server"], for: "my-pack")
         state.removePack("my-pack")
         try state.save()
 
-        let reloaded = ProjectState(projectRoot: tmpDir)
+        let reloaded = try ProjectState(projectRoot: tmpDir)
         #expect(reloaded.excludedComponents(for: "my-pack").isEmpty)
         #expect(!reloaded.configuredPacks.contains("my-pack"))
+    }
+}
+
+// MARK: - Corrupt State Abort Tests
+
+@Suite("ProjectConfigurator — corrupt state abort")
+struct CorruptStateAbortTests {
+    private let output = CLIOutput(colorsEnabled: false)
+
+    private func makeTmpDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-corrupt-state-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeConfigurator() -> ProjectConfigurator {
+        let env = Environment()
+        return ProjectConfigurator(
+            environment: env,
+            output: output,
+            shell: ShellRunner(environment: env)
+        )
+    }
+
+    @Test("configure throws when .mcs-project is corrupt")
+    func corruptStateAborts() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Write corrupt JSON to .mcs-project
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        let stateFile = claudeDir.appendingPathComponent(".mcs-project")
+        try Data("{ not valid json !!!".utf8).write(to: stateFile)
+
+        let configurator = makeConfigurator()
+        let pack = MockTechPack(identifier: "test-pack", displayName: "Test")
+
+        #expect(throws: (any Error).self) {
+            try configurator.configure(at: tmpDir, packs: [pack])
+        }
+    }
+
+    @Test("configure succeeds when .mcs-project does not exist")
+    func missingStateIsNotAnError() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let configurator = makeConfigurator()
+        let pack = MockTechPack(identifier: "test-pack", displayName: "Test")
+
+        // Should not throw — missing file is a fresh project, not corruption
+        try configurator.configure(at: tmpDir, packs: [pack])
     }
 }
 

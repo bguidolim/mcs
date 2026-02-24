@@ -75,7 +75,14 @@ struct SyncCommand: LockedCommand {
             registry: registry
         )
 
-        let persistedExclusions = ProjectState(stateFile: env.globalStateFile).allExcludedComponents
+        let persistedExclusions: [String: Set<String>]
+        do {
+            persistedExclusions = try ProjectState(stateFile: env.globalStateFile).allExcludedComponents
+        } catch {
+            output.error("Corrupt global state: \(error.localizedDescription)")
+            output.error("Delete \(env.globalStateFile.path) and re-run 'mcs sync --global'.")
+            throw ExitCode.failure
+        }
 
         if all {
             let allPacks = registry.availablePacks
@@ -90,7 +97,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(packs: allPacks)
+                try configurator.dryRun(packs: allPacks)
             } else {
                 try configurator.configure(packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
@@ -116,7 +123,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(packs: resolvedPacks)
+                try configurator.dryRun(packs: resolvedPacks)
             } else {
                 try configurator.configure(packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
@@ -164,7 +171,14 @@ struct SyncCommand: LockedCommand {
         )
 
         // Load persisted exclusions for non-interactive paths
-        let persistedExclusions = ProjectState(projectRoot: projectPath).allExcludedComponents
+        let persistedExclusions: [String: Set<String>]
+        do {
+            persistedExclusions = try ProjectState(projectRoot: projectPath).allExcludedComponents
+        } catch {
+            output.error("Corrupt .mcs-project: \(error.localizedDescription)")
+            output.error("Delete .claude/.mcs-project and re-run 'mcs sync'.")
+            throw ExitCode.failure
+        }
 
         if all {
             // Apply all registered packs (CI-friendly)
@@ -180,7 +194,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(at: projectPath, packs: allPacks)
+                try configurator.dryRun(at: projectPath, packs: allPacks)
             } else {
                 try configurator.configure(at: projectPath, packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
@@ -207,7 +221,7 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(at: projectPath, packs: resolvedPacks)
+                try configurator.dryRun(at: projectPath, packs: resolvedPacks)
             } else {
                 try configurator.configure(at: projectPath, packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")

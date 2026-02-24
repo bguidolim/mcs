@@ -44,11 +44,11 @@ struct CLAUDELocalFreshnessCheck: DoctorCheck, Sendable {
             return .warn("CLAUDE.local.md has no mcs section markers — run 'mcs sync'")
         }
 
-        let state = ProjectState(projectRoot: context.projectRoot)
-
-        // Surface corrupt state files instead of silently falling to legacy path
-        if let loadError = state.loadError {
-            return .warn("could not read .mcs-project: \(loadError.localizedDescription) — run 'mcs sync' to regenerate")
+        let state: ProjectState
+        do {
+            state = try ProjectState(projectRoot: context.projectRoot)
+        } catch {
+            return .warn("could not read .mcs-project: \(error.localizedDescription) — run 'mcs sync' to regenerate")
         }
 
         // If we have stored resolved values, use content-hash comparison
@@ -88,10 +88,11 @@ struct CLAUDELocalFreshnessCheck: DoctorCheck, Sendable {
     }
 
     func fix() -> FixResult {
-        let state = ProjectState(projectRoot: context.projectRoot)
-
-        if let loadError = state.loadError {
-            return .failed("could not read .mcs-project: \(loadError.localizedDescription)")
+        let state: ProjectState
+        do {
+            state = try ProjectState(projectRoot: context.projectRoot)
+        } catch {
+            return .failed("could not read .mcs-project: \(error.localizedDescription)")
         }
 
         guard let storedValues = state.resolvedValues else {
@@ -251,14 +252,18 @@ struct ProjectStateFileCheck: DoctorCheck, Sendable {
 
     func check() -> CheckResult {
         let claudeLocal = projectRoot.appendingPathComponent(Constants.FileNames.claudeLocalMD)
-        let state = ProjectState(projectRoot: projectRoot)
 
         guard FileManager.default.fileExists(atPath: claudeLocal.path) else {
             return .skip("no CLAUDE.local.md — run 'mcs sync'")
         }
 
-        if state.exists {
-            return .pass(".mcs-project present")
+        do {
+            let state = try ProjectState(projectRoot: projectRoot)
+            if state.exists {
+                return .pass(".mcs-project present")
+            }
+        } catch {
+            return .warn("corrupt .mcs-project: \(error.localizedDescription) — run 'mcs doctor --fix'")
         }
         return .warn("CLAUDE.local.md exists but .mcs-project missing — run 'mcs doctor --fix'")
     }
@@ -278,12 +283,24 @@ struct ProjectStateFileCheck: DoctorCheck, Sendable {
             .map(\.identifier)
             .filter { $0 != "core" }
 
-        var state = ProjectState(projectRoot: projectRoot)
-        for pack in packIdentifiers {
-            state.recordPack(pack)
+        // Delete corrupt state file if present so we can rebuild cleanly
+        let stateFile = projectRoot
+            .appendingPathComponent(Constants.FileNames.claudeDirectory)
+            .appendingPathComponent(Constants.FileNames.mcsProject)
+        if FileManager.default.fileExists(atPath: stateFile.path) {
+            do {
+                try FileManager.default.removeItem(at: stateFile)
+            } catch {
+                return .failed("could not delete corrupt .mcs-project: \(error.localizedDescription) — remove it manually and re-run")
+            }
         }
 
+        // After deletion, init cannot throw (file no longer exists), so build and save in one block
         do {
+            var state = try ProjectState(projectRoot: projectRoot)
+            for pack in packIdentifiers {
+                state.recordPack(pack)
+            }
             try state.save()
             return .fixed("created .mcs-project with packs: \(packIdentifiers.joined(separator: ", "))")
         } catch {

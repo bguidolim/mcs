@@ -28,7 +28,7 @@ struct ProjectConfigurator {
         }
 
         // Load previous state to pre-select previously configured packs
-        let previousState = ProjectState(projectRoot: projectPath)
+        let previousState = try ProjectState(projectRoot: projectPath)
         let previousPacks = previousState.configuredPacks
 
         // Build selection groups — one group with all packs
@@ -73,7 +73,7 @@ struct ProjectConfigurator {
         }
 
         if dryRun {
-            self.dryRun(at: projectPath, packs: selectedPacks)
+            try self.dryRun(at: projectPath, packs: selectedPacks)
         } else {
             try configure(at: projectPath, packs: selectedPacks, excludedComponents: excludedComponents)
 
@@ -97,10 +97,10 @@ struct ProjectConfigurator {
     // MARK: - Dry Run
 
     /// Compute and display what `configure` would do, without making any changes.
-    func dryRun(at projectPath: URL, packs: [any TechPack]) {
+    func dryRun(at projectPath: URL, packs: [any TechPack]) throws {
         let selectedIDs = Set(packs.map(\.identifier))
 
-        let projectState = ProjectState(projectRoot: projectPath)
+        let projectState = try ProjectState(projectRoot: projectPath)
         let previousIDs = projectState.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)
@@ -267,8 +267,8 @@ struct ProjectConfigurator {
     ) throws {
         let selectedIDs = Set(packs.map(\.identifier))
 
-        // Load previous state
-        var projectState = ProjectState(projectRoot: projectPath)
+        // Load previous state — throws on corrupt file to prevent silent data loss
+        var projectState = try ProjectState(projectRoot: projectPath)
         let previousIDs = projectState.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)

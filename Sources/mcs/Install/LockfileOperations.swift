@@ -165,7 +165,7 @@ struct LockfileOperations {
         let registryFile = PackRegistryFile(path: environment.packsRegistry)
         let registryData = try registryFile.load()
 
-        let projectState = ProjectState(projectRoot: projectPath)
+        let projectState = try ProjectState(projectRoot: projectPath)
         let configuredIDs = projectState.configuredPacks
 
         guard !configuredIDs.isEmpty else { return }

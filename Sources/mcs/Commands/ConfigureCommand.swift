@@ -98,7 +98,7 @@ struct ConfigureCommand: LockedCommand {
             output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                configurator.dryRun(at: projectPath, packs: resolvedPacks)
+                try configurator.dryRun(at: projectPath, packs: resolvedPacks)
             } else {
                 try configurator.configure(at: projectPath, packs: resolvedPacks)
 

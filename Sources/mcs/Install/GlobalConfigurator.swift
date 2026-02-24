@@ -27,7 +27,7 @@ struct GlobalConfigurator {
             return
         }
 
-        let previousState = ProjectState(stateFile: environment.globalStateFile)
+        let previousState = try ProjectState(stateFile: environment.globalStateFile)
         let previousPacks = previousState.configuredPacks
 
         var number = 1
@@ -69,7 +69,7 @@ struct GlobalConfigurator {
         }
 
         if dryRun {
-            self.dryRun(packs: selectedPacks)
+            try self.dryRun(packs: selectedPacks)
         } else {
             try configure(packs: selectedPacks, excludedComponents: excludedComponents)
 
@@ -93,10 +93,10 @@ struct GlobalConfigurator {
     // MARK: - Dry Run
 
     /// Compute and display what `configure` would do, without making any changes.
-    func dryRun(packs: [any TechPack]) {
+    func dryRun(packs: [any TechPack]) throws {
         let selectedIDs = Set(packs.map(\.identifier))
 
-        let state = ProjectState(stateFile: environment.globalStateFile)
+        let state = try ProjectState(stateFile: environment.globalStateFile)
         let previousIDs = state.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)
@@ -219,7 +219,7 @@ struct GlobalConfigurator {
     ) throws {
         let selectedIDs = Set(packs.map(\.identifier))
 
-        var state = ProjectState(stateFile: environment.globalStateFile)
+        var state = try ProjectState(stateFile: environment.globalStateFile)
         let previousIDs = state.configuredPacks
 
         let removals = previousIDs.subtracting(selectedIDs)

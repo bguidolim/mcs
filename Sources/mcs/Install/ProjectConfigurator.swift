@@ -195,7 +195,7 @@ struct ProjectConfigurator {
         }
 
         // Hook entries (settings.local.json)
-        let hookEntries = ((try? pack.hookContributions) ?? []).map { "+\(hookEventName(for: $0.hookName)) hook entry" }
+        let hookEntries = ((try? pack.hookContributions) ?? []).map { "+\(ConfiguratorSupport.hookEventName(for: $0.hookName)) hook entry" }
         if !hookEntries.isEmpty {
             output.dimmed("  Hooks:        \(hookEntries.joined(separator: ", "))")
         }
@@ -326,7 +326,9 @@ struct ProjectConfigurator {
         var allValues = try resolveAllTemplateValues(packs: packs, projectPath: projectPath, repoName: repoName)
 
         // 4. Auto-prompt for undeclared placeholders in pack files
-        let undeclared = scanForUndeclaredPlaceholders(packs: packs, resolvedValues: allValues)
+        let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(
+            packs: packs, resolvedValues: allValues, includeTemplates: true
+        )
         for key in undeclared {
             let value = output.promptInline("Set value for \(key)", default: nil)
             allValues[key] = value
@@ -595,7 +597,7 @@ struct ProjectConfigurator {
                 let entry = Settings.HookEntry(type: "command", command: command)
                 let group = Settings.HookGroup(matcher: nil, hooks: [entry])
 
-                let event = hookEventName(for: contribution.hookName)
+                let event = ConfiguratorSupport.hookEventName(for: contribution.hookName)
                 var existing = settings.hooks ?? [:]
                 var groups = existing[event] ?? []
                 // Deduplicate by command
@@ -686,18 +688,6 @@ struct ProjectConfigurator {
             } catch {
                 output.warn("Could not remove stale settings.local.json: \(error.localizedDescription)")
             }
-        }
-    }
-
-    /// Map hook contribution names to Claude Code hook event names.
-    private func hookEventName(for hookName: String) -> String {
-        switch hookName {
-        case "session_start": return "SessionStart"
-        case "pre_tool_use": return "PreToolUse"
-        case "post_tool_use": return "PostToolUse"
-        case "notification": return "Notification"
-        case "stop": return "Stop"
-        default: return hookName
         }
     }
 
@@ -841,67 +831,7 @@ struct ProjectConfigurator {
         return allValues
     }
 
-    /// Scan all `copyPackFile` sources and template content for `__PLACEHOLDER__` tokens
-    /// that are not covered by resolved values. Returns the undeclared keys sorted alphabetically.
-    private func scanForUndeclaredPlaceholders(
-        packs: [any TechPack],
-        resolvedValues: [String: String]
-    ) -> [String] {
-        var undeclared = Set<String>()
-        let resolvedKeys = Set(resolvedValues.keys)
-
-        for pack in packs {
-            // Scan copyPackFile sources
-            for component in pack.components {
-                if case .copyPackFile(let source, _, _) = component.installAction {
-                    for placeholder in Self.findPlaceholdersInSource(source) {
-                        let key = Self.stripPlaceholderDelimiters(placeholder)
-                        if !resolvedKeys.contains(key) {
-                            undeclared.insert(key)
-                        }
-                    }
-                }
-            }
-
-            // Scan template content (non-critical — errors will surface in composeClaudeLocal)
-            for template in (try? pack.templates) ?? [] {
-                for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
-                    let key = Self.stripPlaceholderDelimiters(placeholder)
-                    if !resolvedKeys.contains(key) {
-                        undeclared.insert(key)
-                    }
-                }
-            }
-        }
-
-        return undeclared.sorted()
-    }
-
-    /// Find all `__PLACEHOLDER__` tokens in a file or directory of files.
-    private static func findPlaceholdersInSource(_ source: URL) -> [String] {
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: source.path, isDirectory: &isDir) else { return [] }
-
-        let files: [URL]
-        if isDir.boolValue {
-            files = (try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)) ?? []
-        } else {
-            files = [source]
-        }
-
-        var results: [String] = []
-        for file in files {
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            results.append(contentsOf: TemplateEngine.findUnreplacedPlaceholders(in: text))
-        }
-        return results
-    }
-
-    /// Strip `__` delimiters from a placeholder token: `__FOO__` → `FOO`.
-    private static func stripPlaceholderDelimiters(_ placeholder: String) -> String {
-        String(placeholder.dropFirst(2).dropLast(2))
-    }
+    // Placeholder scanning is handled by ConfiguratorSupport.
 
     // MARK: - Helpers
 

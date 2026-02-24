@@ -101,10 +101,13 @@ struct ComponentExecutor {
     // MARK: - Copy Pack File
 
     /// Copy files from an external pack checkout to the appropriate Claude directory.
+    /// When `resolvedValues` is non-empty, `__PLACEHOLDER__` tokens in text files are
+    /// substituted before writing.
     func installCopyPackFile(
         source: URL,
         destination: String,
-        fileType: CopyFileType
+        fileType: CopyFileType,
+        resolvedValues: [String: String] = [:]
     ) -> Bool {
         let fm = FileManager.default
         let expectedParent = fileType.baseDirectory(in: environment)
@@ -137,14 +140,17 @@ struct ComponentExecutor {
                     if fm.fileExists(atPath: destFile.path) {
                         try fm.removeItem(at: destFile)
                     }
-                    try fm.copyItem(at: file, to: destFile)
+                    try Self.copyWithSubstitution(from: file, to: destFile, values: resolvedValues)
+                    if fileType == .hook {
+                        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destFile.path)
+                    }
                 }
             } else {
                 // Source is a single file
                 if fm.fileExists(atPath: destURL.path) {
                     try fm.removeItem(at: destURL)
                 }
-                try fm.copyItem(at: source, to: destURL)
+                try Self.copyWithSubstitution(from: source, to: destURL, values: resolvedValues)
 
                 // Make hooks executable
                 if fileType == .hook {
@@ -222,13 +228,28 @@ struct ComponentExecutor {
         }
     }
 
-    /// Copy a file, substituting `__PLACEHOLDER__` values in text files.
-    /// Falls back to binary copy for non-UTF-8 files or when no values are provided.
+    /// Copy a file or directory, substituting `__PLACEHOLDER__` values in text files.
+    /// Recurses into subdirectories. Falls back to binary copy for non-UTF-8 files
+    /// or when no values are provided.
     static func copyWithSubstitution(
         from source: URL,
         to destination: URL,
         values: [String: String]
     ) throws {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        fm.fileExists(atPath: source.path, isDirectory: &isDir)
+
+        if isDir.boolValue {
+            try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+            let contents = try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
+            for child in contents {
+                let destChild = destination.appendingPathComponent(child.lastPathComponent)
+                try copyWithSubstitution(from: child, to: destChild, values: values)
+            }
+            return
+        }
+
         if !values.isEmpty {
             // Read as Data first to surface I/O errors (permission, disk),
             // then attempt UTF-8 decode to detect binary vs text files.
@@ -240,7 +261,7 @@ struct ComponentExecutor {
             }
         }
         // Binary file or no values to substitute
-        try FileManager.default.copyItem(at: source, to: destination)
+        try fm.copyItem(at: source, to: destination)
     }
 
     /// Remove a file from the project by its project-relative path.

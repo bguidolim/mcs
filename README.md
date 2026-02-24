@@ -8,248 +8,243 @@
 > [!WARNING]
 > **This project is under active development.** Expect breaking changes, bugs, and incomplete features. Migrations between versions are not guaranteed. Use at your own risk.
 
-## Reproducible AI infrastructure for Claude Code.
-
-`mcs` installs and manages MCP servers, semantic memory, PR automation agents, session hooks, and stack-specific tooling — turning Claude Code into a persistent, context-aware AI development environment.
-
-**Built for developers who want:**
-
-- Semantic project memory (local embeddings via Ollama)
-- Automated PR reviews and commit workflows
-- LSP-aware code navigation (Serena)
-- Reproducible setup across machines
-- Drift detection and self-healing configuration
-
-```bash
-brew install bguidolim/tap/my-claude-setup && mcs install --all
-```
-
----
-
-# What Is `mcs`?
-
-`mcs` (My Claude Setup) is a structured installer and configuration manager for Claude Code on macOS.
-
-It automates what experienced developers end up building manually:
-
-- MCP server installation
-- Memory wiring with embeddings
-- PR review agents
-- Session lifecycle hooks
-- Managed `settings.json`
-- Stack-aware project configuration
-- Drift detection and repair
-- Platform toolchains via Tech Packs
-
-Instead of maintaining fragile scripts and dotfiles, you get:
-
-**Reproducible. Idempotent. Portable.**
-
----
-
-# Why Use `mcs`?
-
-| | Capability | Why it matters |
-|---|------------|---------------|
-| 🧠 | **Persistent Memory** | Claude retains decisions and learns across sessions via semantic search |
-| 🔍 | **Automated PR Reviews** | Catch silent failures, regressions, and coverage gaps automatically |
-| ⚡ | **Context-Aware Sessions** | Every session starts with git state, branch protection, PRs, system health |
-| 🛠️ | **Per-Project Intelligence** | Auto-generated `CLAUDE.local.md` tuned to your stack |
-| 🩺 | **Self-Healing Setup** | `mcs doctor --fix` repairs configuration drift |
-| 📦 | **Tech Packs** | Install platform-specific tooling (iOS pack available) |
-| 🌍 | **Portable by Design** | Recreate your entire Claude environment in minutes |
-
----
-
-# Manual Setup vs `mcs`
-
-| Manual Claude Setup | With `mcs` |
-|---------------------|------------|
-| Install MCP servers individually | Single command install |
-| Hand-edit `settings.json` | Managed, non-destructive configuration |
-| Manually wire hooks | Auto-installed session hooks |
-| No memory persistence | Semantic memory with embeddings |
-| PR workflow via custom scripts | Built-in `/pr` and review agents |
-| Configuration drifts over time | SHA-based drift detection |
-| Rebuild from memory on new machine | Fully reproducible in minutes |
-
-**Stop configuring Claude manually. Start versioning your AI environment.**
-
----
-
-# Portable & Reproducible
-
-Your Claude environment becomes infrastructure.
-
-`mcs` tracks:
-
-- Installed components
-- Dependency state
-- Configuration hashes (SHA-256)
-- Managed file sections
-
-You can:
-
-- Set up a new Mac quickly
-- Keep multiple machines aligned
-- Re-run safely at any time
-- Detect and repair drift automatically
-- Avoid dotfile sprawl
-
-Re-run it today. Re-run it in six months. It still works.
-
----
-
-# Quick Start
+A configuration engine for Claude Code. Package your MCP servers, plugins, hooks, skills, commands, and settings into shareable **tech packs** — then install, configure, and maintain them across projects and machines.
 
 ```bash
 brew install bguidolim/tap/my-claude-setup
-mcs install --all
-cd your-project && mcs configure
-mcs doctor
+mcs pack add https://github.com/you/your-pack
+mcs configure
 ```
 
 ---
+
+## What Is `mcs`?
+
+`mcs` is a pure engine — it ships **zero bundled content**. All features come from external tech packs: Git repositories with a `techpack.yaml` manifest describing what to install and how to configure it.
+
+You add packs. The engine handles the rest:
+
+- **Install** dependencies, MCP servers, and plugins
+- **Configure** per-project artifacts (hooks, skills, commands, templates, settings)
+- **Verify** everything with `mcs doctor`
+- **Converge** to the desired state on re-run (add, update, or remove packs cleanly)
+
+Think of it as **Terraform for your Claude Code environment**.
+
+---
+
+## Why Use `mcs`?
+
+| | Capability | Why it matters |
+|---|------------|---------------|
+| 📦 | **Tech Packs** | Share your Claude setup as a Git repo anyone can install |
+| 🔄 | **Convergent** | Re-run safely — adds what's missing, removes what's deselected, updates what changed |
+| 🩺 | **Self-Healing** | `mcs doctor --fix` detects and repairs configuration drift |
+| 🎯 | **Per-Project** | Each project gets its own hooks, skills, commands, templates, and settings |
+| 🌍 | **Portable** | Recreate your entire Claude environment on a new machine in minutes |
+| 🔒 | **Safe** | Backups before writes, section markers for managed content, dry-run previews |
+
+### Manual Setup vs `mcs`
+
+| Manual Claude Code Setup | With `mcs` |
+|--------------------------|------------|
+| Install MCP servers one by one | `mcs pack add` + `mcs configure` |
+| Hand-edit `settings.json` | Managed, non-destructive settings composition |
+| Copy hooks between projects | Auto-installed per-project from packs |
+| Configuration drifts over time | `mcs doctor --fix` repairs drift |
+| Rebuild from memory on new machine | Fully reproducible in minutes |
+| No way to share your setup | Push a tech pack, others `mcs pack add` it |
+
+---
+
+## Quick Start
+
+```bash
+# Install mcs
+brew install bguidolim/tap/my-claude-setup
+
+# Add a tech pack
+mcs pack add https://github.com/you/your-pack
+
+# Install global components (brew packages, plugins)
+mcs install
+
+# Configure a project
+cd ~/Developer/my-project
+mcs configure
+
+# Verify everything
+mcs doctor
+```
 
 <details>
 <summary><strong>Prerequisites</strong></summary>
 
 - macOS (Apple Silicon or Intel)
-- Xcode Command Line Tools  
+- Xcode Command Line Tools
   ```bash
   xcode-select --install
   ```
-- Homebrew
+- Claude Code CLI (`claude`)
 
 </details>
 
 ---
 
-# How It Works
-
-`mcs` acts as a declarative configuration layer for Claude Code.
+## How It Works
 
 ```
-mcs install          → install components + resolve dependencies + record state
-mcs configure        → generate per-project CLAUDE.local.md
-mcs doctor [--fix]   → 7-layer diagnostic + auto-repair
-mcs cleanup          → remove stale backups
+mcs pack add <url>      → Register a tech pack from a Git repo
+mcs pack list           → See registered packs
+mcs install             → Install global components (brew, plugins)
+mcs configure [path]    → Per-project setup: select packs, install artifacts
+mcs doctor [--fix]      → Diagnose and repair configuration
+mcs cleanup             → Remove stale backup files
 ```
 
-Every change is:
+### Per-Project Artifacts
 
-- Backed up
-- Section-delimited
-- Idempotent
-- Manifest-tracked
+When you run `mcs configure` in a project, the engine:
 
-Architecture details: see [`docs/architecture.md`](docs/architecture.md)
+1. Lets you select which packs to apply
+2. Resolves prompts (detects project files, asks for config values)
+3. Installs per-project artifacts:
+
+| Artifact | Location |
+|----------|----------|
+| MCP servers | `~/.claude.json` (per-project scope) |
+| Skills | `<project>/.claude/skills/` |
+| Hooks | `<project>/.claude/hooks/` |
+| Commands | `<project>/.claude/commands/` |
+| Settings | `<project>/.claude/settings.local.json` |
+| Templates | `<project>/CLAUDE.local.md` |
+
+4. Tracks everything in `<project>/.claude/.mcs-project` for clean convergence
+
+Re-running `mcs configure` converges to the desired state — new packs are added, deselected packs are fully cleaned up, unchanged packs are updated idempotently.
 
 ---
 
-# Core Components
+## Tech Packs
 
-| | Component | Purpose |
-|---|-----------|----------|
-| 🔌 | **docs-mcp-server** | Semantic memory search (local Ollama embeddings) |
-| 🔌 | **Serena** | Symbol-aware code navigation and editing via LSP |
-| 🧩 | **pr-review-toolkit** | Structured AI PR review agents |
-| 🧩 | **ralph-loop** | Iterative refinement loop for complex tasks |
-| 🧩 | **explanatory-output-style** | Enhanced output with reasoning context |
-| 🧩 | **claude-md-management** | Audit and improve `CLAUDE.md` |
-| 📋 | **continuous-learning** | Automatically extract learnings into memory |
-| 📋 | **/pr & /commit** | Stage, commit, push, optionally open PR |
-| ⚙️ | **session_start hook** | Git status, PRs, Ollama health at session start |
-| ⚙️ | **Managed settings.json** | Plan mode, always-thinking, plugins, hooks |
+A tech pack is a Git repository with a `techpack.yaml` file. It can include any combination of:
 
----
+- **Brew packages** — CLI dependencies
+- **MCP servers** — stdio or HTTP transport
+- **Plugins** — Claude Code plugins
+- **Hooks** — session lifecycle scripts (SessionStart, PreToolUse, etc.)
+- **Skills** — domain knowledge and workflows
+- **Commands** — custom `/slash` commands
+- **Templates** — CLAUDE.local.md instructions with placeholder substitution
+- **Settings** — merged into `settings.local.json`
+- **Doctor checks** — health verification and auto-repair
 
-# Memory System
+### Example Pack
 
-Claude becomes progressively smarter about your project.
+```yaml
+schemaVersion: 1
+identifier: my-pack
+displayName: My Development Pack
+description: My Claude Code setup
+version: "1.0.0"
 
+components:
+  - id: node
+    description: JavaScript runtime
+    brew: node
+
+  - id: my-server
+    description: Code analysis MCP server
+    dependencies: [node]
+    mcp:
+      command: npx
+      args: ["-y", "my-server@latest"]
+
+  - id: pr-review
+    description: PR review agents
+    plugin: "pr-review-toolkit@claude-plugins-official"
+
+  - id: session-hook
+    description: Git status on session start
+    hookEvent: SessionStart
+    hook:
+      source: hooks/session_start.sh
+      destination: session_start.sh
+
+  - id: settings
+    description: Plan mode and thinking
+    isRequired: true
+    settingsFile: config/settings.json
+
+templates:
+  - sectionIdentifier: my-pack.instructions
+    contentFile: templates/instructions.md
 ```
-Session work
-   ↓
-continuous-learning skill
-   ↓
-.claude/memories/*.md
-   ↓
-docs-mcp-server + Ollama embeddings
-   ↓
-semantic retrieval in future sessions
-```
 
-- Plain Markdown files
-- Local-only
-- Gitignored
-- Shared with Serena when installed
-- No external cloud required
-
----
-
-# Tech Packs
-
-Tech Packs group platform-specific tooling into modular bundles compiled into the `mcs` binary.
-
-| Pack | Includes |
-|------|----------|
-| **Core** | Memory, PR workflows, session hooks, Serena |
-| **iOS** | XcodeBuildMCP, Sosumi, simulator + Xcode workflows |
-
-Want to create your own pack?  
-See [`docs/creating-tech-packs.md`](docs/creating-tech-packs.md).
-
----
-
-# iOS Tech Pack
-
-Install with:
+### Creating Your Own Pack
 
 ```bash
-mcs install --pack ios
+mkdir my-pack && cd my-pack && git init
+# Write your techpack.yaml
+git add -A && git commit -m "Initial pack"
+git remote add origin https://github.com/you/my-pack.git
+git push -u origin main
+
+# Install it
+mcs pack add https://github.com/you/my-pack
 ```
 
-Includes:
+Full guide: [Creating Tech Packs](docs/creating-tech-packs.md)
 
-| | Component | Purpose |
-|---|-----------|----------|
-| 🔌 | **XcodeBuildMCP** | Build, test, run apps via Xcode |
-| 🔌 | **Sosumi** | Search Apple Developer documentation |
-| 📋 | **xcodebuildmcp skill** | Guided workflows for 190+ iOS tools |
-| ⚙️ | **iOS CLAUDE.local.md section** | Simulator + build workflow tuning |
-| ⚙️ | **xcodebuildmcp.yaml** | Per-project configuration |
+Schema reference: [Tech Pack Schema](docs/techpack-schema.md)
 
 ---
 
-# Auto-Resolved Dependencies
-
-Installed automatically when required:
-
-- Node.js (npx-based MCP servers)
-- GitHub CLI (`gh`) for `/pr`
-- `jq` for hook JSON parsing
-- Ollama + `nomic-embed-text` for local embeddings
-- `uv` for Serena
-- Claude Code CLI
-
----
-
-# Safety Guarantees
+## Safety Guarantees
 
 | Guarantee | Meaning |
-|-----------|--------|
-| 🔒 Backups | Timestamped backup before every write |
-| 👁️ Dry Run | `--dry-run` previews changes |
-| 🎯 Selective Install | Choose components or use `--all` |
-| 🔄 Idempotent | Safe to re-run anytime |
-| 🧩 Non-Destructive | Existing configuration preserved |
-| 📐 Section Markers | Managed content clearly separated |
-| 🔎 Drift Detection | SHA-based manifest tracking |
+|-----------|---------|
+| Backups | Timestamped backup before modifying files with user content |
+| Dry Run | `--dry-run` previews changes without applying them |
+| Selective Install | Choose components with `--customize` or install all |
+| Idempotent | Safe to re-run at any time |
+| Non-Destructive | User content in CLAUDE.local.md preserved via section markers |
+| Convergent | Deselected packs are fully cleaned up |
+| Trust Verification | Pack scripts are hashed at add-time, verified at load-time |
 
 ---
 
-# Troubleshooting
+## Commands Reference
+
+```bash
+# Pack management
+mcs pack add <url>               # Add a tech pack from a Git URL
+mcs pack remove <name>           # Remove a registered pack
+mcs pack list                    # List registered packs
+mcs pack update [name]           # Update pack(s) to latest
+
+# Installation
+mcs install                      # Interactive global component install
+mcs install --all                # Install everything from all packs
+mcs install --dry-run            # Preview what would be installed
+
+# Project configuration
+mcs configure [path]             # Per-project setup with pack selection
+mcs configure --pack <name>      # Non-interactive: apply specific pack(s)
+
+# Health checks
+mcs doctor                       # Diagnose installation health
+mcs doctor --fix                 # Diagnose and auto-fix issues
+mcs doctor --pack <name>         # Check a specific pack only
+
+# Maintenance
+mcs cleanup                      # Find and delete backup files
+mcs cleanup --force              # Delete backups without confirmation
+```
+
+---
+
+## Troubleshooting
 
 Start with:
 
@@ -267,31 +262,31 @@ Full guide: [`docs/troubleshooting.md`](docs/troubleshooting.md)
 
 ---
 
-# Development
+## Development
 
 ```bash
 swift build
 swift test
-swift build -c release --arch arm64 --arch x86_64
+swift build -c release --arch arm64 --arch x86_64   # Universal binary
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for project structure and design decisions.
 
 ---
 
-# Contributing
+## Contributing
 
-Tech Packs and improvements welcome.
+Tech packs and engine improvements welcome.
 
 1. Fork
 2. Create feature branch
 3. Run `swift test`
 4. Open PR
 
-For building new packs, read [`docs/creating-tech-packs.md`](docs/creating-tech-packs.md)
+For building new packs, read [Creating Tech Packs](docs/creating-tech-packs.md).
 
 ---
 
-# License
+## License
 
 MIT

@@ -1,287 +1,341 @@
 # Creating Tech Packs
 
-This guide walks through creating an external tech pack for `mcs`. Tech packs add platform-specific MCP servers, templates, hooks, doctor checks, and project configuration.
+A tech pack is your Claude Code setup — packaged as a Git repo and shareable with anyone. It bundles MCP servers, plugins, hooks, skills, commands, templates, and settings into a single `techpack.yaml` file that `mcs` knows how to install, configure, and maintain.
 
-## Overview
+Think of it like a dotfiles repo, but specifically for Claude Code.
 
-A tech pack is a Git repository containing a `techpack.yaml` manifest file. Packs are installed via `mcs pack add <url>` and configured per-project via `mcs configure`. There are no compiled-in packs — all packs are external.
+## Your First Tech Pack
 
-## Quick Start
+Let's build a working tech pack in under 5 minutes.
+
+### 1. Create the repo
 
 ```bash
-# Create a new pack repo
-mkdir my-pack && cd my-pack && git init
-
-# Create the manifest
-cat > techpack.yaml << 'EOF'
-schemaVersion: 1
-identifier: my-pack
-displayName: My Pack
-description: What this pack provides
-version: "1.0.0"
-EOF
-
-# Push to GitHub, then install
-mcs pack add https://github.com/you/my-pack
+mkdir my-first-pack && cd my-first-pack
+git init
 ```
 
-## Pack Structure
+### 2. Write the manifest
 
-```
-my-pack/
-    techpack.yaml                # Required: pack manifest
-    templates/
-        claude-local.md          # CLAUDE.local.md section content
-    hooks/
-        session-start.sh         # Hook script(s)
-    skills/
-        my-skill/SKILL.md        # Skill files
-    commands/
-        my-command.md            # Slash commands
-    config/
-        settings.json            # Settings template
-    scripts/
-        configure.sh             # Optional: configure hook script
-```
-
-## Manifest Reference (`techpack.yaml`)
-
-### Minimal Manifest
+Create `techpack.yaml`:
 
 ```yaml
 schemaVersion: 1
-identifier: my-pack
-displayName: My Pack
-description: Adds tools for my workflow
-version: "1.0.0"
-```
-
-### Full Example (Shorthand)
-
-Components support a **shorthand syntax** where a single key replaces both `type` and `installAction`. This is the recommended style — it's more concise and less error-prone.
-
-```yaml
-schemaVersion: 1
-identifier: my-pack
-displayName: My Pack
-description: Adds tools for my workflow
+identifier: my-first-pack
+displayName: My First Pack
+description: A simple pack that adds an MCP server
 version: "1.0.0"
 
 components:
-  # Brew package — `brew:` infers type: brewPackage
+  - id: my-server
+    description: My favorite MCP server
+    mcp:
+      command: npx
+      args: ["-y", "my-mcp-server@latest"]
+```
+
+That's it. One file, 10 lines.
+
+### 3. Install and test
+
+```bash
+# Commit it
+git add -A && git commit -m "Initial tech pack"
+
+# If using a local path:
+mcs pack add /path/to/my-first-pack
+
+# Or push to GitHub first:
+git remote add origin https://github.com/you/my-first-pack.git
+git push -u origin main
+mcs pack add https://github.com/you/my-first-pack
+```
+
+### 4. Configure a project
+
+```bash
+cd ~/Developer/some-project
+mcs configure    # Select your pack from the list
+mcs doctor       # Verify everything installed correctly
+```
+
+You now have a working tech pack. Let's make it more useful.
+
+---
+
+## Adding Components
+
+Components are the building blocks of a tech pack. Each one is something `mcs` can install, verify, and uninstall. The shorthand syntax lets you define most components in 2-4 lines.
+
+### Brew Packages
+
+Install CLI tools via Homebrew:
+
+```yaml
+components:
   - id: node
     description: JavaScript runtime
-    dependencies: [homebrew]
     brew: node
 
-  # MCP server (stdio) — `mcp:` infers type: mcpServer, name from id
+  - id: gh
+    description: GitHub CLI
+    brew: gh
+```
+
+When a user runs `mcs install`, these get installed via `brew install`. The engine auto-verifies them with `mcs doctor` (checks if the command is on PATH).
+
+Need to depend on Homebrew itself? That's a special case — Homebrew can't install itself, so use `shell:` with an explicit doctor check:
+
+```yaml
+  - id: homebrew
+    displayName: Homebrew
+    description: macOS package manager
+    type: brewPackage
+    shell: '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+    doctorChecks:
+      - type: commandExists
+        name: Homebrew
+        command: brew
+```
+
+### MCP Servers
+
+Register MCP servers with the Claude CLI:
+
+```yaml
+  # Standard (stdio) transport
   - id: my-server
-    description: Code search server
+    description: Code analysis server
     dependencies: [node]
     mcp:
       command: npx
       args: ["-y", "my-server@latest"]
       env:
-        API_KEY: "value"
-      scope: local          # local (default), project, or user
+        API_KEY: "some-value"
 
-  # MCP server (HTTP) — url presence infers HTTP transport
-  - id: my-http-server
-    description: Remote MCP server
+  # HTTP transport — just provide a url
+  - id: remote-server
+    description: Cloud-hosted MCP server
     mcp:
       url: https://example.com/mcp
+```
 
-  # Plugin — `plugin:` infers type: plugin
+The server name defaults to the component id. If the server uses a different name (e.g. mixed case), override it:
+
+```yaml
+  - id: xcodebuildmcp
+    displayName: XcodeBuildMCP
+    description: Xcode build server
+    mcp:
+      name: XcodeBuildMCP    # Override — server registers as "XcodeBuildMCP"
+      command: npx
+      args: ["-y", "xcodebuildmcp@latest"]
+```
+
+### Plugins
+
+Install Claude Code plugins:
+
+```yaml
   - id: my-plugin
-    description: A useful plugin
+    description: Helpful plugin
     plugin: "my-plugin@my-org"
+```
 
-  # Hook — `hook:` infers type: hookFile, fileType: hook
+### Hooks
+
+Hook scripts run at specific Claude Code lifecycle events:
+
+```yaml
   - id: session-hook
-    description: Session start hook
+    description: Shows git status on session start
+    dependencies: [jq]
     hookEvent: SessionStart
     hook:
       source: hooks/session_start.sh
       destination: session_start.sh
+```
 
-  # Command — `command:` infers type: command, fileType: command
+This copies `hooks/session_start.sh` from your pack repo into `<project>/.claude/hooks/` and registers it in `settings.local.json` under the `SessionStart` event.
+
+Available events: `SessionStart`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`.
+
+### Skills
+
+Skills are directories containing a `SKILL.md` file and optional reference files:
+
+```yaml
+  - id: my-skill
+    description: Domain-specific knowledge
+    skill:
+      source: skills/my-skill          # Directory in your pack repo
+      destination: my-skill            # Name under .claude/skills/
+```
+
+### Slash Commands
+
+Custom `/command` prompts:
+
+```yaml
   - id: pr-command
-    description: PR creation command
+    displayName: /pr command
+    description: Create pull requests
     command:
       source: commands/pr.md
       destination: pr.md
+```
 
-  # Skill — `skill:` infers type: skill, fileType: skill
-  - id: my-skill
-    description: A pack-provided skill
-    skill:
-      source: skills/my-skill
-      destination: my-skill
+### Settings
 
-  # Settings — `settingsFile:` infers type: configuration
+Merge Claude Code settings (plan mode, env vars, etc.):
+
+```yaml
   - id: settings
-    description: Claude Code settings
+    description: Claude Code configuration
     isRequired: true
     settingsFile: config/settings.json
+```
 
-  # Gitignore — `gitignore:` infers type: configuration
+Your `config/settings.json` might look like:
+
+```json
+{
+  "permissions": {
+    "defaultMode": "plan"
+  },
+  "alwaysThinkingEnabled": true,
+  "env": {
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"
+  }
+}
+```
+
+### Gitignore Entries
+
+Add patterns to the user's global gitignore:
+
+```yaml
   - id: gitignore
-    description: Global gitignore entries
+    description: Gitignore entries
     isRequired: true
     gitignore:
-      - .my-pack
-      - .my-pack-cache
-
-  # Shell command — `shell:` requires explicit `type:`
-  - id: homebrew
-    displayName: Homebrew
-    description: macOS package manager
-    type: brewPackage
-    shell: '/bin/bash -c "$(curl -fsSL https://brew.sh)"'
-    doctorChecks:
-      - type: commandExists
-        name: Homebrew
-        section: Dependencies
-        command: brew
-
-templates:
-  - sectionIdentifier: my-pack
-    contentFile: templates/claude-local.md
-    placeholders: ["__PROJECT__"]
-
-prompts:
-  - key: PROJECT
-    type: fileDetect
-    label: "Project file"
-    detectPattern: "*.xcodeproj"
-
-configureProject:
-  script: scripts/configure.sh
-
-supplementaryDoctorChecks:
-  - name: My Tool Config
-    section: My Pack
-    type: fileExists
-    path: ".my-pack/config.yaml"
+      - .claude/memories
+      - .claude/settings.local.json
+      - .claude/.mcs-project
 ```
 
-### Verbose Form (Still Supported)
+### Shell Commands
 
-The shorthand is syntactic sugar — the **verbose form** with explicit `type` + `installAction` is always supported and required for edge cases like `shell:` commands.
+For anything that doesn't fit the other categories:
 
 ```yaml
-# Verbose equivalent of `brew: node`
-- id: node
-  displayName: Node.js
-  description: JavaScript runtime
-  type: brewPackage
-  installAction:
-    type: brewInstall
-    package: node
+  - id: special-tool
+    description: Install via custom script
+    type: skill                    # shell: requires explicit type
+    shell: "npx -y skills add some-skill -g -a claude-code -y"
 ```
 
-## Shorthand Reference
+`shell:` is the only shorthand that doesn't infer the component type — you must provide `type:` explicitly.
 
-| Shorthand Key | Value Type | Infers `type` | Infers `installAction` |
-|--------------|-----------|---------------|----------------------|
-| `brew:` | `String` | `brewPackage` | `brewInstall(package:)` |
-| `mcp:` | Map | `mcpServer` | `mcpServer(config)` — name defaults to component id |
-| `plugin:` | `String` | `plugin` | `plugin(name:)` |
-| `shell:` | `String` | *none — requires explicit `type:`* | `shellCommand(command:)` |
-| `hook:` | `{source, destination}` | `hookFile` | `copyPackFile(fileType: hook)` |
-| `command:` | `{source, destination}` | `command` | `copyPackFile(fileType: command)` |
-| `skill:` | `{source, destination}` | `skill` | `copyPackFile(fileType: skill)` |
-| `settingsFile:` | `String` | `configuration` | `settingsFile(source:)` |
-| `gitignore:` | `[String]` | `configuration` | `gitignoreEntries(entries:)` |
+---
 
-**Additional notes:**
-- `displayName` is optional — defaults to the component `id` if omitted
-- `mcp:` derives the server name from the component id. Use `name:` inside the map to override (e.g. when the server name uses mixed case)
-- `shell:` is the only shorthand that doesn't infer `type` — you must provide `type:` explicitly since shell commands can install anything (brew packages, skills, etc.)
+## Dependencies
 
-## Component Types
-
-| Type | Description |
-|------|-------------|
-| `mcpServer` | MCP server registered via `claude mcp add` |
-| `plugin` | Claude Code plugin |
-| `brewPackage` | Homebrew package |
-| `skill` | Skill directory copied to `<project>/.claude/skills/` |
-| `hookFile` | Hook script copied to `<project>/.claude/hooks/` |
-| `command` | Slash command copied to `<project>/.claude/commands/` |
-| `configuration` | Gitignore entries, settings merge, etc. |
-
-## Component Features
-
-### Dependencies
-
-Components can depend on other components. Use short IDs (auto-prefixed with the pack identifier):
-
-```yaml
-- id: my-server
-  dependencies: [node, homebrew]   # → my-pack.node, my-pack.homebrew
-  mcp:
-    command: npx
-    args: ["-y", "my-server@latest"]
-```
-
-Cross-pack dependencies use the full `pack.component` form:
-
-```yaml
-- id: my-tool
-  dependencies: [other-pack.node]
-  brew: my-tool
-```
-
-### Short IDs
-
-Component IDs can use short form — the engine auto-prefixes with `<pack-identifier>.`:
+Components can depend on other components. Use short IDs — the engine auto-prefixes them with your pack identifier:
 
 ```yaml
 identifier: my-pack
+
 components:
-  - id: node          # → my-pack.node
-  - id: my-server     # → my-pack.my-server
+  - id: homebrew
+    description: Package manager
+    type: brewPackage
+    shell: '/bin/bash -c "$(curl -fsSL https://brew.sh)"'
+
+  - id: node
+    description: JavaScript runtime
+    dependencies: [homebrew]       # → my-pack.homebrew
+    brew: node
+
+  - id: my-server
+    description: Code search
+    dependencies: [node]           # → my-pack.node
+    mcp:
+      command: npx
+      args: ["-y", "my-server@latest"]
 ```
 
-### MCP Server Scopes
+Dependencies are installed in order (topological sort). Circular dependencies are detected and rejected.
 
-The `scope` field on MCP server components controls where the server is registered:
+For cross-pack dependencies, use the full `pack.component` form:
 
-- **`local`** (default): per-user, per-project — stored in `~/.claude.json` keyed by project path. This is the recommended scope for project-specific tools.
-- **`project`**: team-shared — stored in `.mcp.json` in the project directory. Use when the entire team should have the same server.
-- **`user`**: cross-project — stored in `~/.claude.json` globally. Use sparingly for truly global tools.
+```yaml
+  - id: my-tool
+    dependencies: [other-pack.node]   # Different pack — not auto-prefixed
+    brew: my-tool
+```
+
+---
 
 ## Templates
 
-Templates contribute sections to `CLAUDE.local.md`. Create a markdown file referenced by `contentFile`:
+Templates inject instructions into each project's `CLAUDE.local.md`. This is how you give Claude project-specific context.
 
-```markdown
-## My Pack Instructions
+### Define the template
 
-When working on this project, follow these guidelines:
+In `techpack.yaml`:
 
-- Guideline 1
-- Guideline 2
-
-Project: __REPO_NAME__
+```yaml
+templates:
+  - sectionIdentifier: my-pack.instructions
+    contentFile: templates/instructions.md
+    placeholders:
+      - __PROJECT__
 ```
 
-Placeholders use the `__NAME__` format and are substituted during `mcs configure`. Built-in placeholder:
-- `__REPO_NAME__` — git repository name (always available)
+### Write the content
 
-Custom placeholders are resolved via `prompts` in the manifest.
+Create `templates/instructions.md`:
+
+```markdown
+## Build & Test
+
+Always use __PROJECT__ as the project file.
+Never run `xcodebuild` directly — use XcodeBuildMCP tools instead.
+```
+
+### How it works
+
+When a user runs `mcs configure`, the template content is inserted into `CLAUDE.local.md` between section markers:
+
+```markdown
+<!-- mcs:begin my-pack.instructions v1.0.0 -->
+## Build & Test
+
+Always use MyApp.xcworkspace as the project file.
+Never run `xcodebuild` directly — use XcodeBuildMCP tools instead.
+<!-- mcs:end my-pack.instructions -->
+```
+
+Users can add their own content outside these markers — `mcs` only manages the sections it owns.
+
+### Placeholders
+
+- `__REPO_NAME__` — always available (git repository name)
+- Custom placeholders are resolved from `prompts` (see below)
+
+---
 
 ## Prompts
 
-Prompts gather values during `mcs configure`. Four types are available:
+Prompts gather values from the user during `mcs configure`. These values are available as `__KEY__` placeholders in templates and as `MCS_RESOLVED_KEY` environment variables in scripts.
 
 ```yaml
 prompts:
-  # Detect files matching a glob pattern
+  # Auto-detect files matching a pattern
   - key: PROJECT
     type: fileDetect
-    label: "Xcode project"
+    label: "Xcode project / workspace"
     detectPattern:
       - "*.xcodeproj"
       - "*.xcworkspace"
@@ -289,10 +343,10 @@ prompts:
   # Free-text input
   - key: BRANCH_PREFIX
     type: input
-    label: "Branch prefix"
+    label: "Branch prefix (e.g. feature)"
     default: "feature"
 
-  # Select from predefined options
+  # Choose from options
   - key: PLATFORM
     type: select
     label: "Target platform"
@@ -302,173 +356,184 @@ prompts:
       - value: macos
         label: macOS
 
-  # Run a script to get the value
+  # Dynamic value from a script
   - key: SDK_VERSION
     type: script
     label: "SDK version"
     scriptCommand: "xcrun --show-sdk-version"
 ```
 
-Resolved values are available as `__KEY__` placeholders in templates and as `MCS_RESOLVED_KEY` env vars in scripts.
-
-## Hook Contributions
-
-Hook contributions are installed as individual script files in `<project>/.claude/hooks/` and registered as separate `HookGroup` entries in `settings.local.json`.
-
-Create a shell script fragment referenced by `fragmentFile`:
-
-```bash
-#!/bin/bash
-# My pack session start hook
-if command -v my-tool &>/dev/null; then
-    echo "my-tool: $(my-tool --version)"
-fi
-```
-
-Hook names map to Claude Code events:
-- `session_start` → `SessionStart`
-- `pre_tool_use` → `PreToolUse`
-- `post_tool_use` → `PostToolUse`
-- `notification` → `Notification`
-- `stop` → `Stop`
+---
 
 ## Doctor Checks
 
-### Auto-Derived Checks
+`mcs doctor` verifies your pack is healthy. Most checks are **auto-derived** — you don't need to write them:
 
-Most components automatically generate doctor checks from their install action:
-- `mcpServer` → checks registration in `~/.claude.json`
-- `plugin` → checks enablement in settings
-- `brewInstall` → checks command availability
-- `copyPackFile` → checks file existence at destination
+| Install action | Auto-derived check |
+|---|---|
+| `brew: node` | Is `node` on PATH? |
+| `mcp: {command: npx, ...}` | Is the MCP server registered? |
+| `plugin: "name@org"` | Is the plugin enabled? |
+| `hook: {source, destination}` | Does the hook file exist? |
+| `skill: {source, destination}` | Does the skill directory exist? |
+| `command: {source, destination}` | Does the command file exist? |
 
-### Per-Component Checks
+### When you need custom checks
 
-For components with special verification needs, define `doctorChecks` inline:
+Use `doctorChecks` on a component when the auto-derived check isn't enough:
 
 ```yaml
-- id: homebrew
-  description: macOS package manager
-  type: brewPackage
-  shell: '/bin/bash -c "$(curl -fsSL https://brew.sh)"'
-  doctorChecks:
-    - type: commandExists
-      name: Homebrew
-      section: Dependencies
-      command: brew
+  - id: homebrew
+    type: brewPackage
+    shell: '/bin/bash -c "$(curl -fsSL https://brew.sh)"'
+    doctorChecks:
+      - type: commandExists
+        name: Homebrew
+        section: Dependencies
+        command: brew
 ```
 
-### Supplementary Checks (Pack-Level)
+This is needed because `shell:` commands have no auto-derived check — the engine can't guess what a shell command installs.
 
-For checks that don't belong to a specific component:
+### Pack-level checks
+
+For verifying things that aren't tied to a specific component:
 
 ```yaml
 supplementaryDoctorChecks:
-  - name: My Tool Config
-    section: My Pack
-    type: fileExists
-    path: ".my-pack/config.yaml"
+  - type: shellScript
+    name: Xcode Command Line Tools
+    section: Prerequisites
+    command: "xcode-select -p >/dev/null 2>&1"
+    fixCommand: "xcode-select --install"
 
-  - name: My Service Running
-    section: My Pack
-    type: shellScript
-    command: "curl -s localhost:8080/health"
-    fixCommand: "my-service start"
+  - type: settingsKeyEquals
+    name: Plan mode enabled
+    section: Settings
+    keyPath: permissions.defaultMode
+    expectedValue: plan
 ```
 
-### Available Check Types
+The `fixCommand` is run automatically when the user runs `mcs doctor --fix`.
 
-| Type | Required Fields | Description |
-|------|----------------|-------------|
-| `commandExists` | `command` | Check if a CLI command is available |
-| `fileExists` | `path` | Check if a file exists |
-| `directoryExists` | `path` | Check if a directory exists |
-| `fileContains` | `path`, `pattern` | Check if a file matches a regex |
-| `fileNotContains` | `path`, `pattern` | Check a file does NOT match a regex |
-| `shellScript` | `command` | Run a shell command (exit 0=pass, 1=fail, 2=warn, 3=skip) |
-| `hookEventExists` | `event` | Check if a hook event is registered in settings |
-| `settingsKeyEquals` | `keyPath`, `expectedValue` | Check a settings value at a JSON key path |
+See the [Schema Reference](techpack-schema.md#doctor-checks) for all 8 check types.
 
-**Optional fields** (available on all check types):
-- `section` — grouping label in doctor output
-- `fixCommand` — shell command to auto-fix the issue (`mcs doctor --fix`)
-- `fixScript` — path to a script file for complex fixes
-- `scope` — `global` or `project` (project checks only run when a project is detected)
-- `isOptional` — if `true`, failure shows as a warning instead of an error
+---
 
-## Configure Hook
+## Configure Scripts
 
-The `configureProject` script runs after all per-project artifacts are installed. It receives environment variables:
+For project setup that goes beyond file copying, use a configure script:
 
-- `MCS_PROJECT_PATH` — absolute path to the project
-- `MCS_RESOLVED_<KEY>` — resolved prompt values (uppercased)
+```yaml
+configureProject:
+  script: scripts/configure.sh
+```
+
+The script receives environment variables:
+- `MCS_PROJECT_PATH` — absolute path to the project root
+- `MCS_RESOLVED_<KEY>` — resolved prompt values (e.g. `MCS_RESOLVED_PROJECT`)
+
+Example `scripts/configure.sh`:
 
 ```bash
 #!/bin/bash
-# scripts/configure.sh
-config_dir="$MCS_PROJECT_PATH/.my-pack"
-mkdir -p "$config_dir"
-echo "type: $MCS_RESOLVED_PROJECT_TYPE" > "$config_dir/config.yaml"
+set -euo pipefail
+
+project_path="${MCS_PROJECT_PATH:?}"
+project_file="${MCS_RESOLVED_PROJECT:-}"
+
+[ -z "$project_file" ] && exit 0
+
+mkdir -p "$project_path/.xcodebuildmcp"
+cat > "$project_path/.xcodebuildmcp/config.yaml" << EOF
+schemaVersion: 1
+sessionDefaults:
+  projectPath: ./$project_file
+  platform: iOS
+EOF
+
+echo "Created .xcodebuildmcp/config.yaml for $project_file"
 ```
 
-## Per-Project Artifact Placement
+---
 
-When `mcs configure` runs, pack artifacts are placed per-project:
+## How Convergence Works
 
-| Artifact | Location | Managed by |
-|----------|----------|------------|
-| MCP servers | `~/.claude.json` (keyed by project) | `claude mcp add -s local` |
-| Skills | `<project>/.claude/skills/` | File copy |
-| Hook scripts | `<project>/.claude/hooks/` | File copy |
-| Commands | `<project>/.claude/commands/` | File copy |
-| Hook entries | `<project>/.claude/settings.local.json` | Composed from all packs |
-| Templates | `<project>/CLAUDE.local.md` | Section markers |
-| State | `<project>/.claude/.mcs-project` | JSON with artifact records |
-| Brew packages | Global via `brew install` | Auto-install |
-| Plugins | Global via `claude plugin install` | Auto-install |
+`mcs configure` is **idempotent** — safe to run repeatedly. The engine tracks what each pack installed and converges to the desired state:
 
-## Convergence
+- **Add a pack** → installs all its components (MCP servers, files, templates, settings)
+- **Remove a pack** → cleans up everything it installed (removes MCP servers, deletes files, removes template sections)
+- **Re-run unchanged** → updates idempotently (re-copies files, re-composes settings)
 
-`mcs configure` is idempotent. On re-run:
+This tracking lives in `<project>/.claude/.mcs-project`. You don't need to manage it.
 
-1. **New packs**: full install (MCP, files, templates, settings)
-2. **Removed packs**: full cleanup using stored `PackArtifactRecord` (remove MCP servers, delete files, remove template sections)
-3. **Unchanged packs**: update idempotently (re-copy files, re-compose settings)
+### Where artifacts go
 
-The `PackArtifactRecord` in `.mcs-project` tracks exactly what each pack installed, enabling clean reversal.
+| Artifact | Location |
+|----------|----------|
+| MCP servers | `~/.claude.json` (keyed by project path) |
+| Skills | `<project>/.claude/skills/` |
+| Hooks | `<project>/.claude/hooks/` |
+| Commands | `<project>/.claude/commands/` |
+| Settings | `<project>/.claude/settings.local.json` |
+| Templates | `<project>/CLAUDE.local.md` |
+| Brew packages | Global (`brew install`) |
+| Plugins | Global (`claude plugin install`) |
+
+---
 
 ## Testing Your Pack
 
 ```bash
-# Add your pack
-mcs pack add /path/to/local/pack   # or https://github.com/you/my-pack
+# Add your pack (local path or GitHub URL)
+mcs pack add /path/to/my-pack
 
-# Configure a project
-cd /path/to/project
-mcs configure                       # Select your pack in multi-select
+# Configure a test project
+cd ~/Developer/test-project
+mcs configure             # Select your pack
 
 # Verify
-mcs doctor                          # Check diagnostics
-ls .claude/                         # Verify per-project artifacts
+mcs doctor                # All checks should pass
+ls -la .claude/           # Inspect installed artifacts
+cat CLAUDE.local.md       # Check template sections
 
-# Test convergence: re-run and deselect
-mcs configure                       # Deselect your pack
-ls .claude/                         # Artifacts should be removed
+# Test removal — deselect your pack
+mcs configure             # Deselect it
+ls -la .claude/           # Artifacts should be gone
+cat CLAUDE.local.md       # Template sections removed
+
+# Test updates — make a change to your pack, then
+mcs pack update my-pack
+mcs configure             # Re-select — should pick up changes
 ```
 
-## Design Guidelines
+---
 
-### Component IDs
-Use short IDs — the engine auto-prefixes with the pack identifier:
-- `server` → `my-pack.server`
-- `session-hook` → `my-pack.session-hook`
+## Design Tips
 
-Or use the fully-qualified form:
-- `my-pack.server`
-- `my-pack.skill.my-skill`
+**Keep it focused.** A pack for iOS development shouldn't also install Python linters. Multiple small packs compose better than one giant one.
 
-### Idempotency
-Install actions should be safe to re-run. The system checks if components are already installed before executing install actions.
+**Use short IDs.** Write `id: node`, not `id: my-pack.node`. The engine auto-prefixes.
 
-### Scope Selection
-Default to `local` scope for MCP servers. Only use `project` scope if the server should be shared with the team (checked into `.mcp.json`). Only use `user` scope for truly global tools that apply to all projects.
+**Default to `local` scope for MCP servers.** This gives per-user, per-project isolation. Only use `project` scope for team-shared servers, and `user` scope for truly global tools.
+
+**Make hooks resilient.** Always start with `set -euo pipefail` and `trap 'exit 0' ERR`. Check for required tools before using them (`command -v jq >/dev/null 2>&1 || exit 0`). A crashing hook blocks Claude Code.
+
+**Use `isRequired: true`** for components that should always be installed (settings, gitignore). Required components can't be deselected during `mcs install --customize`.
+
+**Add `fixCommand`** to doctor checks when auto-repair is possible. Users love `mcs doctor --fix`.
+
+---
+
+## What's Next
+
+**Planned: Auto-export.** A future version of `mcs` will be able to inspect your current Claude Code environment — installed MCP servers, plugins, hooks, settings — and generate a `techpack.yaml` automatically. This means you'll be able to set up Claude Code however you like, then run a single command to package it as a shareable tech pack.
+
+Until then, the manual approach described in this guide is the way to go. The schema is intentionally simple — most packs can be written in under 50 lines of YAML.
+
+---
+
+## Further Reading
+
+- [Schema Reference](techpack-schema.md) — complete field-by-field reference for `techpack.yaml`
+- [Troubleshooting](troubleshooting.md) — common issues and solutions

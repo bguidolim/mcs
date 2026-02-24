@@ -376,6 +376,61 @@ struct CLAUDELocalFreshnessCheckTests {
             Issue.record("Expected warn but got \(result)")
         }
     }
+
+    // MARK: - Corrupt state file
+
+    @Test("Corrupt .mcs-project — check warns instead of silent legacy fallback")
+    func corruptStateFileCheck() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try writeClaudeLocal(at: tmpDir, sections: [
+            (id: "test-pack", version: MCSVersion.current, content: "Some content"),
+        ])
+
+        // Write corrupt (non-JSON) data to .mcs-project
+        let claudeDir = tmpDir.appendingPathComponent(Constants.FileNames.claudeDirectory)
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        let stateFile = claudeDir.appendingPathComponent(Constants.FileNames.mcsProject)
+        try "{corrupt json!!!}".write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let registry = makeRegistry(packs: [])
+        let context = ProjectDoctorContext(projectRoot: tmpDir, registry: registry)
+        let check = CLAUDELocalFreshnessCheck(context: context)
+
+        let result = check.check()
+        if case .warn(let msg) = result {
+            #expect(msg.contains("could not read .mcs-project"))
+        } else {
+            Issue.record("Expected warn but got \(result)")
+        }
+    }
+
+    @Test("Corrupt .mcs-project — fix fails instead of misdiagnosing as 'never synced'")
+    func corruptStateFileFix() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try writeClaudeLocal(at: tmpDir, sections: [
+            (id: "test-pack", version: MCSVersion.current, content: "Some content"),
+        ])
+
+        let claudeDir = tmpDir.appendingPathComponent(Constants.FileNames.claudeDirectory)
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        let stateFile = claudeDir.appendingPathComponent(Constants.FileNames.mcsProject)
+        try "{corrupt json!!!}".write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let registry = makeRegistry(packs: [])
+        let context = ProjectDoctorContext(projectRoot: tmpDir, registry: registry)
+        let check = CLAUDELocalFreshnessCheck(context: context)
+
+        let fixResult = check.fix()
+        if case .failed(let msg) = fixResult {
+            #expect(msg.contains("could not read .mcs-project"))
+        } else {
+            Issue.record("Expected failed but got \(fixResult)")
+        }
+    }
 }
 
 // MARK: - Test doubles

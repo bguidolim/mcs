@@ -71,6 +71,11 @@ struct Environment: Sendable {
         claudeDirectory.appendingPathComponent(Constants.ExternalPacks.registryFilename)
     }
 
+    /// Global state file tracking globally-installed packs and artifacts.
+    var globalStateFile: URL {
+        claudeDirectory.appendingPathComponent(".mcs-global")
+    }
+
     /// POSIX lock file for preventing concurrent mcs execution.
     var lockFile: URL {
         claudeDirectory.appendingPathComponent(Constants.FileNames.mcsLock)

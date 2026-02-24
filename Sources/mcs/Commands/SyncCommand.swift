@@ -28,7 +28,10 @@ struct SyncCommand: LockedCommand {
     @Flag(name: .long, help: "Customize which components to include per pack")
     var customize = false
 
-    var skipLock: Bool { dryRun }
+    @Flag(name: .long, help: "Install to global ~/.claude/ scope instead of a project")
+    var global = false
+
+    var skipLock: Bool { dryRun || global }
 
     func perform() throws {
         let env = Environment()
@@ -39,6 +42,99 @@ struct SyncCommand: LockedCommand {
             throw ExitCode.failure
         }
 
+        // Handle --update: fetch latest for all packs before loading
+        if update {
+            let lockOps = LockfileOperations(environment: env, output: output, shell: shell)
+            try lockOps.updatePacks()
+        }
+
+        let registry = TechPackRegistry.loadWithExternalPacks(
+            environment: env,
+            output: output
+        )
+
+        if global {
+            try performGlobal(env: env, output: output, shell: shell, registry: registry)
+        } else {
+            try performProject(env: env, output: output, shell: shell, registry: registry)
+        }
+    }
+
+    // MARK: - Global Scope
+
+    private func performGlobal(
+        env: Environment,
+        output: CLIOutput,
+        shell: ShellRunner,
+        registry: TechPackRegistry
+    ) throws {
+        let configurator = GlobalConfigurator(
+            environment: env,
+            output: output,
+            shell: shell,
+            registry: registry
+        )
+
+        let persistedExclusions = ProjectState(stateFile: env.globalStateFile).allExcludedComponents
+
+        if all {
+            let allPacks = registry.availablePacks
+            guard !allPacks.isEmpty else {
+                output.error("No packs registered. Run 'mcs pack add <url>' first.")
+                throw ExitCode.failure
+            }
+
+            output.header("Sync Global")
+            output.plain("")
+            output.info("Target: \(env.claudeDirectory.path)")
+            output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
+
+            if dryRun {
+                configurator.dryRun(packs: allPacks)
+            } else {
+                try configurator.configure(packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
+                output.header("Done")
+                output.info("Run 'mcs doctor' to verify configuration")
+            }
+        } else if !pack.isEmpty {
+            let resolvedPacks: [any TechPack] = pack.compactMap { registry.pack(for: $0) }
+
+            for id in pack where registry.pack(for: id) == nil {
+                output.warn("Unknown tech pack: \(id)")
+            }
+
+            guard !resolvedPacks.isEmpty else {
+                output.error("No valid tech pack specified.")
+                let available = registry.availablePacks.map(\.identifier).joined(separator: ", ")
+                output.plain("  Available packs: \(available)")
+                throw ExitCode.failure
+            }
+
+            output.header("Sync Global")
+            output.plain("")
+            output.info("Target: \(env.claudeDirectory.path)")
+            output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
+
+            if dryRun {
+                configurator.dryRun(packs: resolvedPacks)
+            } else {
+                try configurator.configure(packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
+                output.header("Done")
+                output.info("Run 'mcs doctor' to verify configuration")
+            }
+        } else {
+            try configurator.interactiveConfigure(dryRun: dryRun, customize: customize)
+        }
+    }
+
+    // MARK: - Project Scope
+
+    private func performProject(
+        env: Environment,
+        output: CLIOutput,
+        shell: ShellRunner,
+        registry: TechPackRegistry
+    ) throws {
         let projectPath: URL
         if let p = path {
             projectPath = URL(fileURLWithPath: p)
@@ -59,16 +155,6 @@ struct SyncCommand: LockedCommand {
         if lock {
             try lockOps.checkoutLockedVersions(at: projectPath)
         }
-
-        // Handle --update: fetch latest for all packs before loading
-        if update {
-            try lockOps.updatePacks()
-        }
-
-        let registry = TechPackRegistry.loadWithExternalPacks(
-            environment: env,
-            output: output
-        )
 
         let configurator = ProjectConfigurator(
             environment: env,

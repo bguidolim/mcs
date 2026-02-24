@@ -15,6 +15,7 @@ struct SyncCommandTests {
         #expect(cmd.lock == false)
         #expect(cmd.update == false)
         #expect(cmd.customize == false)
+        #expect(cmd.global == false)
     }
 
     @Test("Parses path argument")
@@ -80,5 +81,39 @@ struct SyncCommandTests {
         #expect(cmd.lock == true)
         #expect(cmd.update == false)
         #expect(cmd.all == false)
+    }
+
+    @Test("Parses --global flag")
+    func parsesGlobal() throws {
+        let cmd = try SyncCommand.parse(["--global"])
+        #expect(cmd.global == true)
+    }
+
+    @Test("skipLock is true when --global is set")
+    func skipLockWhenGlobal() throws {
+        let cmd = try SyncCommand.parse(["--global"])
+        #expect(cmd.skipLock == true)
+    }
+
+    @Test("Parses --global with --pack and --dry-run")
+    func parsesGlobalCombined() throws {
+        let cmd = try SyncCommand.parse(["--global", "--pack", "ios", "--dry-run"])
+        #expect(cmd.global == true)
+        #expect(cmd.pack == ["ios"])
+        #expect(cmd.dryRun == true)
+    }
+
+    @Test("Parses --global with --all")
+    func parsesGlobalAll() throws {
+        let cmd = try SyncCommand.parse(["--global", "--all"])
+        #expect(cmd.global == true)
+        #expect(cmd.all == true)
+    }
+
+    @Test("Parses --global with --customize")
+    func parsesGlobalCustomize() throws {
+        let cmd = try SyncCommand.parse(["--global", "--customize"])
+        #expect(cmd.global == true)
+        #expect(cmd.customize == true)
     }
 }

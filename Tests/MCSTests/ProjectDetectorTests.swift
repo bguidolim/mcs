@@ -226,6 +226,47 @@ struct ProjectStateTests {
         #expect(state.loadError == nil)
     }
 
+    @Test("stateFile init loads from direct path")
+    func stateFileInit() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Save using projectRoot init
+        var state = ProjectState(projectRoot: tmpDir)
+        state.recordPack("ios")
+        state.setArtifacts(PackArtifactRecord(
+            mcpServers: [MCPServerRef(name: "test-server", scope: "user")]
+        ), for: "ios")
+        try state.save()
+
+        // Load using stateFile init with the same path
+        let stateFile = tmpDir
+            .appendingPathComponent(".claude")
+            .appendingPathComponent(".mcs-project")
+        let loaded = ProjectState(stateFile: stateFile)
+        #expect(loaded.exists)
+        #expect(loaded.configuredPacks == Set(["ios"]))
+        #expect(loaded.artifacts(for: "ios")?.mcpServers.first?.scope == "user")
+    }
+
+    @Test("stateFile init works with custom path for global state")
+    func stateFileCustomPath() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let customFile = tmpDir.appendingPathComponent(".mcs-global")
+
+        var state = ProjectState(stateFile: customFile)
+        #expect(!state.exists)
+
+        state.recordPack("web")
+        try state.save()
+
+        let loaded = ProjectState(stateFile: customFile)
+        #expect(loaded.exists)
+        #expect(loaded.configuredPacks == Set(["web"]))
+    }
+
     @Test("JSON format saves are valid JSON")
     func jsonFormat() throws {
         let tmpDir = try makeTmpDir()

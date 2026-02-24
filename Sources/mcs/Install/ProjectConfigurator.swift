@@ -57,7 +57,7 @@ struct ProjectConfigurator {
             selectedNumbers.contains(index + 1) ? pack : nil
         }
 
-        if selectedPacks.isEmpty {
+        if selectedPacks.isEmpty && previousPacks.isEmpty {
             output.plain("")
             output.info("No packs selected. Nothing to configure.")
             return
@@ -65,7 +65,7 @@ struct ProjectConfigurator {
 
         // Component-level customization
         var excludedComponents: [String: Set<String>] = [:]
-        if customize {
+        if customize && !selectedPacks.isEmpty {
             excludedComponents = selectComponentExclusions(
                 packs: selectedPacks,
                 previousState: previousState
@@ -278,23 +278,19 @@ struct ProjectConfigurator {
         }
     }
 
-    /// Print what a removal would clean up (for dry-run display).
+    /// Print what a removal would clean up.
     private func printRemovalSummary(_ artifacts: PackArtifactRecord) {
-        if !artifacts.mcpServers.isEmpty {
-            let servers = artifacts.mcpServers.map { "-\($0.name) (\($0.scope))" }
-            output.dimmed("  MCP servers:  \(servers.joined(separator: ", "))")
+        for server in artifacts.mcpServers {
+            output.dimmed("      MCP server: \(server.name)")
         }
-        if !artifacts.files.isEmpty {
-            let files = artifacts.files.map { "-\($0)" }
-            output.dimmed("  Files:        \(files.joined(separator: ", "))")
+        for path in artifacts.files {
+            output.dimmed("      File: \(path)")
         }
-        if !artifacts.templateSections.isEmpty {
-            let sections = artifacts.templateSections.map { "-\($0) section" }
-            output.dimmed("  Templates:    \(sections.joined(separator: ", ")) from CLAUDE.local.md")
+        for section in artifacts.templateSections {
+            output.dimmed("      CLAUDE.local.md section: \(section)")
         }
-        if !artifacts.hookCommands.isEmpty {
-            let hooks = artifacts.hookCommands.map { "-\($0)" }
-            output.dimmed("  Settings:     \(hooks.joined(separator: ", "))")
+        for cmd in artifacts.hookCommands {
+            output.dimmed("      Hook: \(cmd)")
         }
     }
 

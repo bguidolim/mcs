@@ -47,6 +47,13 @@ struct ProjectState {
         load()
     }
 
+    /// Initialize with a specific state file path (used for global state at `~/.claude/.mcs-global`).
+    init(stateFile: URL) {
+        self.path = stateFile
+        self.storage = StateStorage()
+        load()
+    }
+
     /// Whether the state file exists on disk.
     var exists: Bool {
         FileManager.default.fileExists(atPath: path.path)

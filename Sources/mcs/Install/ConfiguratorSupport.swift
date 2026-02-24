@@ -49,7 +49,7 @@ enum ConfiguratorSupport {
     /// Present per-pack component multi-select and return excluded component IDs.
     ///
     /// - Parameter componentsProvider: Extracts the relevant components from a pack.
-    ///   `ProjectConfigurator` uses all components; `GlobalConfigurator` filters to global-scope components.
+    ///   Defaults to all components. Callers can supply a custom filter if needed.
     static func selectComponentExclusions(
         packs: [any TechPack],
         previousState: ProjectState,
@@ -116,5 +116,81 @@ enum ConfiguratorSupport {
         case "stop": return "Stop"
         default: return hookName
         }
+    }
+
+    // MARK: - Placeholder Scanning
+
+    /// Find all `__PLACEHOLDER__` tokens in a file or directory of files.
+    /// Recurses into subdirectories. Reads as Data first to distinguish
+    /// I/O errors from binary files (which are legitimately skipped).
+    static func findPlaceholdersInSource(_ source: URL) -> [String] {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: source.path, isDirectory: &isDir) else { return [] }
+
+        guard isDir.boolValue else {
+            guard let data = try? Data(contentsOf: source),
+                  let text = String(data: data, encoding: .utf8) else { return [] }
+            return TemplateEngine.findUnreplacedPlaceholders(in: text)
+        }
+
+        guard let enumerator = fm.enumerator(
+            at: source,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var results: [String] = []
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                  values.isRegularFile == true else { continue }
+            guard let data = try? Data(contentsOf: fileURL),
+                  let text = String(data: data, encoding: .utf8) else { continue }
+            results.append(contentsOf: TemplateEngine.findUnreplacedPlaceholders(in: text))
+        }
+        return results
+    }
+
+    /// Strip `__` delimiters from a placeholder token (e.g. `__FOO__` → `FOO`).
+    static func stripPlaceholderDelimiters(_ token: String) -> String {
+        String(token.dropFirst(2).dropLast(2))
+    }
+
+    /// Scan all `copyPackFile` sources (and optionally template content) for
+    /// `__PLACEHOLDER__` tokens not covered by resolved values.
+    /// Returns bare keys (without `__` delimiters) sorted alphabetically.
+    static func scanForUndeclaredPlaceholders(
+        packs: [any TechPack],
+        resolvedValues: [String: String],
+        includeTemplates: Bool = false
+    ) -> [String] {
+        var undeclared = Set<String>()
+        let resolvedKeys = Set(resolvedValues.keys)
+
+        for pack in packs {
+            for component in pack.components {
+                if case .copyPackFile(let source, _, _) = component.installAction {
+                    for placeholder in findPlaceholdersInSource(source) {
+                        let key = stripPlaceholderDelimiters(placeholder)
+                        if !resolvedKeys.contains(key) {
+                            undeclared.insert(key)
+                        }
+                    }
+                }
+            }
+
+            if includeTemplates {
+                for template in (try? pack.templates) ?? [] {
+                    for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
+                        let key = stripPlaceholderDelimiters(placeholder)
+                        if !resolvedKeys.contains(key) {
+                            undeclared.insert(key)
+                        }
+                    }
+                }
+            }
+        }
+
+        return undeclared.sorted()
     }
 }

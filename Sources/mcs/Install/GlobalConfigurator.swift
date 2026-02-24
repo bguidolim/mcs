@@ -3,8 +3,9 @@ import Foundation
 /// Global-scope configuration engine.
 ///
 /// Installs brew packages, MCP servers (scope "user"), plugins, and files
-/// into `~/.claude/` directories. Does not compose CLAUDE.local.md or
-/// settings.local.json — those are project-scoped.
+/// into `~/.claude/` directories. Composes `~/.claude/settings.json` from
+/// pack hook entries, plugins, and settings files. Does not compose
+/// CLAUDE.local.md or `settings.local.json` — those are project-scoped.
 /// State is tracked at `~/.mcs/global-state.json`.
 struct GlobalConfigurator {
     let environment: Environment
@@ -85,8 +86,7 @@ struct GlobalConfigurator {
         ConfiguratorSupport.selectComponentExclusions(
             packs: packs,
             previousState: previousState,
-            output: output,
-            componentsProvider: globalComponents(from:)
+            output: output
         )
     }
 
@@ -270,7 +270,7 @@ struct GlobalConfigurator {
         var allValues = try resolveGlobalTemplateValues(packs: packs)
 
         // 2b. Auto-prompt for undeclared placeholders in pack files
-        let undeclared = scanForUndeclaredPlaceholders(packs: packs, resolvedValues: allValues)
+        let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(packs: packs, resolvedValues: allValues)
         for key in undeclared {
             let value = output.promptInline("Set value for \(key)", default: nil)
             allValues[key] = value
@@ -352,6 +352,31 @@ struct GlobalConfigurator {
             }
         }
 
+        // Remove auto-derived hook commands from settings.json
+        if !artifacts.hookCommands.isEmpty {
+            let settingsPath = environment.claudeSettings
+            do {
+                var settings = try Settings.load(from: settingsPath)
+                let commandsToRemove = Set(artifacts.hookCommands)
+                if var hooks = settings.hooks {
+                    for (event, groups) in hooks {
+                        hooks[event] = groups.filter { group in
+                            guard let cmd = group.hooks?.first?.command else { return true }
+                            return !commandsToRemove.contains(cmd)
+                        }
+                    }
+                    hooks = hooks.filter { !$0.value.isEmpty }
+                    settings.hooks = hooks.isEmpty ? nil : hooks
+                }
+                try settings.save(to: settingsPath)
+                for cmd in artifacts.hookCommands {
+                    output.dimmed("  Removed hook: \(cmd)")
+                }
+            } catch {
+                output.warn("  Could not update settings.json: \(error.localizedDescription)")
+            }
+        }
+
         state.removePack(packID)
     }
 
@@ -374,9 +399,9 @@ struct GlobalConfigurator {
                 continue
             }
 
-            // Check doctor checks before running install — skip if already installed.
-            // Convergent actions (copyPackFile, settingsMerge, mcpServer, gitignore)
-            // always report not-installed so they re-run to pick up changes.
+            // Skip if already installed. Convergent actions (see
+            // ComponentExecutor.isAlreadyInstalled) always return false
+            // so they re-run to pick up configuration changes.
             if ComponentExecutor.isAlreadyInstalled(component) {
                 output.dimmed("  \(component.displayName) already installed, skipping")
                 continue
@@ -385,7 +410,11 @@ struct GlobalConfigurator {
             switch component.installAction {
             case .brewInstall(let package):
                 output.dimmed("  Installing \(component.displayName)...")
-                _ = exec.installBrewPackage(package)
+                if exec.installBrewPackage(package) {
+                    output.success("  \(component.displayName) installed")
+                } else {
+                    output.warn("  \(component.displayName) failed to install")
+                }
 
             case .mcpServer(let config):
                 // Override scope to "user" for global installation
@@ -406,7 +435,11 @@ struct GlobalConfigurator {
 
             case .plugin(let name):
                 output.dimmed("  Installing plugin \(component.displayName)...")
-                _ = exec.installPlugin(name)
+                if exec.installPlugin(name) {
+                    output.success("  \(component.displayName) installed")
+                } else {
+                    output.warn("  \(component.displayName) failed to install")
+                }
 
             case .copyPackFile(let source, let destination, let fileType):
                 if exec.installCopyPackFile(
@@ -420,6 +453,12 @@ struct GlobalConfigurator {
                     let destURL = baseDir.appendingPathComponent(destination)
                     let relativePath = claudeRelativePath(destURL)
                     artifacts.files.append(relativePath)
+                    // Track auto-derived hook commands for settings cleanup
+                    if component.type == .hookFile,
+                       component.hookEvent != nil,
+                       fileType == .hook {
+                        artifacts.hookCommands.append("bash ~/.claude/hooks/\(destination)")
+                    }
                     output.success("  \(component.displayName) installed")
                 }
 
@@ -454,7 +493,8 @@ struct GlobalConfigurator {
 
     // MARK: - Global Settings Composition
 
-    /// Build `settings.json` from all selected packs' hook entries, plugins, and settings files.
+    /// Build `settings.json` from all selected packs' hook entries, plugins, and settings files,
+    /// respecting per-pack component exclusions.
     ///
     /// Unlike the project-scoped `settings.local.json` which is entirely mcs-managed,
     /// the global `settings.json` may contain user-written content. We load the existing
@@ -466,18 +506,44 @@ struct GlobalConfigurator {
     ) throws {
         let settingsPath = environment.claudeSettings
 
-        var settings = try Settings.load(from: settingsPath)
+        var settings: Settings
+        do {
+            settings = try Settings.load(from: settingsPath)
+        } catch {
+            output.error("Could not parse \(settingsPath.path): \(error.localizedDescription)")
+            output.error("Fix the JSON syntax or rename the file, then re-run 'mcs sync --global'.")
+            throw MCSError.fileOperationFailed(
+                path: settingsPath.path,
+                reason: "Invalid JSON: \(error.localizedDescription)"
+            )
+        }
+
+        // Strip mcs-managed hook entries before re-composing so hooks from
+        // removed packs are cleaned up. User-written hooks are preserved.
+        if var hooks = settings.hooks {
+            for (event, groups) in hooks {
+                hooks[event] = groups.filter { group in
+                    guard let cmd = group.hooks?.first?.command else { return true }
+                    return !cmd.hasPrefix("bash ~/.claude/hooks/")
+                }
+            }
+            hooks = hooks.filter { !$0.value.isEmpty }
+            settings.hooks = hooks.isEmpty ? nil : hooks
+        }
+
         var hasContent = false
 
-        // 1. Auto-derive hook entries from hookFile components with hookEvent
+        // Single pass: derive hook entries, plugins, and merge settings files
         for pack in packs {
             let excluded = excludedComponents[pack.identifier] ?? []
             for component in pack.components {
                 guard !excluded.contains(component.id) else { continue }
+
+                // Auto-derive hook entries from hookFile components with hookEvent
                 if component.type == .hookFile,
                    let hookEvent = component.hookEvent,
                    case .copyPackFile(_, let destination, .hook) = component.installAction {
-                    // Global hooks use absolute path to ~/.claude/hooks/
+                    // Global hooks reference ~/.claude/hooks/ (home-relative, not project-relative)
                     let command = "bash ~/.claude/hooks/\(destination)"
                     let entry = Settings.HookEntry(type: "command", command: command)
                     let group = Settings.HookGroup(matcher: nil, hooks: [entry])
@@ -490,14 +556,8 @@ struct GlobalConfigurator {
                     settings.hooks = existing
                     hasContent = true
                 }
-            }
-        }
 
-        // 2. Auto-derive enabledPlugins from plugin components
-        for pack in packs {
-            let excluded = excludedComponents[pack.identifier] ?? []
-            for component in pack.components {
-                guard !excluded.contains(component.id) else { continue }
+                // Auto-derive enabledPlugins from plugin components
                 if case .plugin(let name) = component.installAction {
                     let ref = PluginRef(name)
                     var plugins = settings.enabledPlugins ?? [:]
@@ -507,14 +567,8 @@ struct GlobalConfigurator {
                     settings.enabledPlugins = plugins
                     hasContent = true
                 }
-            }
-        }
 
-        // 3. Merge settings files from packs
-        for pack in packs {
-            let excluded = excludedComponents[pack.identifier] ?? []
-            for component in pack.components {
-                guard !excluded.contains(component.id) else { continue }
+                // Merge settings files from packs
                 if case .settingsMerge(let source) = component.installAction, let source {
                     do {
                         let packSettings = try Settings.load(from: source)
@@ -527,7 +581,7 @@ struct GlobalConfigurator {
             }
         }
 
-        // 4. Write composed settings (do NOT remove the file when empty — user may own it)
+        // Write composed settings (do NOT remove the file when empty — user may own it)
         if hasContent {
             do {
                 try settings.save(to: settingsPath)
@@ -564,72 +618,7 @@ struct GlobalConfigurator {
         return allValues
     }
 
-    /// Scan all `copyPackFile` sources for `__PLACEHOLDER__` tokens not covered by
-    /// resolved values. Returns undeclared keys sorted alphabetically.
-    private func scanForUndeclaredPlaceholders(
-        packs: [any TechPack],
-        resolvedValues: [String: String]
-    ) -> [String] {
-        var undeclared = Set<String>()
-        let resolvedKeys = Set(resolvedValues.keys)
-
-        for pack in packs {
-            for component in pack.components {
-                if case .copyPackFile(let source, _, _) = component.installAction {
-                    for placeholder in Self.findPlaceholdersInSource(source) {
-                        let key = Self.stripPlaceholderDelimiters(placeholder)
-                        if !resolvedKeys.contains(key) {
-                            undeclared.insert(key)
-                        }
-                    }
-                }
-            }
-        }
-
-        return undeclared.sorted()
-    }
-
-    /// Find all `__PLACEHOLDER__` tokens in a file or directory of files.
-    /// Recurses into subdirectories and skips non-text files gracefully.
-    private static func findPlaceholdersInSource(_ source: URL) -> [String] {
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: source.path, isDirectory: &isDir) else { return [] }
-
-        guard isDir.boolValue else {
-            // Single file
-            guard let text = try? String(contentsOf: source, encoding: .utf8) else { return [] }
-            return TemplateEngine.findUnreplacedPlaceholders(in: text)
-        }
-
-        // Directory — enumerate recursively, skipping subdirectory entries themselves
-        guard let enumerator = fm.enumerator(
-            at: source,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        var results: [String] = []
-        for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
-                  values.isRegularFile == true else { continue }
-            guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-            results.append(contentsOf: TemplateEngine.findUnreplacedPlaceholders(in: text))
-        }
-        return results
-    }
-
-    /// Strip `__` delimiters from a placeholder token (e.g. `__FOO__` → `FOO`).
-    private static func stripPlaceholderDelimiters(_ token: String) -> String {
-        String(token.dropFirst(2).dropLast(2))
-    }
-
     // MARK: - Helpers
-
-    /// Filter a pack's components to those relevant for global installation.
-    private func globalComponents(from pack: any TechPack) -> [ComponentDefinition] {
-        pack.components
-    }
 
     /// Return a path relative to `~/.claude/` for artifact tracking.
     private func claudeRelativePath(_ url: URL) -> String {

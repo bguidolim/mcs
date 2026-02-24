@@ -20,22 +20,6 @@ struct ExternalPackManifest: Codable, Sendable {
     let configureProject: ExternalConfigureProject?
     let supplementaryDoctorChecks: [ExternalDoctorCheckDefinition]?
 
-    enum CodingKeys: String, CodingKey {
-        case schemaVersion
-        case identifier
-        case displayName
-        case description
-        case version
-        case minMCSVersion
-        case peerDependencies
-        case components
-        case templates
-        case hookContributions
-        case gitignoreEntries
-        case prompts
-        case configureProject
-        case supplementaryDoctorChecks
-    }
 }
 
 // MARK: - Loading
@@ -407,16 +391,6 @@ struct ExternalMCPServerConfig: Codable, Sendable {
     let url: String?
     let scope: ExternalScope?
 
-    enum CodingKeys: String, CodingKey {
-        case name
-        case command
-        case args
-        case env
-        case transport
-        case url
-        case scope
-    }
-
     /// Convert to the internal `MCPServerConfig`.
     func toMCPServerConfig() -> MCPServerConfig {
         if transport == .http, let url {
@@ -450,12 +424,6 @@ struct ExternalCopyPackFileConfig: Codable, Sendable {
     let source: String
     let destination: String
     let fileType: ExternalCopyFileType?
-
-    enum CodingKeys: String, CodingKey {
-        case source
-        case destination
-        case fileType
-    }
 }
 
 enum ExternalCopyFileType: String, Codable, Sendable {
@@ -481,12 +449,6 @@ struct ExternalHookContribution: Codable, Sendable {
     let hookName: String
     let fragmentFile: String
     let position: ExternalHookPosition?
-
-    enum CodingKeys: String, CodingKey {
-        case hookName
-        case fragmentFile
-        case position
-    }
 }
 
 enum ExternalHookPosition: String, Codable, Sendable {

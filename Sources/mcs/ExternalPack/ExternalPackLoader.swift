@@ -51,6 +51,10 @@ struct ExternalPackLoader: Sendable {
             do {
                 let adapter = try loadEntry(entry)
                 adapters.append(adapter)
+            } catch let error as LoadError where isTrustFailure(error) {
+                output.error("SECURITY: Pack '\(entry.identifier)' failed trust verification!")
+                output.error("  \(error.localizedDescription)")
+                output.error("  This pack will NOT be loaded. Run 'mcs pack update \(entry.identifier)' to re-verify.")
             } catch {
                 output.warn("Skipping pack '\(entry.identifier)': \(error.localizedDescription)")
             }
@@ -126,6 +130,14 @@ struct ExternalPackLoader: Sendable {
         }
 
         return manifest
+    }
+
+    /// Check if a load error is a trust verification failure.
+    private func isTrustFailure(_ error: LoadError) -> Bool {
+        if case .invalidManifest(_, let reason) = error {
+            return reason.contains("Trusted scripts modified")
+        }
+        return false
     }
 
     // MARK: - Internal

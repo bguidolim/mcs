@@ -482,9 +482,8 @@ extension ScopedPathCheck {
             guard let root = projectRoot else { return nil }
             let resolved = root.appendingPathComponent(path).resolvingSymlinksInPath().path
             let rootBase = root.resolvingSymlinksInPath().path
-            let rootPrefix = rootBase.hasSuffix("/") ? rootBase : rootBase + "/"
             // Ensure the resolved path stays within the project root
-            guard resolved.hasPrefix(rootPrefix) || resolved == rootBase else {
+            guard PathContainment.isContained(path: resolved, within: rootBase) else {
                 return nil
             }
             return resolved

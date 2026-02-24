@@ -57,9 +57,8 @@ struct ScriptRunner: Sendable {
         // 1. Path containment: resolve symlinks and verify script is within packPath
         let resolvedScript = script.resolvingSymlinksInPath().path
         let resolvedPack = packPath.resolvingSymlinksInPath().path
-        let packPrefix = resolvedPack.hasSuffix("/") ? resolvedPack : resolvedPack + "/"
 
-        guard resolvedScript.hasPrefix(packPrefix) || resolvedScript == resolvedPack else {
+        guard PathContainment.isContained(path: resolvedScript, within: resolvedPack) else {
             throw ScriptError.pathTraversal(script: resolvedScript, packPath: resolvedPack)
         }
 

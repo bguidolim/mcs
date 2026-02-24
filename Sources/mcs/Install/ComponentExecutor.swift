@@ -114,8 +114,7 @@ struct ComponentExecutor {
         let expectedParent = fileType.baseDirectory(in: environment)
         let parentPath = expectedParent.resolvingSymlinksInPath().path
         let destPath = resolvedDest.path
-        let parentPrefix = parentPath.hasSuffix("/") ? parentPath : parentPath + "/"
-        guard destPath.hasPrefix(parentPrefix) || destPath == parentPath else {
+        guard PathContainment.isContained(path: destPath, within: parentPath) else {
             output.warn("Destination '\(destination)' escapes expected directory")
             return false
         }
@@ -184,10 +183,7 @@ struct ComponentExecutor {
         // Validate destination doesn't escape expected directory via symlinks
         let resolvedDest = destURL.resolvingSymlinksInPath()
         let expectedParent = baseDir.resolvingSymlinksInPath()
-        let parentPath = expectedParent.path
-        let destPath = resolvedDest.path
-        let parentPrefix = parentPath.hasSuffix("/") ? parentPath : parentPath + "/"
-        guard destPath.hasPrefix(parentPrefix) || destPath == parentPath else {
+        guard PathContainment.isContained(path: resolvedDest.path, within: expectedParent.path) else {
             output.warn("Destination '\(destination)' escapes project directory")
             return []
         }
@@ -282,13 +278,7 @@ struct ComponentExecutor {
     }
 
     private func projectRelativePath(_ url: URL, projectPath: URL) -> String {
-        let full = url.path
-        let base = projectPath.path
-        let prefix = base.hasSuffix("/") ? base : base + "/"
-        if full.hasPrefix(prefix) {
-            return String(full.dropFirst(prefix.count))
-        }
-        return full
+        PathContainment.relativePath(of: url.path, within: projectPath.path)
     }
 
     // MARK: - Already-Installed Detection

@@ -87,55 +87,11 @@ struct ProjectConfigurator {
         packs: [any TechPack],
         previousState: ProjectState
     ) -> [String: Set<String>] {
-        var exclusions: [String: Set<String>] = [:]
-
-        for pack in packs {
-            let components = pack.components
-            guard components.count > 1 else { continue } // No point customizing a single component
-
-            output.plain("")
-            output.info("Components for \(pack.displayName):")
-
-            let previousExcluded = previousState.excludedComponents(for: pack.identifier)
-
-            var number = 1
-            var items: [SelectableItem] = []
-            for component in components {
-                items.append(SelectableItem(
-                    number: number,
-                    name: component.displayName,
-                    description: component.description,
-                    isSelected: !previousExcluded.contains(component.id)
-                ))
-                number += 1
-            }
-
-            let requiredItems = components
-                .filter(\.isRequired)
-                .map { RequiredItem(name: $0.displayName) }
-
-            var groups = [SelectableGroup(
-                title: pack.displayName,
-                items: items,
-                requiredItems: requiredItems
-            )]
-
-            let selectedNumbers = output.multiSelect(groups: &groups)
-
-            // Compute excluded = all component IDs NOT in selectedNumbers
-            var excluded = Set<String>()
-            for (index, component) in components.enumerated() {
-                if !selectedNumbers.contains(index + 1) && !component.isRequired {
-                    excluded.insert(component.id)
-                }
-            }
-
-            if !excluded.isEmpty {
-                exclusions[pack.identifier] = excluded
-            }
-        }
-
-        return exclusions
+        ConfiguratorSupport.selectComponentExclusions(
+            packs: packs,
+            previousState: previousState,
+            output: output
+        )
     }
 
     // MARK: - Dry Run
@@ -388,6 +344,9 @@ struct ProjectConfigurator {
             projectState.recordPack(pack.identifier)
         }
 
+        // 5b. Save state after artifact installation to prevent inconsistency on later failure
+        try projectState.save()
+
         // 6. Compose settings.local.json from ALL selected packs
         try composeProjectSettings(at: projectPath, packs: packs, excludedComponents: excludedComponents)
 
@@ -412,7 +371,7 @@ struct ProjectConfigurator {
             exec.addPackGitignoreEntries(from: pack)
         }
 
-        // 10. Save project state — failure here means artifacts become untracked
+        // 10. Final state save (captures any state changes from steps 6-9)
         do {
             try projectState.save()
             output.success("Updated .claude/.mcs-project")
@@ -854,8 +813,7 @@ struct ProjectConfigurator {
     // MARK: - Gitignore
 
     private func ensureGitignoreEntries() throws {
-        let manager = GitignoreManager(shell: shell)
-        try manager.addCoreEntries()
+        try ConfiguratorSupport.ensureGitignoreEntries(shell: shell)
     }
 
     // MARK: - Value Resolution
@@ -945,23 +903,11 @@ struct ProjectConfigurator {
     // MARK: - Helpers
 
     private func makeExecutor() -> ComponentExecutor {
-        ComponentExecutor(
-            environment: environment,
-            output: output,
-            shell: shell
-        )
+        ConfiguratorSupport.makeExecutor(environment: environment, output: output, shell: shell)
     }
 
-    /// Validate peer dependencies for all selected packs.
-    /// Returns only unsatisfied results (missing or version too low).
     private func validatePeerDependencies(packs: [any TechPack]) -> [PeerDependencyResult] {
-        let packRegistryFile = PackRegistryFile(path: environment.packsRegistry)
-        let registeredPacks = (try? packRegistryFile.load())?.packs ?? []
-
-        return PeerDependencyValidator.validateSelection(
-            packs: packs,
-            registeredPacks: registeredPacks
-        )
+        ConfiguratorSupport.validatePeerDependencies(packs: packs, environment: environment, output: output)
     }
 
     private func resolveRepoName(at projectPath: URL) -> String {

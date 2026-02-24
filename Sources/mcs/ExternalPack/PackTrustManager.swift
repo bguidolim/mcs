@@ -46,6 +46,20 @@ struct PackTrustManager: Sendable {
                         description: "MCP server — runs on every Claude Code session"
                     ))
 
+                case .copyPackFile(let config):
+                    // Hook and command files are executed by Claude Code — require trust review
+                    let fileType = config.fileType ?? .generic
+                    if fileType == .hook || fileType == .command {
+                        let scriptFile = packPath.appendingPathComponent(config.source)
+                        let content = try readFileContent(at: scriptFile, fallback: config.source)
+                        items.append(TrustableItem(
+                            type: fileType == .hook ? .hookFragment : .commandFile,
+                            relativePath: config.source,
+                            content: content,
+                            description: "\(component.displayName) — \(fileType.rawValue) file installed during configure"
+                        ))
+                    }
+
                 default:
                     break
                 }
@@ -130,7 +144,7 @@ struct PackTrustManager: Sendable {
         let mcpServers = items.filter { $0.type == .mcpServerCommand }
         let hookFragments = items.filter { $0.type == .hookFragment }
         let doctorCommands = items.filter { $0.type == .doctorCommand || $0.type == .fixScript }
-        let scripts = items.filter { $0.relativePath != nil && $0.type != .hookFragment }
+        let scripts = items.filter { $0.relativePath != nil && $0.type != .hookFragment && $0.type != .commandFile }
 
         if !shellCommands.isEmpty {
             output.plain("")
@@ -163,6 +177,17 @@ struct PackTrustManager: Sendable {
             output.sectionHeader("Doctor Check/Fix Commands (run during 'mcs doctor')")
             for item in doctorCommands {
                 output.plain("    \(item.content)")
+            }
+        }
+
+        let commandFiles = items.filter { $0.type == .commandFile }
+        if !commandFiles.isEmpty {
+            output.plain("")
+            output.sectionHeader("Command Files (invoked by Claude)")
+            for item in commandFiles {
+                let lineCount = item.content.components(separatedBy: "\n").count
+                let path = item.relativePath ?? "inline"
+                output.plain("    \(path) (\(lineCount) lines) — \(item.description)")
             }
         }
 
@@ -397,5 +422,6 @@ struct TrustableItem: Sendable {
         case doctorScript      // From shellScript doctor checks
         case fixScript         // From fix scripts / fix commands
         case mcpServerCommand  // MCP server command (runs with user privs)
+        case commandFile       // Command file copied into .claude/commands/ (invoked by Claude)
     }
 }

@@ -31,12 +31,12 @@ enum FileHasher {
         }
 
         var results: [(relativePath: String, hash: String)] = []
-        let basePath = resolvedURL.path.hasSuffix("/") ? resolvedURL.path : resolvedURL.path + "/"
+        let basePath = resolvedURL.path
         while let fileURL = enumerator.nextObject() as? URL {
             let resolvedFile = fileURL.resolvingSymlinksInPath()
             let resourceValues = try resolvedFile.resourceValues(forKeys: [.isRegularFileKey])
             guard resourceValues.isRegularFile == true else { continue }
-            let relativePath = String(resolvedFile.path.dropFirst(basePath.count))
+            let relativePath = PathContainment.relativePath(of: resolvedFile.path, within: basePath)
             let hash = try sha256(of: resolvedFile)
             results.append((relativePath, hash))
         }

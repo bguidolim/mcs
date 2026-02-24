@@ -136,9 +136,8 @@ struct ExternalPackAdapter: TechPack {
         let fileURL = packPath.appendingPathComponent(relativePath)
         let resolved = fileURL.resolvingSymlinksInPath().path
         let packBase = packPath.resolvingSymlinksInPath().path
-        let packPrefix = packBase.hasSuffix("/") ? packBase : packBase + "/"
 
-        guard resolved.hasPrefix(packPrefix) || resolved == packBase else {
+        guard PathContainment.isContained(path: resolved, within: packBase) else {
             throw PackAdapterError.pathTraversal(relativePath)
         }
 

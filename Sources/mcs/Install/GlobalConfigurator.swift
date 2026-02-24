@@ -82,54 +82,12 @@ struct GlobalConfigurator {
         packs: [any TechPack],
         previousState: ProjectState
     ) -> [String: Set<String>] {
-        var exclusions: [String: Set<String>] = [:]
-
-        for pack in packs {
-            let components = globalComponents(from: pack)
-            guard components.count > 1 else { continue }
-
-            output.plain("")
-            output.info("Components for \(pack.displayName):")
-
-            let previousExcluded = previousState.excludedComponents(for: pack.identifier)
-
-            var number = 1
-            var items: [SelectableItem] = []
-            for component in components {
-                items.append(SelectableItem(
-                    number: number,
-                    name: component.displayName,
-                    description: component.description,
-                    isSelected: !previousExcluded.contains(component.id)
-                ))
-                number += 1
-            }
-
-            let requiredItems = components
-                .filter(\.isRequired)
-                .map { RequiredItem(name: $0.displayName) }
-
-            var groups = [SelectableGroup(
-                title: pack.displayName,
-                items: items,
-                requiredItems: requiredItems
-            )]
-
-            let selectedNumbers = output.multiSelect(groups: &groups)
-
-            var excluded = Set<String>()
-            for (index, component) in components.enumerated() {
-                if !selectedNumbers.contains(index + 1) && !component.isRequired {
-                    excluded.insert(component.id)
-                }
-            }
-
-            if !excluded.isEmpty {
-                exclusions[pack.identifier] = excluded
-            }
-        }
-
-        return exclusions
+        ConfiguratorSupport.selectComponentExclusions(
+            packs: packs,
+            previousState: previousState,
+            output: output,
+            componentsProvider: globalComponents(from:)
+        )
     }
 
     // MARK: - Dry Run
@@ -474,35 +432,18 @@ struct GlobalConfigurator {
 
     /// Return a path relative to `~/.claude/` for artifact tracking.
     private func claudeRelativePath(_ url: URL) -> String {
-        let full = url.path
-        let base = environment.claudeDirectory.path
-        let prefix = base.hasSuffix("/") ? base : base + "/"
-        if full.hasPrefix(prefix) {
-            return String(full.dropFirst(prefix.count))
-        }
-        return full
+        PathContainment.relativePath(of: url.path, within: environment.claudeDirectory.path)
     }
 
     private func makeExecutor() -> ComponentExecutor {
-        ComponentExecutor(
-            environment: environment,
-            output: output,
-            shell: shell
-        )
+        ConfiguratorSupport.makeExecutor(environment: environment, output: output, shell: shell)
     }
 
     private func validatePeerDependencies(packs: [any TechPack]) -> [PeerDependencyResult] {
-        let packRegistryFile = PackRegistryFile(path: environment.packsRegistry)
-        let registeredPacks = (try? packRegistryFile.load())?.packs ?? []
-
-        return PeerDependencyValidator.validateSelection(
-            packs: packs,
-            registeredPacks: registeredPacks
-        )
+        ConfiguratorSupport.validatePeerDependencies(packs: packs, environment: environment, output: output)
     }
 
     private func ensureGitignoreEntries() throws {
-        let manager = GitignoreManager(shell: shell)
-        try manager.addCoreEntries()
+        try ConfiguratorSupport.ensureGitignoreEntries(shell: shell)
     }
 }

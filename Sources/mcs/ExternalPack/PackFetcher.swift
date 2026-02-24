@@ -20,6 +20,8 @@ struct PackFetcher: Sendable {
     func fetch(url: String, identifier: String, ref: String?) throws -> FetchResult {
         try ensureGitAvailable()
         try ensurePacksDirectory()
+        try validateIdentifier(identifier)
+        if let ref { try validateRef(ref) }
 
         let packPath = packsDirectory.appendingPathComponent(identifier)
 
@@ -56,6 +58,7 @@ struct PackFetcher: Sendable {
     /// Returns a `FetchResult` if updated, or `nil` if already at the latest commit.
     func update(packPath: URL, ref: String?) throws -> FetchResult? {
         try ensureGitAvailable()
+        if let ref { try validateRef(ref) }
 
         let beforeSHA = try currentCommit(at: packPath)
         let workDir = packPath.path
@@ -141,6 +144,27 @@ struct PackFetcher: Sendable {
 
     // MARK: - Helpers
 
+    /// Validate that an identifier is safe for use as a path component.
+    private func validateIdentifier(_ identifier: String) throws {
+        guard !identifier.isEmpty,
+              !identifier.contains(".."),
+              !identifier.contains("/"),
+              !identifier.hasPrefix("-")
+        else {
+            throw PackFetchError.invalidIdentifier(identifier)
+        }
+    }
+
+    /// Validate that a git ref is safe for use as a command argument.
+    private func validateRef(_ ref: String) throws {
+        guard !ref.hasPrefix("-"),
+              !ref.contains(".."),
+              ref.range(of: #"^[a-zA-Z0-9._/+-]+$"#, options: .regularExpression) != nil
+        else {
+            throw PackFetchError.invalidRef(ref)
+        }
+    }
+
     private func ensureGitAvailable() throws {
         guard shell.commandExists("git") else {
             throw PackFetchError.gitNotInstalled
@@ -165,6 +189,8 @@ enum PackFetchError: Error, LocalizedError, Sendable {
     case refNotFound(ref: String, stderr: String)
     case updateFailed(path: String, stderr: String)
     case commitResolutionFailed(path: String, stderr: String)
+    case invalidIdentifier(String)
+    case invalidRef(String)
 
     var errorDescription: String? {
         switch self {
@@ -180,6 +206,10 @@ enum PackFetchError: Error, LocalizedError, Sendable {
             return "Failed to update '\(path)': \(stderr)"
         case .commitResolutionFailed(let path, let stderr):
             return "Failed to resolve commit at '\(path)': \(stderr)"
+        case .invalidIdentifier(let id):
+            return "Invalid pack identifier '\(id)': must not contain '..', '/', or start with '-'"
+        case .invalidRef(let ref):
+            return "Invalid git ref '\(ref)': contains unsafe characters"
         }
     }
 }

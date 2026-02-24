@@ -286,15 +286,7 @@ enum PeerDependencyValidator {
         let selectedIDs = Set(packs.map(\.identifier))
         var results: [PeerDependencyResult] = []
 
-        for entry in registeredPacks {
-            guard selectedIDs.contains(entry.identifier) else { continue }
-
-            // Load manifest to get peer dependencies
-            // We need the manifest data, so look it up from the registry entries
-            // For external packs, we already have them as loaded adapters
-        }
-
-        // For external packs, check peer deps against the selected set
+        // Check peer deps for each selected pack against the selected set
         for pack in packs {
             guard let adapter = pack as? ExternalPackAdapter else { continue }
             guard let peers = adapter.manifest.peerDependencies, !peers.isEmpty else { continue }

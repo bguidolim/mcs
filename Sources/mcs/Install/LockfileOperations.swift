@@ -49,6 +49,7 @@ struct LockfileOperations {
     }
 
     /// Fetch latest versions for all registered packs.
+    /// Re-validates trust when scripts change (mirrors `mcs pack update` behavior).
     func updatePacks() throws {
         let registryFile = PackRegistryFile(path: environment.packsRegistry)
         let registryData = try registryFile.load()
@@ -64,6 +65,7 @@ struct LockfileOperations {
             output: output,
             packsDirectory: environment.packsDirectory
         )
+        let trustManager = PackTrustManager(output: output)
 
         var updatedData = registryData
         for entry in registryData.packs {
@@ -71,21 +73,50 @@ struct LockfileOperations {
             do {
                 if let result = try fetcher.update(packPath: packPath, ref: entry.ref) {
                     let loader = ExternalPackLoader(environment: environment, registry: registryFile)
-                    if let manifest = try? loader.validate(at: packPath) {
-                        let updatedEntry = PackRegistryFile.PackEntry(
-                            identifier: entry.identifier,
-                            displayName: manifest.displayName,
-                            version: manifest.version,
-                            sourceURL: entry.sourceURL,
-                            ref: entry.ref,
-                            commitSHA: result.commitSHA,
-                            localPath: entry.localPath,
-                            addedAt: entry.addedAt,
-                            trustedScriptHashes: entry.trustedScriptHashes
-                        )
-                        registryFile.register(updatedEntry, in: &updatedData)
-                        output.success("  \(entry.identifier): updated to v\(manifest.version) (\(String(result.commitSHA.prefix(7))))")
+                    let manifest: ExternalPackManifest
+                    do {
+                        manifest = try loader.validate(at: packPath)
+                    } catch {
+                        output.warn("  \(entry.identifier): updated but manifest is invalid — \(error.localizedDescription)")
+                        continue
                     }
+
+                    // Check for new/modified scripts requiring re-trust
+                    var scriptHashes = entry.trustedScriptHashes
+                    let newItems = try trustManager.detectNewScripts(
+                        currentHashes: entry.trustedScriptHashes,
+                        updatedPackPath: packPath,
+                        manifest: manifest
+                    )
+                    if !newItems.isEmpty {
+                        output.warn("  \(entry.displayName) has new or modified scripts:")
+                        let decision = try trustManager.promptForTrust(
+                            manifest: manifest,
+                            packPath: packPath,
+                            items: newItems
+                        )
+                        guard decision.approved else {
+                            output.info("  \(entry.displayName): update skipped (trust not granted)")
+                            continue
+                        }
+                        for (path, hash) in decision.scriptHashes {
+                            scriptHashes[path] = hash
+                        }
+                    }
+
+                    let updatedEntry = PackRegistryFile.PackEntry(
+                        identifier: entry.identifier,
+                        displayName: manifest.displayName,
+                        version: manifest.version,
+                        sourceURL: entry.sourceURL,
+                        ref: entry.ref,
+                        commitSHA: result.commitSHA,
+                        localPath: entry.localPath,
+                        addedAt: entry.addedAt,
+                        trustedScriptHashes: scriptHashes
+                    )
+                    registryFile.register(updatedEntry, in: &updatedData)
+                    output.success("  \(entry.identifier): updated to v\(manifest.version) (\(String(result.commitSHA.prefix(7))))")
                 } else {
                     output.dimmed("  \(entry.identifier): already up to date")
                 }

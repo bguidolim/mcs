@@ -467,9 +467,13 @@ struct ProjectConfigurator {
                     hooks = hooks.filter { !$0.value.isEmpty }
                     settings.hooks = hooks.isEmpty ? nil : hooks
                 }
-                try? settings.save(to: settingsPath)
-                for cmd in artifacts.hookCommands {
-                    output.dimmed("  Removed hook: \(cmd)")
+                do {
+                    try settings.save(to: settingsPath)
+                    for cmd in artifacts.hookCommands {
+                        output.dimmed("  Removed hook: \(cmd)")
+                    }
+                } catch {
+                    output.warn("Could not save settings.local.json: \(error.localizedDescription)")
                 }
             }
         }
@@ -477,15 +481,20 @@ struct ProjectConfigurator {
         // Remove template sections from CLAUDE.local.md
         if !artifacts.templateSections.isEmpty {
             let claudeLocalPath = projectPath.appendingPathComponent(Constants.FileNames.claudeLocalMD)
-            if let content = try? String(contentsOf: claudeLocalPath, encoding: .utf8) {
+            do {
+                let content = try String(contentsOf: claudeLocalPath, encoding: .utf8)
                 var updated = content
                 for sectionID in artifacts.templateSections {
                     updated = TemplateComposer.removeSection(in: updated, sectionIdentifier: sectionID)
-                    output.dimmed("  Removed template section: \(sectionID)")
                 }
                 if updated != content {
-                    try? updated.write(to: claudeLocalPath, atomically: true, encoding: .utf8)
+                    try updated.write(to: claudeLocalPath, atomically: true, encoding: .utf8)
+                    for sectionID in artifacts.templateSections {
+                        output.dimmed("  Removed template section: \(sectionID)")
+                    }
                 }
+            } catch {
+                output.warn("Could not update CLAUDE.local.md: \(error.localizedDescription)")
             }
         }
 
@@ -699,8 +708,12 @@ struct ProjectConfigurator {
             }
         } else if FileManager.default.fileExists(atPath: settingsPath.path) {
             // No packs contribute settings — remove stale file
-            try? FileManager.default.removeItem(at: settingsPath)
-            output.dimmed("Removed empty settings.local.json")
+            do {
+                try FileManager.default.removeItem(at: settingsPath)
+                output.dimmed("Removed empty settings.local.json")
+            } catch {
+                output.warn("Could not remove stale settings.local.json: \(error.localizedDescription)")
+            }
         }
     }
 

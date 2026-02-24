@@ -181,6 +181,17 @@ struct ComponentExecutor {
         let baseDir = fileType.projectBaseDirectory(projectPath: projectPath)
         let destURL = baseDir.appendingPathComponent(destination)
 
+        // Validate destination doesn't escape expected directory via symlinks
+        let resolvedDest = destURL.resolvingSymlinksInPath()
+        let expectedParent = baseDir.resolvingSymlinksInPath()
+        let parentPath = expectedParent.path
+        let destPath = resolvedDest.path
+        let parentPrefix = parentPath.hasSuffix("/") ? parentPath : parentPath + "/"
+        guard destPath.hasPrefix(parentPrefix) || destPath == parentPath else {
+            output.warn("Destination '\(destination)' escapes project directory")
+            return []
+        }
+
         guard fm.fileExists(atPath: source.path) else {
             output.warn("Pack source not found: \(source.path)")
             return []

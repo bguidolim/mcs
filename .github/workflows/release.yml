@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   build-and-release:
+    name: Build and Release
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -89,7 +90,6 @@ jobs:
 
             def install
               libexec.install "mcs"
-              libexec.install "my-claude-setup_mcs.bundle"
               bin.install_symlink libexec/"mcs"
               bin.install_symlink libexec/"mcs" => "my-claude-setup"
             end

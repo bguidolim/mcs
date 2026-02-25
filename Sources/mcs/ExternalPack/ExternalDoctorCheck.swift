@@ -36,8 +36,9 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
         if result.succeeded {
             return .pass("available")
         }
-        // Also try as a command name on PATH (not a full path)
-        if shell.commandExists(command) {
+        // When args are provided, the caller wants to verify the command succeeds
+        // with those specific args — PATH presence alone is not sufficient.
+        if args.isEmpty, shell.commandExists(command) {
             return .pass("installed")
         }
         return .fail("not found")

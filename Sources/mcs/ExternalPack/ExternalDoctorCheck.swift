@@ -39,6 +39,9 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
         // does not search PATH, so "ollama" must become "/opt/homebrew/bin/ollama".
         let resolved: String
         if command.hasPrefix("/") {
+            guard FileManager.default.isExecutableFile(atPath: command) else {
+                return .fail("not found")
+            }
             resolved = command
         } else {
             let which = shell.run("/usr/bin/which", arguments: [command])

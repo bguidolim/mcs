@@ -71,12 +71,16 @@ struct Lockfile: Codable, Equatable, Sendable {
 
     /// Compare the lockfile against current registry entries.
     /// Returns mismatches where the current checkout differs from the locked SHA.
+    /// Local packs are skipped — their content is not version-pinned.
     func detectMismatches(
         registryEntries: [PackRegistryFile.PackEntry]
     ) -> [Mismatch] {
         var mismatches: [Mismatch] = []
 
         for locked in packs {
+            // Local packs have no meaningful commitSHA — skip mismatch detection
+            if locked.commitSHA == Constants.ExternalPacks.localCommitSentinel { continue }
+
             if let entry = registryEntries.first(where: { $0.identifier == locked.identifier }) {
                 if entry.commitSHA != locked.commitSHA {
                     mismatches.append(Mismatch(

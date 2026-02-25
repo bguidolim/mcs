@@ -26,13 +26,15 @@ mcs sync --update                # Fetch latest versions and update mcs.lock.yam
 mcs doctor                       # Diagnose installation health
 mcs doctor --fix                 # Diagnose and auto-fix issues
 mcs doctor --pack ios            # Only check a specific pack
-mcs pack add <url>               # Add an external tech pack from a Git URL
-mcs pack add <url> --ref <tag>   # Add at a specific tag, branch, or commit
+mcs pack add <source>            # Add a tech pack (git URL, GitHub shorthand, or local path)
+mcs pack add user/repo           # GitHub shorthand → https://github.com/user/repo.git
+mcs pack add /path/to/pack       # Add a local pack (read in-place, no clone)
+mcs pack add <url> --ref <tag>   # Add at a specific tag, branch, or commit (git only)
 mcs pack add <url> --preview     # Preview pack contents without installing
 mcs pack remove <name>           # Remove an external tech pack
 mcs pack remove <name> --force   # Remove without confirmation
 mcs pack list                    # List registered external packs
-mcs pack update [name]           # Update pack(s) to latest version
+mcs pack update [name]           # Update pack(s) to latest version (skips local packs)
 mcs cleanup                      # Find and delete backup files
 mcs cleanup --force              # Delete backups without confirmation
 ```
@@ -71,7 +73,7 @@ mcs cleanup --force              # Delete backups without confirmation
 ### External Pack System (`Sources/mcs/ExternalPack/`)
 - `ExternalPackManifest.swift` — YAML `techpack.yaml` schema (Codable models for components, templates, hooks, doctor checks, prompts, configure scripts). Supports **shorthand syntax** (`brew:`, `mcp:`, `plugin:`, `hook:`, `command:`, `skill:`, `settingsFile:`, `gitignore:`, `shell:`) that infers `type` + `installAction` from a single key
 - `ExternalPackAdapter.swift` — bridges `ExternalPackManifest` to the `TechPack` protocol
-- `ExternalPackLoader.swift` — discovers and loads packs from `~/.mcs/packs/`
+- `ExternalPackLoader.swift` — discovers and loads packs from `~/.mcs/packs/` (git) or absolute paths (local)
 - `PackFetcher.swift` — Git clone/pull for pack repositories
 - `PackRegistryFile.swift` — YAML registry of installed external packs (`~/.mcs/registry.yaml`)
 - `PackTrustManager.swift` — pack trust verification
@@ -90,7 +92,7 @@ mcs cleanup --force              # Delete backups without confirmation
 - `SyncCommand.swift` — primary command (`mcs sync`), handles both project-scoped and global-scoped sync with `--pack`, `--all`, `--dry-run`, `--customize`, `--global`, `--lock`, `--update` flags
 - `DoctorCommand.swift` — health checks with optional --fix and --pack filter
 - `CleanupCommand.swift` — backup file management with --force flag
-- `PackCommand.swift` — `mcs pack add/remove/list/update` subcommands
+- `PackCommand.swift` — `mcs pack add/remove/list/update` subcommands; `resolvePackSource()` handles 3-tier input detection (URL schemes → filesystem paths → GitHub shorthand)
 
 ### Install (`Sources/mcs/Install/`)
 - `ProjectConfigurator.swift` — per-project multi-pack convergence engine (artifact tracking, settings composition, CLAUDE.local.md writing, gitignore)
@@ -125,3 +127,5 @@ mcs cleanup --force              # Delete backups without confirmation
 - **Component-derived doctor checks**: `ComponentDefinition` is the single source of truth — `deriveDoctorCheck()` auto-generates verification from `installAction`, supplementary checks handle extras
 - **Project awareness**: doctor detects project root (walk-up for `.git/`), resolves packs from `.claude/.mcs-project` before falling back to section marker inference, then to global manifest
 - **Lockfile support**: `mcs.lock.yaml` pins pack versions for reproducible builds; `--lock` checks out pinned versions, `--update` fetches latest
+- **Local packs**: `mcs pack add /path` registers a pack read in-place — no git clone, no `mcs pack update`, no directory deletion on remove. Uses `isLocal: Bool?` on `PackEntry` (backward-compatible) and `commitSHA: "local"` sentinel. Trust verification is skipped since scripts change during development
+- **GitHub shorthand**: `mcs pack add user/repo` expands to `https://github.com/user/repo.git`. Filesystem paths are checked before shorthand regex to prevent ambiguity with relative paths like `org/pack`

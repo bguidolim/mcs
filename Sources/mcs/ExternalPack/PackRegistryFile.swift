@@ -19,6 +19,16 @@ struct PackRegistryFile: Sendable {
 
         /// Whether this pack is a local filesystem pack (not cloned via git).
         var isLocalPack: Bool { isLocal ?? false }
+
+        /// Resolve the on-disk path for this pack entry.
+        /// Local packs store an absolute path; git packs store a path relative to `packsDirectory`.
+        /// Returns `nil` if the resolved path escapes the packs directory (path traversal).
+        func resolvedPath(packsDirectory: URL) -> URL? {
+            if isLocalPack {
+                return URL(fileURLWithPath: localPath)
+            }
+            return PathContainment.safePath(relativePath: localPath, within: packsDirectory)
+        }
     }
 
     struct RegistryData: Codable, Sendable {

@@ -1,6 +1,7 @@
 import Foundation
 
-/// Discovers and loads external tech packs from `~/.mcs/packs/`.
+/// Discovers and loads external tech packs.
+/// Git packs are loaded from `~/.mcs/packs/`; local packs from their registered absolute path.
 /// Reads the pack registry to find registered packs, then loads each one
 /// by parsing its `techpack.yaml` manifest and wrapping it in an `ExternalPackAdapter`.
 struct ExternalPackLoader: Sendable {
@@ -152,23 +153,11 @@ struct ExternalPackLoader: Sendable {
 
     /// Load a pack from a registry entry.
     private func loadEntry(_ entry: PackRegistryFile.PackEntry) throws -> ExternalPackAdapter {
-        let packPath: URL
-
-        if entry.isLocalPack {
-            // Local pack: localPath is an absolute path to the pack directory
-            packPath = URL(fileURLWithPath: entry.localPath)
-        } else {
-            // Git pack: localPath is relative to ~/.mcs/packs/
-            guard let safe = PathContainment.safePath(
-                relativePath: entry.localPath,
-                within: environment.packsDirectory
-            ) else {
-                throw LoadError.localCheckoutMissing(
-                    identifier: entry.identifier,
-                    path: entry.localPath
-                )
-            }
-            packPath = safe
+        guard let packPath = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
+            throw LoadError.localCheckoutMissing(
+                identifier: entry.identifier,
+                path: entry.localPath
+            )
         }
 
         let fm = FileManager.default

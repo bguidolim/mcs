@@ -11,12 +11,6 @@ struct PackCommand: ParsableCommand {
 
 // MARK: - Add
 
-/// How the pack source was resolved from user input.
-private enum PackSource {
-    case gitURL(String)
-    case localPath(URL)
-}
-
 struct AddPack: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "add",
@@ -24,7 +18,7 @@ struct AddPack: LockedCommand {
     )
 
     @Argument(help: "Git URL, GitHub shorthand (user/repo), or local path")
-    var url: String
+    var source: String
 
     @Option(name: .long, help: "Git tag, branch, or commit (git packs only)")
     var ref: String?
@@ -38,9 +32,21 @@ struct AddPack: LockedCommand {
         let env = Environment()
         let output = CLIOutput()
 
-        let source = try resolvePackSource(url, output: output)
+        let resolver = PackSourceResolver()
+        let packSource: PackSource
+        do {
+            packSource = try resolver.resolve(source)
+        } catch let error as PackSourceError {
+            output.error(error.localizedDescription)
+            throw ExitCode.failure
+        }
 
-        switch source {
+        if case .gitURL(let expanded) = packSource,
+           source.range(of: PackSourceResolver.shorthandPattern, options: .regularExpression) != nil {
+            output.info("Interpreting '\(source)' as GitHub shorthand: \(expanded)")
+        }
+
+        switch packSource {
         case .gitURL(let gitURL):
             try performGitAdd(gitURL: gitURL, env: env, output: output)
         case .localPath(let path):
@@ -49,70 +55,6 @@ struct AddPack: LockedCommand {
             }
             try performLocalAdd(path: path, env: env, output: output)
         }
-    }
-
-    // MARK: - Source Resolution
-
-    /// Resolve user input into either a git URL or a local filesystem path.
-    ///
-    /// Detection order:
-    /// 1. Known URL schemes (`https://`, `git@`, `ssh://`, `git://`) → git pack
-    /// 2. Existing filesystem path (absolute, relative, `~/`, `file://`) → local pack
-    /// 3. GitHub shorthand (`user/repo`) → expand to `https://github.com/user/repo.git`
-    ///
-    /// Filesystem paths are checked before GitHub shorthand so that `org/pack`
-    /// resolves to a local directory when it exists on disk.
-    private func resolvePackSource(_ input: String, output: CLIOutput) throws -> PackSource {
-        guard !input.hasPrefix("-") else {
-            output.error("Invalid input: must not start with '-'")
-            throw ExitCode.failure
-        }
-
-        // 1. Known URL schemes → git pack
-        let urlPrefixes = ["https://", "git@", "ssh://", "git://"]
-        if urlPrefixes.contains(where: { input.hasPrefix($0) }) {
-            return .gitURL(input)
-        }
-
-        // 2. Filesystem path — check if input resolves to an existing directory.
-        //    This runs before GitHub shorthand so that `org/pack` is treated as a
-        //    local path when the directory exists on disk.
-        var pathString = input
-        if pathString.hasPrefix("file://") {
-            pathString = String(pathString.dropFirst("file://".count))
-        }
-
-        let resolved: URL
-        if pathString.hasPrefix("~") {
-            let expanded = NSString(string: pathString).expandingTildeInPath
-            resolved = URL(fileURLWithPath: expanded).standardized
-        } else {
-            // URL(fileURLWithPath:) resolves relative paths (../, ./) against CWD.
-            // Extract .path first to get the absolute path, then re-wrap —
-            // calling .standardized directly on a relative URL mangles ".." components.
-            let absolute = URL(fileURLWithPath: pathString).path
-            resolved = URL(fileURLWithPath: absolute)
-        }
-
-        var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDir) {
-            guard isDir.boolValue else {
-                output.error("Path is not a directory: \(resolved.path)")
-                throw ExitCode.failure
-            }
-            return .localPath(resolved)
-        }
-
-        // 3. GitHub shorthand: user/repo (exactly two path components, no scheme)
-        if input.range(of: #"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$"#, options: .regularExpression) != nil {
-            let base = input.hasSuffix(".git") ? String(input.dropLast(4)) : input
-            let expanded = "https://github.com/\(base).git"
-            output.dimmed("Expanded to \(expanded)")
-            return .gitURL(expanded)
-        }
-
-        output.error("Path does not exist: \(resolved.path)")
-        throw ExitCode.failure
     }
 
     // MARK: - Git Add
@@ -170,6 +112,7 @@ struct AddPack: LockedCommand {
         let collisions = checkCollisions(
             manifest: manifest,
             registryData: registryData,
+            registry: registry,
             env: env,
             output: output
         )
@@ -301,6 +244,7 @@ struct AddPack: LockedCommand {
         let collisions = checkCollisions(
             manifest: manifest,
             registryData: registryData,
+            registry: registry,
             env: env,
             output: output
         )
@@ -403,21 +347,12 @@ struct AddPack: LockedCommand {
     private func checkCollisions(
         manifest: ExternalPackManifest,
         registryData: PackRegistryFile.RegistryData,
+        registry: PackRegistryFile,
         env: Environment,
         output: CLIOutput
     ) -> [PackCollision] {
-        let registry = PackRegistryFile(path: env.packsRegistry)
         let existingManifestInputs: [PackRegistryFile.CollisionInput] = registryData.packs.map { entry in
-            let packPath: URL?
-            if entry.isLocalPack {
-                packPath = URL(fileURLWithPath: entry.localPath)
-            } else {
-                packPath = PathContainment.safePath(
-                    relativePath: entry.localPath,
-                    within: env.packsDirectory
-                )
-            }
-            guard let packPath else {
+            guard let packPath = entry.resolvedPath(packsDirectory: env.packsDirectory) else {
                 output.warn("Pack '\(entry.identifier)' has an unsafe localPath — skipping collision check")
                 return PackRegistryFile.CollisionInput(
                     identifier: entry.identifier,
@@ -495,7 +430,7 @@ struct AddPack: LockedCommand {
 struct RemovePack: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "remove",
-        abstract: "Remove an external tech pack"
+        abstract: "Remove a tech pack"
     )
 
     @Argument(help: "Pack identifier to remove")
@@ -530,18 +465,9 @@ struct RemovePack: LockedCommand {
             throw ExitCode.failure
         }
 
-        let packPath: URL
-        if entry.isLocalPack {
-            packPath = URL(fileURLWithPath: entry.localPath)
-        } else {
-            guard let safe = PathContainment.safePath(
-                relativePath: entry.localPath,
-                within: env.packsDirectory
-            ) else {
-                output.error("Pack localPath escapes packs directory — refusing to proceed")
-                throw ExitCode.failure
-            }
-            packPath = safe
+        guard let packPath = entry.resolvedPath(packsDirectory: env.packsDirectory) else {
+            output.error("Pack localPath escapes packs directory — refusing to proceed")
+            throw ExitCode.failure
         }
 
         // 2. Load manifest from checkout (if available) to know what to reverse
@@ -645,7 +571,7 @@ struct RemovePack: LockedCommand {
 struct UpdatePack: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "update",
-        abstract: "Update an external tech pack to the latest version"
+        abstract: "Update tech packs to the latest version"
     )
 
     @Argument(help: "Pack identifier to update (omit for all)")
@@ -830,7 +756,7 @@ struct ListPacks: ParsableCommand {
         if registryData.packs.isEmpty {
             output.plain("")
             output.dimmed("No external packs installed.")
-            output.dimmed("Add one with: mcs pack add <git-url>")
+            output.dimmed("Add one with: mcs pack add <source>")
         } else {
             output.plain("")
             output.sectionHeader("External")
@@ -846,22 +772,19 @@ struct ListPacks: ParsableCommand {
     private func packStatus(entry: PackRegistryFile.PackEntry, env: Environment) -> String {
         let fm = FileManager.default
 
-        if entry.isLocalPack {
-            guard fm.fileExists(atPath: entry.localPath) else {
-                return "(local — missing at \(entry.localPath))"
-            }
-            return "\(entry.sourceURL) (local)"
-        }
-
-        guard let packPath = PathContainment.safePath(
-            relativePath: entry.localPath,
-            within: env.packsDirectory
-        ) else {
+        guard let packPath = entry.resolvedPath(packsDirectory: env.packsDirectory) else {
             return "(invalid path — escapes packs directory)"
         }
 
         guard fm.fileExists(atPath: packPath.path) else {
+            if entry.isLocalPack {
+                return "(local — missing at \(entry.localPath))"
+            }
             return "(missing checkout)"
+        }
+
+        if entry.isLocalPack {
+            return "\(entry.sourceURL) (local)"
         }
 
         let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)

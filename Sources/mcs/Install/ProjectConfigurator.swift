@@ -440,24 +440,33 @@ struct ProjectConfigurator {
             let settingsPath = projectPath
                 .appendingPathComponent(Constants.FileNames.claudeDirectory)
                 .appendingPathComponent("settings.local.json")
+            var settings: Settings
             do {
-                var settings = try Settings.load(from: settingsPath)
-                if hasHooksToRemove {
-                    let commandsToRemove = Set(artifacts.hookCommands)
-                    if var hooks = settings.hooks {
-                        for (event, groups) in hooks {
-                            hooks[event] = groups.filter { group in
-                                guard let cmd = group.hooks?.first?.command else { return true }
-                                return !commandsToRemove.contains(cmd)
-                            }
+                settings = try Settings.load(from: settingsPath)
+            } catch {
+                output.warn("Could not parse settings.local.json: \(error.localizedDescription)")
+                output.warn("Settings for \(packID) were not cleaned up. Fix settings.local.json and re-run.")
+                state.setArtifacts(remaining, for: packID)
+                output.warn("Some artifacts for \(packID) could not be removed. Re-run 'mcs sync' to retry.")
+                return
+            }
+            if hasHooksToRemove {
+                let commandsToRemove = Set(artifacts.hookCommands)
+                if var hooks = settings.hooks {
+                    for (event, groups) in hooks {
+                        hooks[event] = groups.filter { group in
+                            guard let cmd = group.hooks?.first?.command else { return true }
+                            return !commandsToRemove.contains(cmd)
                         }
-                        hooks = hooks.filter { !$0.value.isEmpty }
-                        settings.hooks = hooks.isEmpty ? nil : hooks
                     }
+                    hooks = hooks.filter { !$0.value.isEmpty }
+                    settings.hooks = hooks.isEmpty ? nil : hooks
                 }
-                if hasSettingsToRemove {
-                    settings.removeKeys(artifacts.settingsKeys)
-                }
+            }
+            if hasSettingsToRemove {
+                settings.removeKeys(artifacts.settingsKeys)
+            }
+            do {
                 let dropKeys = Set(artifacts.settingsKeys.filter { !$0.contains(".") })
                 try settings.save(to: settingsPath, dropKeys: dropKeys)
                 remaining.hookCommands = []
@@ -469,7 +478,7 @@ struct ProjectConfigurator {
                     output.dimmed("  Removed setting: \(key)")
                 }
             } catch {
-                output.warn("Could not clean up settings from settings.local.json: \(error.localizedDescription)")
+                output.warn("Could not write settings.local.json: \(error.localizedDescription)")
             }
         }
 
@@ -487,6 +496,8 @@ struct ProjectConfigurator {
                     for sectionID in artifacts.templateSections {
                         output.dimmed("  Removed template section: \(sectionID)")
                     }
+                } else {
+                    output.dimmed("  Template sections already absent from CLAUDE.local.md")
                 }
                 // Clear regardless — if sections aren't in the file, they're already gone
                 remaining.templateSections = []

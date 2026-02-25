@@ -145,7 +145,7 @@ components:
       args: ["-y", "my-server@latest"]
 
 templates:
-  - sectionIdentifier: my-pack.instructions
+  - sectionIdentifier: instructions
     contentFile: templates/claude-local.md
 ```
 

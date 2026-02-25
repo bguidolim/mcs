@@ -88,12 +88,20 @@ struct ExternalPackLoader: Sendable {
         }
 
         let manifest: ExternalPackManifest
+        let raw: ExternalPackManifest
         do {
-            let raw = try ExternalPackManifest.load(from: manifestURL)
-            manifest = raw.normalized()
+            raw = try ExternalPackManifest.load(from: manifestURL)
         } catch {
             throw LoadError.invalidManifest(
                 identifier: "unknown",
+                reason: error.localizedDescription
+            )
+        }
+        do {
+            manifest = try raw.normalized()
+        } catch {
+            throw LoadError.invalidManifest(
+                identifier: raw.identifier,
                 reason: error.localizedDescription
             )
         }

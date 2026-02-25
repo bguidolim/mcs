@@ -55,6 +55,10 @@ struct ExternalPackAdapter: TechPack {
         }
     }
 
+    var templateSectionIdentifiers: [String] {
+        manifest.templates?.map(\.sectionIdentifier) ?? []
+    }
+
     // MARK: - Hook Contributions
 
     var hookContributions: [HookContribution] {

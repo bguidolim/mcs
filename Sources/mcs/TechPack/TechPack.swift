@@ -53,6 +53,9 @@ protocol TechPack: Sendable {
     var description: String { get }
     var components: [ComponentDefinition] { get }
     var templates: [TemplateContribution] { get throws }
+    /// Section identifiers for template contributions, available without reading
+    /// content files from disk. Used for artifact tracking and display.
+    var templateSectionIdentifiers: [String] { get }
     var hookContributions: [HookContribution] { get throws }
     var gitignoreEntries: [String] { get }
     /// Doctor checks that cannot be auto-derived from components.
@@ -66,6 +69,12 @@ protocol TechPack: Sendable {
 }
 
 extension TechPack {
+    // NOTE: This default calls `try? templates` which performs disk I/O and silently
+    // drops errors. Concrete conformers with throwing `templates` should override this
+    // with a lightweight implementation (e.g., ExternalPackAdapter reads from manifest).
+    var templateSectionIdentifiers: [String] {
+        (try? templates)?.map(\.sectionIdentifier) ?? []
+    }
     func templateValues(context: ProjectConfigContext) -> [String: String] { [:] }
 }
 

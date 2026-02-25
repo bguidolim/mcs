@@ -189,13 +189,21 @@ struct ProjectConfigurator {
         }
 
         // Templates
-        let templateSections = ((try? pack.templates) ?? []).map { "+\($0.sectionIdentifier) section" }
+        let templateSections = pack.templateSectionIdentifiers.map { "+\($0) section" }
         if !templateSections.isEmpty {
             output.dimmed("  Templates:    \(templateSections.joined(separator: ", ")) in CLAUDE.local.md")
         }
 
         // Hook entries (settings.local.json)
-        let hookEntries = ((try? pack.hookContributions) ?? []).map { "+\(ConfiguratorSupport.hookEventName(for: $0.hookName)) hook entry" }
+        let hookEntries: [String]
+        do {
+            hookEntries = try pack.hookContributions.map {
+                "+\(ConfiguratorSupport.hookEventName(for: $0.hookName)) hook entry"
+            }
+        } catch {
+            output.warn("Could not load hook contributions for \(pack.displayName): \(error.localizedDescription)")
+            hookEntries = []
+        }
         if !hookEntries.isEmpty {
             output.dimmed("  Hooks:        \(hookEntries.joined(separator: ", "))")
         }
@@ -327,7 +335,8 @@ struct ProjectConfigurator {
 
         // 4. Auto-prompt for undeclared placeholders in pack files
         let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(
-            packs: packs, resolvedValues: allValues, includeTemplates: true
+            packs: packs, resolvedValues: allValues, includeTemplates: true,
+            onWarning: { output.warn($0) }
         )
         for key in undeclared {
             let value = output.promptInline("Set value for \(key)", default: nil)
@@ -337,13 +346,27 @@ struct ProjectConfigurator {
         // 4b. Persist resolved values for doctor freshness checks
         projectState.setResolvedValues(allValues)
 
+        // 4c. Pre-load templates (single disk read per pack, used for both
+        //     artifact tracking and CLAUDE.local.md composition)
+        var preloadedTemplates: [String: [TemplateContribution]] = [:]
+        for pack in packs {
+            do {
+                preloadedTemplates[pack.identifier] = try pack.templates
+            } catch {
+                output.warn("Could not load templates for \(pack.displayName): \(error.localizedDescription)")
+            }
+        }
+
         // 5. Install per-project files with resolved values
         for pack in packs {
             let excluded = excludedComponents[pack.identifier] ?? []
             let isNew = additions.contains(pack.identifier)
             let label = isNew ? "Configuring" : "Updating"
             output.info("\(label) \(pack.displayName)...")
-            let artifacts = installProjectArtifacts(pack, at: projectPath, resolvedValues: allValues, excludedIDs: excluded)
+            let artifacts = installProjectArtifacts(
+                pack, at: projectPath, resolvedValues: allValues, excludedIDs: excluded,
+                preloadedTemplates: preloadedTemplates[pack.identifier]
+            )
             projectState.setArtifacts(artifacts, for: pack.identifier)
             projectState.setExcludedComponents(excluded, for: pack.identifier)
             projectState.recordPack(pack.identifier)
@@ -363,8 +386,8 @@ struct ProjectConfigurator {
             }
         }
 
-        // 7. Compose CLAUDE.local.md with pre-resolved values
-        try composeClaudeLocal(at: projectPath, packs: packs, values: allValues)
+        // 7. Compose CLAUDE.local.md with pre-resolved values and pre-loaded templates
+        try composeClaudeLocal(at: projectPath, packs: packs, preloadedTemplates: preloadedTemplates, values: allValues)
 
         // 8. Run pack-specific configureProject hooks with resolved values
         for pack in packs {
@@ -551,7 +574,8 @@ struct ProjectConfigurator {
         _ pack: any TechPack,
         at projectPath: URL,
         resolvedValues: [String: String] = [:],
-        excludedIDs: Set<String> = []
+        excludedIDs: Set<String> = [],
+        preloadedTemplates: [TemplateContribution]? = nil
     ) -> PackArtifactRecord {
         var artifacts = PackArtifactRecord()
         var exec = makeExecutor()
@@ -618,9 +642,11 @@ struct ProjectConfigurator {
             }
         }
 
-        // Track template sections (non-critical — errors will surface in composeClaudeLocal)
-        for contribution in (try? pack.templates) ?? [] {
-            artifacts.templateSections.append(contribution.sectionIdentifier)
+        // Track template sections from pre-loaded cache, or fall back to manifest identifiers
+        if let templates = preloadedTemplates {
+            artifacts.templateSections = templates.map(\.sectionIdentifier)
+        } else {
+            artifacts.templateSections = pack.templateSectionIdentifiers
         }
 
         return artifacts
@@ -727,16 +753,20 @@ struct ProjectConfigurator {
 
     // MARK: - CLAUDE.local.md Composition
 
-    /// Compose CLAUDE.local.md from all selected packs' template contributions.
+    /// Compose CLAUDE.local.md from all selected packs' pre-loaded template contributions.
     private func composeClaudeLocal(
         at projectPath: URL,
         packs: [any TechPack],
+        preloadedTemplates: [String: [TemplateContribution]],
         values: [String: String]
     ) throws {
         var allContributions: [TemplateContribution] = []
-
         for pack in packs {
-            allContributions.append(contentsOf: try pack.templates)
+            if let templates = preloadedTemplates[pack.identifier] {
+                allContributions.append(contentsOf: templates)
+            } else if !pack.templateSectionIdentifiers.isEmpty {
+                output.warn("Skipping templates for \(pack.displayName) (failed to load earlier)")
+            }
         }
 
         guard !allContributions.isEmpty else {

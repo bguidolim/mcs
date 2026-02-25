@@ -162,7 +162,8 @@ enum ConfiguratorSupport {
     static func scanForUndeclaredPlaceholders(
         packs: [any TechPack],
         resolvedValues: [String: String],
-        includeTemplates: Bool = false
+        includeTemplates: Bool = false,
+        onWarning: ((String) -> Void)? = nil
     ) -> [String] {
         var undeclared = Set<String>()
         let resolvedKeys = Set(resolvedValues.keys)
@@ -180,13 +181,17 @@ enum ConfiguratorSupport {
             }
 
             if includeTemplates {
-                for template in (try? pack.templates) ?? [] {
-                    for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
-                        let key = stripPlaceholderDelimiters(placeholder)
-                        if !resolvedKeys.contains(key) {
-                            undeclared.insert(key)
+                do {
+                    for template in try pack.templates {
+                        for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
+                            let key = stripPlaceholderDelimiters(placeholder)
+                            if !resolvedKeys.contains(key) {
+                                undeclared.insert(key)
+                            }
                         }
                     }
+                } catch {
+                    onWarning?("Could not scan templates for \(pack.displayName): \(error.localizedDescription)")
                 }
             }
         }

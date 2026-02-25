@@ -20,7 +20,7 @@ Tests/MCSTests/                  # Test target
 
 ## Design Philosophy
 
-`mcs` is a **pure pack management engine** with zero bundled content. It ships no templates, hooks, settings, skills, or slash commands. Everything comes from external tech packs that users add via `mcs pack add <url>`.
+`mcs` is a **pure pack management engine** with zero bundled content. It ships no templates, hooks, settings, skills, or slash commands. Everything comes from external tech packs that users add via `mcs pack add` (git URL, GitHub shorthand, or local path).
 
 The primary command is **`mcs sync`**, which handles both global and per-project configuration:
 - **`mcs sync [path]`** — per-project setup with multi-pack selection and convergent artifact management
@@ -119,13 +119,15 @@ Wraps `claude mcp add/remove` and `claude plugin install/remove` CLI commands. M
 
 ## External Pack System
 
-External packs are Git repositories containing a `techpack.yaml` manifest. The system has these layers:
+External packs are directories containing a `techpack.yaml` manifest — either Git repositories cloned into `~/.mcs/packs/` or local directories registered in-place. The system has these layers:
 
-1. **PackFetcher** — clones/pulls pack repos into `~/.mcs/packs/<name>/`
-2. **ExternalPackManifest** — Codable model for `techpack.yaml` (components, templates, hooks, doctor checks, prompts, configure scripts). Supports shorthand syntax for concise component definitions
-3. **ExternalPackAdapter** — bridges `ExternalPackManifest` to the `TechPack` protocol so external packs participate in all sync/doctor flows
-4. **PackRegistryFile** — YAML registry (`~/.mcs/registry.yaml`) tracking which packs are installed
-5. **TechPackRegistry** — unified registry that loads external packs from disk
+1. **PackSourceResolver** — resolves user input into a git URL or local path (URL schemes → filesystem → GitHub shorthand)
+2. **PackFetcher** — clones/pulls git pack repos into `~/.mcs/packs/<name>/`
+3. **ExternalPackManifest** — Codable model for `techpack.yaml` (components, templates, hooks, doctor checks, prompts, configure scripts). Supports shorthand syntax for concise component definitions
+4. **ExternalPackAdapter** — bridges `ExternalPackManifest` to the `TechPack` protocol so external packs participate in all sync/doctor flows
+5. **PackRegistryFile** — YAML registry (`~/.mcs/registry.yaml`) tracking which packs are installed
+6. **PackUpdater** — shared fetch → validate → trust cycle for updating a single git pack
+7. **TechPackRegistry** — unified registry that loads external packs from disk
 
 ### Pack Manifest (`techpack.yaml`)
 

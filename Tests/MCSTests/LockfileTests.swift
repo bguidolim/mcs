@@ -26,7 +26,26 @@ struct LockfileTests {
             commitSHA: commitSHA,
             localPath: identifier,
             addedAt: "2026-01-01T00:00:00Z",
-            trustedScriptHashes: [:]
+            trustedScriptHashes: [:],
+            isLocal: nil
+        )
+    }
+
+    private func makeLocalEntry(
+        identifier: String,
+        localPath: String = "/Users/dev/local-pack"
+    ) -> PackRegistryFile.PackEntry {
+        PackRegistryFile.PackEntry(
+            identifier: identifier,
+            displayName: identifier,
+            version: "1.0.0",
+            sourceURL: localPath,
+            ref: nil,
+            commitSHA: "local",
+            localPath: localPath,
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: true
         )
     }
 
@@ -156,5 +175,24 @@ struct LockfileTests {
         #expect(mismatches.count == 1)
         #expect(mismatches[0].identifier == "ios")
         #expect(mismatches[0].currentSHA == nil)
+    }
+
+    // MARK: - Local pack lockfile behavior
+
+    @Test("Local pack is included in lockfile with commitSHA 'local'")
+    func localPackInLockfile() {
+        let entries = [
+            makeEntry(identifier: "ios", commitSHA: "sha-ios"),
+            makeLocalEntry(identifier: "my-local", localPath: "/path/to/my-local"),
+        ]
+
+        let lockfile = Lockfile.generate(
+            registryEntries: entries,
+            selectedPackIDs: ["ios", "my-local"]
+        )
+
+        #expect(lockfile.packs.count == 2)
+        let localPack = lockfile.packs.first { $0.identifier == "my-local" }
+        #expect(localPack?.commitSHA == "local")
     }
 }

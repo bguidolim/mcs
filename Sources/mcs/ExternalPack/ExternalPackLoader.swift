@@ -1,6 +1,7 @@
 import Foundation
 
-/// Discovers and loads external tech packs from `~/.mcs/packs/`.
+/// Discovers and loads external tech packs.
+/// Git packs are loaded from `~/.mcs/packs/`; local packs from their registered absolute path.
 /// Reads the pack registry to find registered packs, then loads each one
 /// by parsing its `techpack.yaml` manifest and wrapping it in an `ExternalPackAdapter`.
 struct ExternalPackLoader: Sendable {
@@ -152,17 +153,14 @@ struct ExternalPackLoader: Sendable {
 
     /// Load a pack from a registry entry.
     private func loadEntry(_ entry: PackRegistryFile.PackEntry) throws -> ExternalPackAdapter {
-        guard let packPath = PathContainment.safePath(
-            relativePath: entry.localPath,
-            within: environment.packsDirectory
-        ) else {
+        guard let packPath = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
             throw LoadError.localCheckoutMissing(
                 identifier: entry.identifier,
                 path: entry.localPath
             )
         }
-        let fm = FileManager.default
 
+        let fm = FileManager.default
         guard fm.fileExists(atPath: packPath.path) else {
             throw LoadError.localCheckoutMissing(
                 identifier: entry.identifier,
@@ -172,17 +170,19 @@ struct ExternalPackLoader: Sendable {
 
         let manifest = try validate(at: packPath)
 
-        // Verify trusted scripts haven't been tampered with
-        let trustManager = PackTrustManager(output: CLIOutput())
-        let modified = trustManager.verifyTrust(
-            trustedHashes: entry.trustedScriptHashes,
-            packPath: packPath
-        )
-        if !modified.isEmpty {
-            throw LoadError.invalidManifest(
-                identifier: entry.identifier,
-                reason: "Trusted scripts modified: \(modified.joined(separator: ", ")). Run 'mcs pack update \(entry.identifier)' to re-trust."
+        // Skip trust verification for local packs — scripts change during development
+        if !entry.isLocalPack {
+            let trustManager = PackTrustManager(output: CLIOutput())
+            let modified = trustManager.verifyTrust(
+                trustedHashes: entry.trustedScriptHashes,
+                packPath: packPath
             )
+            if !modified.isEmpty {
+                throw LoadError.invalidManifest(
+                    identifier: entry.identifier,
+                    reason: "Trusted scripts modified: \(modified.joined(separator: ", ")). Run 'mcs pack update \(entry.identifier)' to re-trust."
+                )
+            }
         }
 
         let shell = ShellRunner(environment: environment)

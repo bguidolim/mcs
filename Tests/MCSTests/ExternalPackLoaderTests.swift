@@ -61,6 +61,24 @@ struct ExternalPackLoaderTests {
     }
 
     /// Set up a minimal test environment with pack directories.
+    private func sampleLocalEntry(
+        identifier: String = "local-pack",
+        localPath: String = "/Users/dev/local-pack"
+    ) -> PackRegistryFile.PackEntry {
+        PackRegistryFile.PackEntry(
+            identifier: identifier,
+            displayName: "Local Pack",
+            version: "1.0.0",
+            sourceURL: localPath,
+            ref: nil,
+            commitSHA: "local",
+            localPath: localPath,
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: true
+        )
+    }
+
     private func setupTestEnv() throws -> (tmpDir: URL, env: Environment) {
         let tmpDir = try makeTmpDir()
         let env = Environment(home: tmpDir)
@@ -320,7 +338,8 @@ struct ExternalPackLoaderTests {
                 commitSHA: "abc123",
                 localPath: "my-pack",
                 addedAt: "2026-01-01T00:00:00Z",
-                trustedScriptHashes: [:]
+                trustedScriptHashes: [:],
+                isLocal: nil
             ),
             in: &data
         )
@@ -352,7 +371,8 @@ struct ExternalPackLoaderTests {
                 commitSHA: "def456",
                 localPath: "ghost-pack",
                 addedAt: "2026-01-01T00:00:00Z",
-                trustedScriptHashes: [:]
+                trustedScriptHashes: [:],
+                isLocal: nil
             ),
             in: &data
         )
@@ -409,7 +429,8 @@ struct ExternalPackLoaderTests {
                     commitSHA: "abc",
                     localPath: localPath,
                     addedAt: "2026-01-01T00:00:00Z",
-                    trustedScriptHashes: [:]
+                    trustedScriptHashes: [:],
+                    isLocal: nil
                 ),
                 in: &data
             )
@@ -453,7 +474,8 @@ struct ExternalPackLoaderTests {
                 commitSHA: "abc",
                 localPath: "target-pack",
                 addedAt: "2026-01-01T00:00:00Z",
-                trustedScriptHashes: [:]
+                trustedScriptHashes: [:],
+                isLocal: nil
             ),
             in: &data
         )
@@ -464,6 +486,60 @@ struct ExternalPackLoaderTests {
 
         let adapter = try loader.load(identifier: "target-pack", output: output)
         #expect(adapter.identifier == "target-pack")
+    }
+
+    // MARK: - Local pack loading
+
+    @Test("loadAll loads local pack from absolute path")
+    func loadAllLocalPack() throws {
+        let (tmpDir, env) = try setupTestEnv()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create pack outside ~/.mcs/packs/ (simulating a local dev directory)
+        let localPackDir = tmpDir.appendingPathComponent("dev-packs/my-local-pack")
+        try FileManager.default.createDirectory(at: localPackDir, withIntermediateDirectories: true)
+        try minimalManifestYAML(identifier: "my-local-pack").write(
+            to: localPackDir.appendingPathComponent("techpack.yaml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        // Register as local pack
+        let registry = PackRegistryFile(path: env.packsRegistry)
+        var data = PackRegistryFile.RegistryData()
+        registry.register(
+            sampleLocalEntry(identifier: "my-local-pack", localPath: localPackDir.path),
+            in: &data
+        )
+        try registry.save(data)
+
+        let loader = ExternalPackLoader(environment: env, registry: registry)
+        let output = CLIOutput(colorsEnabled: false)
+
+        let adapters = loader.loadAll(output: output)
+        #expect(adapters.count == 1)
+        #expect(adapters[0].identifier == "my-local-pack")
+    }
+
+    @Test("loadAll skips local pack with missing directory")
+    func loadAllLocalPackMissing() throws {
+        let (tmpDir, env) = try setupTestEnv()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Register a local pack pointing to a nonexistent directory
+        let registry = PackRegistryFile(path: env.packsRegistry)
+        var data = PackRegistryFile.RegistryData()
+        registry.register(
+            sampleLocalEntry(identifier: "missing-local", localPath: "/nonexistent/path/missing-local"),
+            in: &data
+        )
+        try registry.save(data)
+
+        let loader = ExternalPackLoader(environment: env, registry: registry)
+        let output = CLIOutput(colorsEnabled: false)
+
+        let adapters = loader.loadAll(output: output)
+        #expect(adapters.isEmpty)
     }
 
     @Test("load by identifier throws for unregistered pack")
@@ -590,7 +666,8 @@ struct PeerDependencyValidatorTests {
             commitSHA: "abc123",
             localPath: identifier,
             addedAt: "2026-01-01T00:00:00Z",
-            trustedScriptHashes: [:]
+            trustedScriptHashes: [:],
+            isLocal: nil
         )
     }
 

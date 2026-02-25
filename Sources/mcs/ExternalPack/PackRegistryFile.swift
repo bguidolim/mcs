@@ -9,12 +9,27 @@ struct PackRegistryFile: Sendable {
         let identifier: String
         let displayName: String
         let version: String
-        let sourceURL: String           // Git clone URL
+        let sourceURL: String           // Git clone URL or original local path
         let ref: String?                // Git tag/branch/commit
-        let commitSHA: String           // Exact commit for reproducibility
-        let localPath: String           // Relative to ~/.mcs/packs/
+        let commitSHA: String           // Exact commit (git) or "local" (local packs)
+        let localPath: String           // Relative to ~/.mcs/packs/ (git) or absolute path (local)
         let addedAt: String             // ISO 8601 date
         let trustedScriptHashes: [String: String]  // relativePath -> SHA-256
+        let isLocal: Bool?              // nil/false = git pack, true = local filesystem pack
+
+        /// Whether this pack is a local filesystem pack (not cloned via git).
+        var isLocalPack: Bool { isLocal ?? false }
+
+        /// Resolve the on-disk path for this pack entry.
+        /// Local packs store an absolute path; git packs store a path relative to `packsDirectory`.
+        /// Returns `nil` if the local path is invalid or the git path escapes the packs directory.
+        func resolvedPath(packsDirectory: URL) -> URL? {
+            if isLocalPack {
+                guard !localPath.isEmpty, localPath.hasPrefix("/") else { return nil }
+                return URL(fileURLWithPath: localPath)
+            }
+            return PathContainment.safePath(relativePath: localPath, within: packsDirectory)
+        }
     }
 
     struct RegistryData: Codable, Sendable {
@@ -87,6 +102,17 @@ struct PackRegistryFile: Sendable {
         let skillDirectories: [String]
         let templateSectionIDs: [String]
         let componentIDs: [String]
+
+        /// An empty input with no artifacts — used when a manifest cannot be loaded.
+        static func empty(identifier: String) -> CollisionInput {
+            CollisionInput(
+                identifier: identifier,
+                mcpServerNames: [],
+                skillDirectories: [],
+                templateSectionIDs: [],
+                componentIDs: []
+            )
+        }
     }
 
     /// Check if any registered pack has a collision with a new pack's artifacts.

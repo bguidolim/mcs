@@ -8,7 +8,8 @@ struct LockfileOperations {
     let shell: ShellRunner
 
     /// Checkout exact pack versions from the lockfile.
-    /// Aborts if any checkout fails, since `--lock` guarantees reproducibility.
+    /// Aborts if any checkout fails, since `--lock` guarantees reproducibility for git packs.
+    /// Local packs are skipped (their content is not version-pinned).
     func checkoutLockedVersions(at projectPath: URL) throws {
         guard let lockfile = try Lockfile.load(projectRoot: projectPath) else {
             output.error("No mcs.lock.yaml found. Run 'mcs sync' first to create one.")
@@ -19,6 +20,12 @@ struct LockfileOperations {
 
         var failedPacks: [String] = []
         for locked in lockfile.packs {
+            // Local packs have no git commit to pin — skip
+            if locked.commitSHA == Constants.ExternalPacks.localCommitSentinel {
+                output.dimmed("  \(locked.identifier): local pack (version not pinned)")
+                continue
+            }
+
             // Validate commit SHA is a valid hex string (defense against flag injection)
             guard locked.commitSHA.range(of: #"^[0-9a-f]{7,64}$"#, options: .regularExpression) != nil else {
                 output.warn("  \(locked.identifier): invalid commit SHA '\(locked.commitSHA)'")
@@ -73,7 +80,7 @@ struct LockfileOperations {
         }
     }
 
-    /// Fetch latest versions for all registered packs.
+    /// Fetch latest versions for all registered git packs. Local packs are skipped.
     /// Re-validates trust when scripts change (mirrors `mcs pack update` behavior).
     func updatePacks() throws {
         let registryFile = PackRegistryFile(path: environment.packsRegistry)
@@ -85,75 +92,34 @@ struct LockfileOperations {
         }
 
         output.info("Fetching latest pack versions...")
-        let fetcher = PackFetcher(
-            shell: shell,
-            output: output,
-            packsDirectory: environment.packsDirectory
+        let updater = PackUpdater(
+            fetcher: PackFetcher(shell: shell, output: output, packsDirectory: environment.packsDirectory),
+            trustManager: PackTrustManager(output: output),
+            environment: environment,
+            output: output
         )
-        let trustManager = PackTrustManager(output: output)
 
         var updatedData = registryData
         for entry in registryData.packs {
-            guard let packPath = PathContainment.safePath(
-                relativePath: entry.localPath,
-                within: environment.packsDirectory
-            ) else {
-                output.warn("  \(entry.identifier): localPath escapes packs directory — skipping")
+            if entry.isLocalPack {
+                output.dimmed("  \(entry.identifier): local pack (skipped)")
                 continue
             }
 
-            do {
-                if let result = try fetcher.update(packPath: packPath, ref: entry.ref) {
-                    let loader = ExternalPackLoader(environment: environment, registry: registryFile)
-                    let manifest: ExternalPackManifest
-                    do {
-                        manifest = try loader.validate(at: packPath)
-                    } catch {
-                        output.warn("  \(entry.identifier): updated but manifest is invalid — \(error.localizedDescription)")
-                        continue
-                    }
+            guard let packPath = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
+                output.warn("  \(entry.identifier): invalid path — skipping")
+                continue
+            }
 
-                    // Check for new/modified scripts requiring re-trust
-                    var scriptHashes = entry.trustedScriptHashes
-                    let newItems = try trustManager.detectNewScripts(
-                        currentHashes: entry.trustedScriptHashes,
-                        updatedPackPath: packPath,
-                        manifest: manifest
-                    )
-                    if !newItems.isEmpty {
-                        output.warn("  \(entry.displayName) has new or modified scripts:")
-                        let decision = try trustManager.promptForTrust(
-                            manifest: manifest,
-                            packPath: packPath,
-                            items: newItems
-                        )
-                        guard decision.approved else {
-                            output.info("  \(entry.displayName): update skipped (trust not granted)")
-                            continue
-                        }
-                        for (path, hash) in decision.scriptHashes {
-                            scriptHashes[path] = hash
-                        }
-                    }
-
-                    let updatedEntry = PackRegistryFile.PackEntry(
-                        identifier: entry.identifier,
-                        displayName: manifest.displayName,
-                        version: manifest.version,
-                        sourceURL: entry.sourceURL,
-                        ref: entry.ref,
-                        commitSHA: result.commitSHA,
-                        localPath: entry.localPath,
-                        addedAt: entry.addedAt,
-                        trustedScriptHashes: scriptHashes
-                    )
-                    registryFile.register(updatedEntry, in: &updatedData)
-                    output.success("  \(entry.identifier): updated to v\(manifest.version) (\(String(result.commitSHA.prefix(7))))")
-                } else {
-                    output.dimmed("  \(entry.identifier): already up to date")
-                }
-            } catch {
-                output.warn("  \(entry.identifier): fetch failed — \(error.localizedDescription)")
+            let result = updater.updateGitPack(entry: entry, packPath: packPath, registry: registryFile)
+            switch result {
+            case .alreadyUpToDate:
+                output.dimmed("  \(entry.identifier): already up to date")
+            case .updated(let updatedEntry):
+                registryFile.register(updatedEntry, in: &updatedData)
+                output.success("  \(entry.identifier): updated to v\(updatedEntry.version) (\(String(updatedEntry.commitSHA.prefix(7))))")
+            case .skipped(let reason):
+                output.warn("  \(entry.identifier): \(reason)")
             }
         }
 

@@ -49,6 +49,9 @@ enum Constants {
 
         /// The directory name for pack checkouts.
         static let packsDirectory = "packs"
+
+        /// Sentinel value for `commitSHA` on local (non-git) packs.
+        static let localCommitSentinel = "local"
     }
 
     // MARK: - Plugins

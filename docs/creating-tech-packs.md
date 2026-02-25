@@ -48,7 +48,7 @@ mcs pack add /path/to/my-first-pack
 # Or push to GitHub first:
 git remote add origin https://github.com/you/my-first-pack.git
 git push -u origin main
-mcs pack add https://github.com/you/my-first-pack
+mcs pack add you/my-first-pack  # GitHub shorthand (or full URL)
 ```
 
 ### 4. Sync a project
@@ -517,8 +517,8 @@ ls -la .claude/           # Artifacts should be gone
 cat CLAUDE.local.md       # Template sections removed
 
 # Test updates — make a change to your pack, then
-mcs pack update my-pack
-mcs sync                  # Re-select — should pick up changes
+mcs sync                  # Local packs pick up changes automatically
+# For git packs: mcs pack update my-pack && mcs sync
 ```
 
 ---

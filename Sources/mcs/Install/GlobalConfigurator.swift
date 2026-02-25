@@ -702,7 +702,7 @@ struct GlobalConfigurator {
     private func printProjectScopedSkips(packs: [any TechPack]) {
         var skipped: [String] = []
 
-        let templateCount = packs.reduce(0) { $0 + ((try? $1.templates) ?? []).count }
+        let templateCount = packs.reduce(0) { $0 + $1.templateSectionIdentifiers.count }
         if templateCount > 0 {
             skipped.append("CLAUDE.local.md templates (\(templateCount))")
         }

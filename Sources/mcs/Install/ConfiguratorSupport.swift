@@ -180,13 +180,18 @@ enum ConfiguratorSupport {
             }
 
             if includeTemplates {
-                for template in (try? pack.templates) ?? [] {
-                    for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
-                        let key = stripPlaceholderDelimiters(placeholder)
-                        if !resolvedKeys.contains(key) {
-                            undeclared.insert(key)
+                do {
+                    for template in try pack.templates {
+                        for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
+                            let key = stripPlaceholderDelimiters(placeholder)
+                            if !resolvedKeys.contains(key) {
+                                undeclared.insert(key)
+                            }
                         }
                     }
+                } catch {
+                    // Template content unavailable — cannot scan for placeholders.
+                    // Missing placeholders will surface later during template composition.
                 }
             }
         }

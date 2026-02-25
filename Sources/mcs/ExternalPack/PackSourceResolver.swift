@@ -50,17 +50,12 @@ struct PackSourceResolver {
         //    Note: file:// is treated as a filesystem path, not a git URL.
         let pathString = input.hasPrefix("file://") ? String(input.dropFirst("file://".count)) : input
 
-        let resolved: URL
-        if pathString.hasPrefix("~") {
-            let expanded = NSString(string: pathString).expandingTildeInPath
-            resolved = URL(fileURLWithPath: expanded).standardized
-        } else {
-            // URL(fileURLWithPath:) resolves relative paths (../, ./) against CWD.
-            // Extract .path first to get the absolute path, then re-wrap —
-            // calling .standardized directly on a relative URL mangles ".." components.
-            let absolute = URL(fileURLWithPath: pathString).path
-            resolved = URL(fileURLWithPath: absolute)
-        }
+        // expandingTildeInPath handles ~/... and is a no-op for other paths.
+        // URL(fileURLWithPath:) resolves relative paths (../, ./) against CWD.
+        // Extract .path first to get the absolute string, then re-wrap —
+        // calling .standardized directly on a relative URL mangles ".." components.
+        let expanded = NSString(string: pathString).expandingTildeInPath
+        let resolved = URL(fileURLWithPath: URL(fileURLWithPath: expanded).path)
 
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDir) {

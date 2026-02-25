@@ -327,6 +327,69 @@ struct PackRegistryFileTests {
         #expect(data.packs[0].isLocal == nil)
     }
 
+    @Test("resolvedPath returns URL for local pack with absolute path")
+    func resolvedPathLocalAbsolute() {
+        let entry = PackRegistryFile.PackEntry(
+            identifier: "local-pack",
+            displayName: "Local Pack",
+            version: "1.0.0",
+            sourceURL: "/Users/dev/local-pack",
+            ref: nil,
+            commitSHA: "local",
+            localPath: "/Users/dev/local-pack",
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: true
+        )
+        let packsDir = URL(fileURLWithPath: "/tmp/packs")
+        let result = entry.resolvedPath(packsDirectory: packsDir)
+        #expect(result?.path == "/Users/dev/local-pack")
+    }
+
+    @Test("resolvedPath returns nil for local pack with empty path")
+    func resolvedPathLocalEmpty() {
+        let entry = PackRegistryFile.PackEntry(
+            identifier: "bad-pack",
+            displayName: "Bad Pack",
+            version: "1.0.0",
+            sourceURL: "",
+            ref: nil,
+            commitSHA: "local",
+            localPath: "",
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: true
+        )
+        let packsDir = URL(fileURLWithPath: "/tmp/packs")
+        #expect(entry.resolvedPath(packsDirectory: packsDir) == nil)
+    }
+
+    @Test("resolvedPath returns nil for local pack with relative path")
+    func resolvedPathLocalRelative() {
+        let entry = PackRegistryFile.PackEntry(
+            identifier: "bad-pack",
+            displayName: "Bad Pack",
+            version: "1.0.0",
+            sourceURL: "relative/path",
+            ref: nil,
+            commitSHA: "local",
+            localPath: "relative/path",
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: true
+        )
+        let packsDir = URL(fileURLWithPath: "/tmp/packs")
+        #expect(entry.resolvedPath(packsDirectory: packsDir) == nil)
+    }
+
+    @Test("resolvedPath uses safePath for git pack")
+    func resolvedPathGitPack() {
+        let entry = sampleEntry(identifier: "my-git-pack")
+        let packsDir = URL(fileURLWithPath: "/tmp/packs")
+        let result = entry.resolvedPath(packsDirectory: packsDir)
+        #expect(result?.path == "/tmp/packs/my-git-pack")
+    }
+
     @Test("Skip collision check against same identifier")
     func skipSelfCollision() throws {
         let registry = PackRegistryFile(path: URL(fileURLWithPath: "/tmp/unused"))

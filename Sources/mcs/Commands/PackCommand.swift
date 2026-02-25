@@ -108,6 +108,12 @@ struct AddPack: LockedCommand {
             throw ExitCode.failure
         }
 
+        if !checkDuplicate(manifest: manifest, sourceURL: gitURL, registryData: registryData, output: output) {
+            try? fetcher.remove(packPath: fetchResult.localPath)
+            output.info("Pack not added.")
+            return
+        }
+
         checkPeerDependencies(manifest: manifest, registryData: registryData, output: output)
         let collisions = checkCollisions(
             manifest: manifest,
@@ -135,23 +141,9 @@ struct AddPack: LockedCommand {
         }
 
         // 5. Trust verification
-        let trustManager = PackTrustManager(output: output)
-        let items: [TrustableItem]
-        do {
-            items = try trustManager.analyzeScripts(manifest: manifest, packPath: fetchResult.localPath)
-        } catch {
-            try? fetcher.remove(packPath: fetchResult.localPath)
-            output.error("Failed to analyze pack scripts: \(error.localizedDescription)")
-            throw ExitCode.failure
-        }
-
         let decision: PackTrustManager.TrustDecision
         do {
-            decision = try trustManager.promptForTrust(
-                manifest: manifest,
-                packPath: fetchResult.localPath,
-                items: items
-            )
+            decision = try verifyTrust(manifest: manifest, packPath: fetchResult.localPath, output: output)
         } catch {
             try? fetcher.remove(packPath: fetchResult.localPath)
             output.error("Trust verification failed: \(error.localizedDescription)")
@@ -240,6 +232,11 @@ struct AddPack: LockedCommand {
             throw ExitCode.failure
         }
 
+        if !checkDuplicate(manifest: manifest, sourceURL: path.path, registryData: registryData, output: output) {
+            output.info("Pack not added.")
+            return
+        }
+
         checkPeerDependencies(manifest: manifest, registryData: registryData, output: output)
         let collisions = checkCollisions(
             manifest: manifest,
@@ -265,22 +262,9 @@ struct AddPack: LockedCommand {
         }
 
         // 4. Trust verification
-        let trustManager = PackTrustManager(output: output)
-        let items: [TrustableItem]
-        do {
-            items = try trustManager.analyzeScripts(manifest: manifest, packPath: path)
-        } catch {
-            output.error("Failed to analyze pack scripts: \(error.localizedDescription)")
-            throw ExitCode.failure
-        }
-
         let decision: PackTrustManager.TrustDecision
         do {
-            decision = try trustManager.promptForTrust(
-                manifest: manifest,
-                packPath: path,
-                items: items
-            )
+            decision = try verifyTrust(manifest: manifest, packPath: path, output: output)
         } catch {
             output.error("Trust verification failed: \(error.localizedDescription)")
             throw ExitCode.failure
@@ -339,7 +323,7 @@ struct AddPack: LockedCommand {
                 output.warn("Pack '\(manifest.identifier)' requires peer pack '\(result.peerPack)' >= \(result.minVersion), but v\(actual) is registered.")
                 output.dimmed("  Update it with: mcs pack update \(result.peerPack)")
             case .satisfied:
-                break
+                break // Filtered by `where` clause; required for exhaustive switch
             }
         }
     }
@@ -354,24 +338,12 @@ struct AddPack: LockedCommand {
         let existingManifestInputs: [PackRegistryFile.CollisionInput] = registryData.packs.map { entry in
             guard let packPath = entry.resolvedPath(packsDirectory: env.packsDirectory) else {
                 output.warn("Pack '\(entry.identifier)' has an unsafe localPath — skipping collision check")
-                return PackRegistryFile.CollisionInput(
-                    identifier: entry.identifier,
-                    mcpServerNames: [],
-                    skillDirectories: [],
-                    templateSectionIDs: [],
-                    componentIDs: []
-                )
+                return .empty(identifier: entry.identifier)
             }
             let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
             guard let existingManifest = try? ExternalPackManifest.load(from: manifestURL) else {
                 output.warn("Could not load manifest for '\(entry.identifier)', collision detection may be incomplete")
-                return PackRegistryFile.CollisionInput(
-                    identifier: entry.identifier,
-                    mcpServerNames: [],
-                    skillDirectories: [],
-                    templateSectionIDs: [],
-                    componentIDs: []
-                )
+                return .empty(identifier: entry.identifier)
             }
             return PackRegistryFile.CollisionInput(from: existingManifest)
         }
@@ -390,6 +362,43 @@ struct AddPack: LockedCommand {
         }
 
         return collisions
+    }
+
+    /// Warn if a pack with the same identifier is already registered.
+    /// Returns `true` if the user wants to proceed, `false` to abort.
+    private func checkDuplicate(
+        manifest: ExternalPackManifest,
+        sourceURL: String,
+        registryData: PackRegistryFile.RegistryData,
+        output: CLIOutput
+    ) -> Bool {
+        guard let existing = registryData.packs.first(where: { $0.identifier == manifest.identifier }) else {
+            return true
+        }
+
+        if existing.sourceURL == sourceURL {
+            output.warn("Pack '\(manifest.identifier)' is already installed (v\(existing.version)).")
+        } else {
+            output.warn("Pack identifier '\(manifest.identifier)' is already registered from a different source:")
+            output.plain("  Current: \(existing.sourceURL)")
+            output.plain("  New:     \(sourceURL)")
+        }
+        return output.askYesNo("Replace existing pack?", default: false)
+    }
+
+    /// Analyze scripts and prompt for trust approval. Throws on failure.
+    private func verifyTrust(
+        manifest: ExternalPackManifest,
+        packPath: URL,
+        output: CLIOutput
+    ) throws -> PackTrustManager.TrustDecision {
+        let trustManager = PackTrustManager(output: output)
+        let items = try trustManager.analyzeScripts(manifest: manifest, packPath: packPath)
+        return try trustManager.promptForTrust(
+            manifest: manifest,
+            packPath: packPath,
+            items: items
+        )
     }
 
     private func displayPackSummary(manifest: ExternalPackManifest, output: CLIOutput) {
@@ -466,7 +475,11 @@ struct RemovePack: LockedCommand {
         }
 
         guard let packPath = entry.resolvedPath(packsDirectory: env.packsDirectory) else {
-            output.error("Pack localPath escapes packs directory — refusing to proceed")
+            if entry.isLocalPack {
+                output.error("Pack '\(entry.identifier)' has an invalid local path: '\(entry.localPath)'")
+            } else {
+                output.error("Pack localPath escapes packs directory — refusing to proceed")
+            }
             throw ExitCode.failure
         }
 
@@ -620,7 +633,11 @@ struct UpdatePack: LockedCommand {
 
         for entry in packsToUpdate {
             if entry.isLocalPack {
-                output.dimmed("\(entry.displayName): local pack (always up to date)")
+                if identifier != nil {
+                    output.info("\(entry.displayName) is a local pack — changes are picked up automatically on next sync.")
+                } else {
+                    output.dimmed("\(entry.displayName): local pack (always up to date)")
+                }
                 continue
             }
 
@@ -773,6 +790,9 @@ struct ListPacks: ParsableCommand {
         let fm = FileManager.default
 
         guard let packPath = entry.resolvedPath(packsDirectory: env.packsDirectory) else {
+            if entry.isLocalPack {
+                return "(invalid local path: \(entry.localPath))"
+            }
             return "(invalid path — escapes packs directory)"
         }
 

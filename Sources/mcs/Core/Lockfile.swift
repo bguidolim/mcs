@@ -78,7 +78,6 @@ struct Lockfile: Codable, Equatable, Sendable {
         var mismatches: [Mismatch] = []
 
         for locked in packs {
-            // Local packs have no meaningful commitSHA — skip mismatch detection
             if locked.commitSHA == Constants.ExternalPacks.localCommitSentinel { continue }
 
             if let entry = registryEntries.first(where: { $0.identifier == locked.identifier }) {

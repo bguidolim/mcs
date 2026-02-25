@@ -11,16 +11,22 @@ struct PackCommand: ParsableCommand {
 
 // MARK: - Add
 
+/// How the pack source was resolved from user input.
+private enum PackSource {
+    case gitURL(String)
+    case localPath(URL)
+}
+
 struct AddPack: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "add",
-        abstract: "Add an external tech pack from a Git repository"
+        abstract: "Add a tech pack from a Git repository or local path"
     )
 
-    @Argument(help: "Git repository URL")
+    @Argument(help: "Git URL, GitHub shorthand (user/repo), or local path")
     var url: String
 
-    @Option(name: .long, help: "Git tag, branch, or commit")
+    @Option(name: .long, help: "Git tag, branch, or commit (git packs only)")
     var ref: String?
 
     @Flag(name: .long, help: "Preview pack contents without installing")
@@ -31,18 +37,85 @@ struct AddPack: LockedCommand {
     func perform() throws {
         let env = Environment()
         let output = CLIOutput()
+
+        let source = try resolvePackSource(url, output: output)
+
+        switch source {
+        case .gitURL(let gitURL):
+            try performGitAdd(gitURL: gitURL, env: env, output: output)
+        case .localPath(let path):
+            if ref != nil {
+                output.warn("--ref is ignored for local packs")
+            }
+            try performLocalAdd(path: path, env: env, output: output)
+        }
+    }
+
+    // MARK: - Source Resolution
+
+    /// Resolve user input into either a git URL or a local filesystem path.
+    ///
+    /// Detection order:
+    /// 1. Known URL schemes (`https://`, `git@`, `ssh://`, `git://`) → git pack
+    /// 2. Existing filesystem path (absolute, relative, `~/`, `file://`) → local pack
+    /// 3. GitHub shorthand (`user/repo`) → expand to `https://github.com/user/repo.git`
+    ///
+    /// Filesystem paths are checked before GitHub shorthand so that `org/pack`
+    /// resolves to a local directory when it exists on disk.
+    private func resolvePackSource(_ input: String, output: CLIOutput) throws -> PackSource {
+        guard !input.hasPrefix("-") else {
+            output.error("Invalid input: must not start with '-'")
+            throw ExitCode.failure
+        }
+
+        // 1. Known URL schemes → git pack
+        let urlPrefixes = ["https://", "git@", "ssh://", "git://"]
+        if urlPrefixes.contains(where: { input.hasPrefix($0) }) {
+            return .gitURL(input)
+        }
+
+        // 2. Filesystem path — check if input resolves to an existing directory.
+        //    This runs before GitHub shorthand so that `org/pack` is treated as a
+        //    local path when the directory exists on disk.
+        var pathString = input
+        if pathString.hasPrefix("file://") {
+            pathString = String(pathString.dropFirst("file://".count))
+        }
+
+        let resolved: URL
+        if pathString.hasPrefix("~") {
+            let expanded = NSString(string: pathString).expandingTildeInPath
+            resolved = URL(fileURLWithPath: expanded).standardized
+        } else {
+            resolved = URL(fileURLWithPath: pathString).standardized
+        }
+
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDir) {
+            guard isDir.boolValue else {
+                output.error("Path is not a directory: \(resolved.path)")
+                throw ExitCode.failure
+            }
+            return .localPath(resolved)
+        }
+
+        // 3. GitHub shorthand: user/repo (exactly two path components, no scheme)
+        if input.range(of: #"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$"#, options: .regularExpression) != nil {
+            let base = input.hasSuffix(".git") ? String(input.dropLast(4)) : input
+            let expanded = "https://github.com/\(base).git"
+            output.dimmed("Expanded to \(expanded)")
+            return .gitURL(expanded)
+        }
+
+        output.error("Path does not exist: \(resolved.path)")
+        throw ExitCode.failure
+    }
+
+    // MARK: - Git Add
+
+    private func performGitAdd(gitURL: String, env: Environment, output: CLIOutput) throws {
         let shell = ShellRunner(environment: env)
 
-        // Validate URL to prevent git argument injection and restrict to safe protocols
-        guard !url.hasPrefix("-") else {
-            output.error("Invalid URL: must not start with '-'")
-            throw ExitCode.failure
-        }
-        let allowedPrefixes = ["https://", "git@", "ssh://", "git://", "file://"]
-        guard allowedPrefixes.contains(where: { url.hasPrefix($0) }) else {
-            output.error("Invalid URL: must start with https://, git@, ssh://, git://, or file://")
-            throw ExitCode.failure
-        }
         if let ref, ref.hasPrefix("-") {
             output.error("Invalid ref: must not start with '-'")
             throw ExitCode.failure
@@ -57,11 +130,11 @@ struct AddPack: LockedCommand {
         let loader = ExternalPackLoader(environment: env, registry: registry)
 
         // 1. Clone to a temporary location first
-        output.info("Fetching pack from \(url)...")
+        output.info("Fetching pack from \(gitURL)...")
         let tempID = "tmp-\(UUID().uuidString.prefix(8))"
         let fetchResult: PackFetcher.FetchResult
         do {
-            fetchResult = try fetcher.fetch(url: url, identifier: tempID, ref: ref)
+            fetchResult = try fetcher.fetch(url: gitURL, identifier: tempID, ref: ref)
         } catch {
             output.error("Failed to fetch pack: \(error.localizedDescription)")
             throw ExitCode.failure
@@ -72,7 +145,6 @@ struct AddPack: LockedCommand {
         do {
             manifest = try loader.validate(at: fetchResult.localPath)
         } catch {
-            // Clean up temp checkout
             try? fetcher.remove(packPath: fetchResult.localPath)
             output.error("Invalid pack: \(error.localizedDescription)")
             throw ExitCode.failure
@@ -90,64 +162,15 @@ struct AddPack: LockedCommand {
             throw ExitCode.failure
         }
 
-        // 3b. Check peer dependencies (warning only — peer packs may be added later)
-        let peerResults = PeerDependencyValidator.validate(
+        checkPeerDependencies(manifest: manifest, registryData: registryData, output: output)
+        let collisions = checkCollisions(
             manifest: manifest,
-            registeredPacks: registryData.packs
-        )
-        for result in peerResults where result.status != .satisfied {
-            switch result.status {
-            case .missing:
-                output.warn("Pack '\(manifest.identifier)' requires peer pack '\(result.peerPack)' (>= \(result.minVersion)) which is not registered.")
-                output.dimmed("  Install it with: mcs pack add <\(result.peerPack)-pack-url>")
-            case .versionTooLow(let actual):
-                output.warn("Pack '\(manifest.identifier)' requires peer pack '\(result.peerPack)' >= \(result.minVersion), but v\(actual) is registered.")
-                output.dimmed("  Update it with: mcs pack update \(result.peerPack)")
-            case .satisfied:
-                break
-            }
-        }
-
-        // Build collision input from loaded manifests for better detection
-        let existingManifestInputs: [PackRegistryFile.CollisionInput] = registryData.packs.map { entry in
-            guard let packPath = PathContainment.safePath(
-                relativePath: entry.localPath,
-                within: env.packsDirectory
-            ) else {
-                output.warn("Pack '\(entry.identifier)' has an unsafe localPath — skipping collision check")
-                return PackRegistryFile.CollisionInput(
-                    identifier: entry.identifier,
-                    mcpServerNames: [],
-                    skillDirectories: [],
-                    templateSectionIDs: [],
-                    componentIDs: []
-                )
-            }
-            let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
-            guard let existingManifest = try? ExternalPackManifest.load(from: manifestURL) else {
-                output.warn("Could not load manifest for '\(entry.identifier)', collision detection may be incomplete")
-                return PackRegistryFile.CollisionInput(
-                    identifier: entry.identifier,
-                    mcpServerNames: [],
-                    skillDirectories: [],
-                    templateSectionIDs: [],
-                    componentIDs: []
-                )
-            }
-            return PackRegistryFile.CollisionInput(from: existingManifest)
-        }
-
-        let newInput = PackRegistryFile.CollisionInput(from: manifest)
-        let collisions = registry.detectCollisions(
-            newPack: newInput,
-            existingPacks: existingManifestInputs
+            registryData: registryData,
+            env: env,
+            output: output
         )
 
         if !collisions.isEmpty {
-            output.warn("Collisions detected with existing packs:")
-            for collision in collisions {
-                output.plain("  \(collision.type): '\(collision.artifactName)' conflicts with pack '\(collision.existingPackIdentifier)'")
-            }
             if !output.askYesNo("Continue anyway?", default: false) {
                 try? fetcher.remove(packPath: fetchResult.localPath)
                 output.info("Pack not added.")
@@ -220,12 +243,13 @@ struct AddPack: LockedCommand {
             identifier: manifest.identifier,
             displayName: manifest.displayName,
             version: manifest.version,
-            sourceURL: url,
+            sourceURL: gitURL,
             ref: ref,
             commitSHA: fetchResult.commitSHA,
             localPath: manifest.identifier,
             addedAt: ISO8601DateFormatter().string(from: Date()),
-            trustedScriptHashes: decision.scriptHashes
+            trustedScriptHashes: decision.scriptHashes,
+            isLocal: nil
         )
 
         do {
@@ -240,6 +264,193 @@ struct AddPack: LockedCommand {
         output.success("Pack '\(manifest.displayName)' v\(manifest.version) added successfully.")
         output.plain("")
         output.info("Next step: run 'mcs sync' to apply the pack to your project.")
+    }
+
+    // MARK: - Local Add
+
+    private func performLocalAdd(path: URL, env: Environment, output: CLIOutput) throws {
+        let registry = PackRegistryFile(path: env.packsRegistry)
+        let loader = ExternalPackLoader(environment: env, registry: registry)
+
+        // 1. Validate manifest at the local path
+        output.info("Reading pack from \(path.path)...")
+        let manifest: ExternalPackManifest
+        do {
+            manifest = try loader.validate(at: path)
+        } catch {
+            output.error("Invalid pack: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+
+        output.success("Found pack: \(manifest.displayName) v\(manifest.version)")
+
+        // 2. Check for collisions with existing packs
+        let registryData: PackRegistryFile.RegistryData
+        do {
+            registryData = try registry.load()
+        } catch {
+            output.error("Failed to read pack registry: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+
+        checkPeerDependencies(manifest: manifest, registryData: registryData, output: output)
+        let collisions = checkCollisions(
+            manifest: manifest,
+            registryData: registryData,
+            env: env,
+            output: output
+        )
+
+        if !collisions.isEmpty {
+            if !output.askYesNo("Continue anyway?", default: false) {
+                output.info("Pack not added.")
+                return
+            }
+        }
+
+        // 3. Display summary
+        displayPackSummary(manifest: manifest, output: output)
+
+        if preview {
+            output.info("Preview complete. No changes made.")
+            return
+        }
+
+        // 4. Trust verification
+        let trustManager = PackTrustManager(output: output)
+        let items: [TrustableItem]
+        do {
+            items = try trustManager.analyzeScripts(manifest: manifest, packPath: path)
+        } catch {
+            output.error("Failed to analyze pack scripts: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+
+        let decision: PackTrustManager.TrustDecision
+        do {
+            decision = try trustManager.promptForTrust(
+                manifest: manifest,
+                packPath: path,
+                items: items
+            )
+        } catch {
+            output.error("Trust verification failed: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+
+        guard decision.approved else {
+            output.info("Pack not trusted. No changes made.")
+            return
+        }
+
+        // 5. Register in pack registry (no clone/move — pack stays in-place)
+        let entry = PackRegistryFile.PackEntry(
+            identifier: manifest.identifier,
+            displayName: manifest.displayName,
+            version: manifest.version,
+            sourceURL: path.path,
+            ref: nil,
+            commitSHA: Constants.ExternalPacks.localCommitSentinel,
+            localPath: path.path,
+            addedAt: ISO8601DateFormatter().string(from: Date()),
+            trustedScriptHashes: decision.scriptHashes,
+            isLocal: true
+        )
+
+        do {
+            var data = registryData
+            registry.register(entry, in: &data)
+            try registry.save(data)
+        } catch {
+            output.error("Failed to update pack registry: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+
+        output.success("Pack '\(manifest.displayName)' v\(manifest.version) added as local pack.")
+        output.plain("")
+        output.info("Next step: run 'mcs sync' to apply the pack to your project.")
+    }
+
+    // MARK: - Shared Helpers
+
+    private func checkPeerDependencies(
+        manifest: ExternalPackManifest,
+        registryData: PackRegistryFile.RegistryData,
+        output: CLIOutput
+    ) {
+        let peerResults = PeerDependencyValidator.validate(
+            manifest: manifest,
+            registeredPacks: registryData.packs
+        )
+        for result in peerResults where result.status != .satisfied {
+            switch result.status {
+            case .missing:
+                output.warn("Pack '\(manifest.identifier)' requires peer pack '\(result.peerPack)' (>= \(result.minVersion)) which is not registered.")
+                output.dimmed("  Install it with: mcs pack add <\(result.peerPack)-pack-url>")
+            case .versionTooLow(let actual):
+                output.warn("Pack '\(manifest.identifier)' requires peer pack '\(result.peerPack)' >= \(result.minVersion), but v\(actual) is registered.")
+                output.dimmed("  Update it with: mcs pack update \(result.peerPack)")
+            case .satisfied:
+                break
+            }
+        }
+    }
+
+    private func checkCollisions(
+        manifest: ExternalPackManifest,
+        registryData: PackRegistryFile.RegistryData,
+        env: Environment,
+        output: CLIOutput
+    ) -> [PackCollision] {
+        let registry = PackRegistryFile(path: env.packsRegistry)
+        let existingManifestInputs: [PackRegistryFile.CollisionInput] = registryData.packs.map { entry in
+            let packPath: URL?
+            if entry.isLocalPack {
+                packPath = URL(fileURLWithPath: entry.localPath)
+            } else {
+                packPath = PathContainment.safePath(
+                    relativePath: entry.localPath,
+                    within: env.packsDirectory
+                )
+            }
+            guard let packPath else {
+                output.warn("Pack '\(entry.identifier)' has an unsafe localPath — skipping collision check")
+                return PackRegistryFile.CollisionInput(
+                    identifier: entry.identifier,
+                    mcpServerNames: [],
+                    skillDirectories: [],
+                    templateSectionIDs: [],
+                    componentIDs: []
+                )
+            }
+            let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
+            guard let existingManifest = try? ExternalPackManifest.load(from: manifestURL) else {
+                output.warn("Could not load manifest for '\(entry.identifier)', collision detection may be incomplete")
+                return PackRegistryFile.CollisionInput(
+                    identifier: entry.identifier,
+                    mcpServerNames: [],
+                    skillDirectories: [],
+                    templateSectionIDs: [],
+                    componentIDs: []
+                )
+            }
+            return PackRegistryFile.CollisionInput(from: existingManifest)
+        }
+
+        let newInput = PackRegistryFile.CollisionInput(from: manifest)
+        let collisions = registry.detectCollisions(
+            newPack: newInput,
+            existingPacks: existingManifestInputs
+        )
+
+        if !collisions.isEmpty {
+            output.warn("Collisions detected with existing packs:")
+            for collision in collisions {
+                output.plain("  \(collision.type): '\(collision.artifactName)' conflicts with pack '\(collision.existingPackIdentifier)'")
+            }
+        }
+
+        return collisions
     }
 
     private func displayPackSummary(manifest: ExternalPackManifest, output: CLIOutput) {
@@ -315,12 +526,18 @@ struct RemovePack: LockedCommand {
             throw ExitCode.failure
         }
 
-        guard let packPath = PathContainment.safePath(
-            relativePath: entry.localPath,
-            within: env.packsDirectory
-        ) else {
-            output.error("Pack localPath escapes packs directory — refusing to proceed")
-            throw ExitCode.failure
+        let packPath: URL
+        if entry.isLocalPack {
+            packPath = URL(fileURLWithPath: entry.localPath)
+        } else {
+            guard let safe = PathContainment.safePath(
+                relativePath: entry.localPath,
+                within: env.packsDirectory
+            ) else {
+                output.error("Pack localPath escapes packs directory — refusing to proceed")
+                throw ExitCode.failure
+            }
+            packPath = safe
         }
 
         // 2. Load manifest from checkout (if available) to know what to reverse
@@ -345,8 +562,12 @@ struct RemovePack: LockedCommand {
 
         // 3. Show removal plan
         output.info("Pack: \(entry.displayName) v\(entry.version)")
-        output.plain("  Source: \(entry.sourceURL)")
-        output.plain("  Local:  ~/.mcs/packs/\(entry.localPath)")
+        if entry.isLocalPack {
+            output.plain("  Source: \(entry.sourceURL) (local)")
+        } else {
+            output.plain("  Source: \(entry.sourceURL)")
+            output.plain("  Local:  ~/.mcs/packs/\(entry.localPath)")
+        }
         if let manifest {
             let componentCount = manifest.components?.count ?? 0
             let hookCount = manifest.hookContributions?.count ?? 0
@@ -401,11 +622,13 @@ struct RemovePack: LockedCommand {
             throw ExitCode.failure
         }
 
-        // 7. Delete local checkout
-        do {
-            try fetcher.remove(packPath: packPath)
-        } catch {
-            output.warn("Could not delete pack checkout: \(error.localizedDescription)")
+        // 7. Delete local checkout (skip for local packs — don't delete user's source directory)
+        if !entry.isLocalPack {
+            do {
+                try fetcher.remove(packPath: packPath)
+            } catch {
+                output.warn("Could not delete pack checkout: \(error.localizedDescription)")
+            }
         }
 
         output.success("Pack '\(entry.displayName)' removed.")
@@ -466,6 +689,11 @@ struct UpdatePack: LockedCommand {
         var updatedCount = 0
 
         for entry in packsToUpdate {
+            if entry.isLocalPack {
+                output.dimmed("\(entry.displayName): local pack (always up to date)")
+                continue
+            }
+
             output.info("Checking \(entry.displayName)...")
 
             guard let packPath = PathContainment.safePath(
@@ -547,7 +775,8 @@ struct UpdatePack: LockedCommand {
                 commitSHA: updateResult.commitSHA,
                 localPath: entry.localPath,
                 addedAt: entry.addedAt,
-                trustedScriptHashes: scriptHashes
+                trustedScriptHashes: scriptHashes,
+                isLocal: entry.isLocal
             )
             registry.register(updatedEntry, in: &updatedData)
             updatedCount += 1
@@ -611,13 +840,21 @@ struct ListPacks: ParsableCommand {
     }
 
     private func packStatus(entry: PackRegistryFile.PackEntry, env: Environment) -> String {
+        let fm = FileManager.default
+
+        if entry.isLocalPack {
+            guard fm.fileExists(atPath: entry.localPath) else {
+                return "(local — missing at \(entry.localPath))"
+            }
+            return "\(entry.sourceURL) (local)"
+        }
+
         guard let packPath = PathContainment.safePath(
             relativePath: entry.localPath,
             within: env.packsDirectory
         ) else {
             return "(invalid path — escapes packs directory)"
         }
-        let fm = FileManager.default
 
         guard fm.fileExists(atPath: packPath.path) else {
             return "(missing checkout)"

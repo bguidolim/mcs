@@ -19,6 +19,9 @@ struct LockfileOperations {
 
         var failedPacks: [String] = []
         for locked in lockfile.packs {
+            // Local packs have no git commit to pin — skip
+            if locked.commitSHA == Constants.ExternalPacks.localCommitSentinel { continue }
+
             // Validate commit SHA is a valid hex string (defense against flag injection)
             guard locked.commitSHA.range(of: #"^[0-9a-f]{7,64}$"#, options: .regularExpression) != nil else {
                 output.warn("  \(locked.identifier): invalid commit SHA '\(locked.commitSHA)'")
@@ -94,6 +97,12 @@ struct LockfileOperations {
 
         var updatedData = registryData
         for entry in registryData.packs {
+            // Local packs are always up to date — no git fetch needed
+            if entry.isLocalPack {
+                output.dimmed("  \(entry.identifier): local pack (skipped)")
+                continue
+            }
+
             guard let packPath = PathContainment.safePath(
                 relativePath: entry.localPath,
                 within: environment.packsDirectory
@@ -145,7 +154,8 @@ struct LockfileOperations {
                         commitSHA: result.commitSHA,
                         localPath: entry.localPath,
                         addedAt: entry.addedAt,
-                        trustedScriptHashes: scriptHashes
+                        trustedScriptHashes: scriptHashes,
+                        isLocal: entry.isLocal
                     )
                     registryFile.register(updatedEntry, in: &updatedData)
                     output.success("  \(entry.identifier): updated to v\(manifest.version) (\(String(result.commitSHA.prefix(7))))")

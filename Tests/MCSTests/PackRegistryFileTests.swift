@@ -26,7 +26,8 @@ struct PackRegistryFileTests {
             commitSHA: "abc123def456",
             localPath: identifier,
             addedAt: "2026-02-22T00:00:00Z",
-            trustedScriptHashes: ["scripts/setup.sh": "sha256hash"]
+            trustedScriptHashes: ["scripts/setup.sh": "sha256hash"],
+            isLocal: nil
         )
     }
 
@@ -242,6 +243,88 @@ struct PackRegistryFileTests {
         #expect(types.contains(.mcpServerName))
         #expect(types.contains(.skillDirectory))
         #expect(types.contains(.templateSection))
+    }
+
+    // MARK: - Local pack support
+
+    @Test("isLocalPack returns false for git pack entry")
+    func isLocalPackFalse() {
+        let entry = sampleEntry()
+        #expect(!entry.isLocalPack)
+    }
+
+    @Test("isLocalPack returns true for local pack entry")
+    func isLocalPackTrue() {
+        let entry = PackRegistryFile.PackEntry(
+            identifier: "local-pack",
+            displayName: "Local Pack",
+            version: "1.0.0",
+            sourceURL: "/path/to/local-pack",
+            ref: nil,
+            commitSHA: "local",
+            localPath: "/path/to/local-pack",
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: true
+        )
+        #expect(entry.isLocalPack)
+    }
+
+    @Test("Local pack entry round-trips through save/load")
+    func localPackRoundTrip() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("registry.yaml")
+        let registry = PackRegistryFile(path: file)
+
+        var data = PackRegistryFile.RegistryData()
+        let entry = PackRegistryFile.PackEntry(
+            identifier: "my-local",
+            displayName: "My Local",
+            version: "1.0.0",
+            sourceURL: "/Users/dev/my-local",
+            ref: nil,
+            commitSHA: "local",
+            localPath: "/Users/dev/my-local",
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: true
+        )
+        registry.register(entry, in: &data)
+        try registry.save(data)
+
+        let loaded = try registry.load()
+        #expect(loaded.packs.count == 1)
+        #expect(loaded.packs[0].isLocalPack)
+        #expect(loaded.packs[0].commitSHA == "local")
+        #expect(loaded.packs[0].localPath == "/Users/dev/my-local")
+    }
+
+    @Test("Decoding registry YAML without isLocal field defaults to non-local")
+    func decodeWithoutIsLocal() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let yaml = """
+            packs:
+              - identifier: old-pack
+                displayName: Old Pack
+                version: "1.0.0"
+                sourceURL: "https://github.com/user/old-pack.git"
+                commitSHA: abc123
+                localPath: old-pack
+                addedAt: "2026-01-01T00:00:00Z"
+                trustedScriptHashes: {}
+            """
+        let file = tmpDir.appendingPathComponent("registry.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let registry = PackRegistryFile(path: file)
+        let data = try registry.load()
+        #expect(data.packs.count == 1)
+        #expect(!data.packs[0].isLocalPack)
+        #expect(data.packs[0].isLocal == nil)
     }
 
     @Test("Skip collision check against same identifier")

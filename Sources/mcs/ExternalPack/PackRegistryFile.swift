@@ -9,12 +9,16 @@ struct PackRegistryFile: Sendable {
         let identifier: String
         let displayName: String
         let version: String
-        let sourceURL: String           // Git clone URL
+        let sourceURL: String           // Git clone URL or original local path
         let ref: String?                // Git tag/branch/commit
-        let commitSHA: String           // Exact commit for reproducibility
-        let localPath: String           // Relative to ~/.mcs/packs/
+        let commitSHA: String           // Exact commit (git) or "local" (local packs)
+        let localPath: String           // Relative to ~/.mcs/packs/ (git) or absolute path (local)
         let addedAt: String             // ISO 8601 date
         let trustedScriptHashes: [String: String]  // relativePath -> SHA-256
+        let isLocal: Bool?              // nil/false = git pack, true = local filesystem pack
+
+        /// Whether this pack is a local filesystem pack (not cloned via git).
+        var isLocalPack: Bool { isLocal ?? false }
     }
 
     struct RegistryData: Codable, Sendable {

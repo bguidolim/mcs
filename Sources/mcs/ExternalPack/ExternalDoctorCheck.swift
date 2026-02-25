@@ -47,11 +47,12 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
             resolved = which.stdout
         }
 
+        // No args: the intent is just "is this binary available?" — finding it
+        // on PATH is sufficient. Running it could hang (e.g. ollama starts a server).
+        if args.isEmpty { return .pass("installed") }
+
         let result = shell.run(resolved, arguments: args)
         if result.succeeded { return .pass("available") }
-        // No args: the intent is just "is this binary available?" — treat a
-        // resolved path as sufficient proof of installation.
-        if args.isEmpty { return .pass("installed") }
         return .fail("not found")
     }
 

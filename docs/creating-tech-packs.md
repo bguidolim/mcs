@@ -287,7 +287,7 @@ In `techpack.yaml`:
 
 ```yaml
 templates:
-  - sectionIdentifier: my-pack.instructions
+  - sectionIdentifier: instructions
     contentFile: templates/instructions.md
     placeholders:
       - __PROJECT__

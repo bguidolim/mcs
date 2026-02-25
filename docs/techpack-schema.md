@@ -247,7 +247,7 @@ No auto-derived doctor check — add `doctorChecks` if verification is needed.
 The explicit form with `type` + `installAction` is always supported:
 
 ```yaml
-- id: my-pack.node
+- id: node
   displayName: Node.js
   description: JavaScript runtime
   type: brewPackage
@@ -279,7 +279,7 @@ Templates contribute sections to `CLAUDE.local.md` during `mcs sync`.
 
 ```yaml
 templates:
-  - sectionIdentifier: my-pack.instructions
+  - sectionIdentifier: instructions
     contentFile: templates/instructions.md
     placeholders:
       - __PROJECT__
@@ -518,7 +518,7 @@ components:
       - .claude/settings.local.json
 
 templates:
-  - sectionIdentifier: web-dev.instructions
+  - sectionIdentifier: instructions
     placeholders: [__FRAMEWORK__]
     contentFile: templates/instructions.md
 ```

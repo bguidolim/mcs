@@ -22,7 +22,7 @@ struct PackArtifactRecord: Codable, Equatable, Sendable {
 }
 
 /// Reference to a registered MCP server for later removal.
-struct MCPServerRef: Codable, Equatable, Sendable {
+struct MCPServerRef: Codable, Hashable, Sendable {
     var name: String
     var scope: String
 }

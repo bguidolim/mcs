@@ -340,14 +340,17 @@ struct GlobalConfigurator {
         }
 
         var remaining = artifacts
+        var removedServers: Set<MCPServerRef> = []
+        var removedFiles: Set<String> = []
 
         // Remove MCP servers
         for server in artifacts.mcpServers {
             if exec.removeMCPServer(name: server.name, scope: server.scope) {
-                remaining.mcpServers.removeAll { $0 == server }
+                removedServers.insert(server)
                 output.dimmed("  Removed MCP server: \(server.name)")
             }
         }
+        remaining.mcpServers.removeAll { removedServers.contains($0) }
 
         // Remove files from ~/.claude/ tree
         let fm = FileManager.default
@@ -361,18 +364,19 @@ struct GlobalConfigurator {
             }
 
             if !fm.fileExists(atPath: fullPath.path) {
-                remaining.files.removeAll { $0 == relativePath }
+                removedFiles.insert(relativePath)
                 continue
             }
 
             do {
                 try fm.removeItem(at: fullPath)
-                remaining.files.removeAll { $0 == relativePath }
+                removedFiles.insert(relativePath)
                 output.dimmed("  Removed: \(relativePath)")
             } catch {
                 output.warn("  Could not remove \(relativePath): \(error.localizedDescription)")
             }
         }
+        remaining.files.removeAll { removedFiles.contains($0) }
 
         // Remove auto-derived hook commands and contributed settings keys
         let hasHooksToRemove = !artifacts.hookCommands.isEmpty

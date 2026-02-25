@@ -416,22 +416,26 @@ struct ProjectConfigurator {
         }
 
         var remaining = artifacts
+        var removedServers: Set<MCPServerRef> = []
+        var removedFiles: Set<String> = []
 
         // Remove MCP servers
         for server in artifacts.mcpServers {
             if exec.removeMCPServer(name: server.name, scope: server.scope) {
-                remaining.mcpServers.removeAll { $0 == server }
+                removedServers.insert(server)
                 output.dimmed("  Removed MCP server: \(server.name)")
             }
         }
+        remaining.mcpServers.removeAll { removedServers.contains($0) }
 
         // Remove project files
         for path in artifacts.files {
             if exec.removeProjectFile(relativePath: path, projectPath: projectPath) {
-                remaining.files.removeAll { $0 == path }
+                removedFiles.insert(path)
                 output.dimmed("  Removed: \(path)")
             }
         }
+        remaining.files.removeAll { removedFiles.contains($0) }
 
         // Remove auto-derived hook commands and contributed settings keys
         let hasHooksToRemove = !artifacts.hookCommands.isEmpty
@@ -479,6 +483,7 @@ struct ProjectConfigurator {
                 }
             } catch {
                 output.warn("Could not write settings.local.json: \(error.localizedDescription)")
+                output.warn("Settings may still be present. Re-run 'mcs sync' to retry.")
             }
         }
 

@@ -348,3 +348,106 @@ struct TemplateComposerTests {
         #expect(sections[1].content == "iOS rules")
     }
 }
+
+// MARK: - composeOrUpdate
+
+@Suite("TemplateComposer — composeOrUpdate")
+struct ComposeOrUpdateTests {
+    private func coreContribution(_ content: String = "Core rules") -> TemplateContribution {
+        TemplateContribution(
+            sectionIdentifier: "core",
+            templateContent: content,
+            placeholders: []
+        )
+    }
+
+    private func packContribution(
+        _ id: String,
+        _ content: String,
+        placeholders: [String] = []
+    ) -> TemplateContribution {
+        TemplateContribution(
+            sectionIdentifier: id,
+            templateContent: content,
+            placeholders: placeholders
+        )
+    }
+
+    @Test("Fresh compose when no existing content")
+    func freshCompose() {
+        let result = TemplateComposer.composeOrUpdate(
+            existingContent: nil,
+            contributions: [coreContribution()],
+            values: [:]
+        )
+
+        let sections = TemplateComposer.parseSections(from: result.content)
+        #expect(sections.count == 1)
+        #expect(sections[0].identifier == "core")
+        #expect(sections[0].content == "Core rules")
+        #expect(result.warnings.isEmpty)
+    }
+
+    @Test("v1 content without markers produces fresh compose")
+    func v1MigrationCompose() {
+        let result = TemplateComposer.composeOrUpdate(
+            existingContent: "Old v1 content without any markers",
+            contributions: [coreContribution("New core")],
+            values: [:]
+        )
+
+        let sections = TemplateComposer.parseSections(from: result.content)
+        #expect(sections.count == 1)
+        #expect(sections[0].identifier == "core")
+        #expect(sections[0].content == "New core")
+        #expect(!result.content.contains("Old v1 content"))
+        #expect(result.warnings.isEmpty)
+    }
+
+    @Test("v2 content with markers is updated in place")
+    func v2Update() {
+        let existing = TemplateComposer.compose(coreContent: "Old core")
+
+        let result = TemplateComposer.composeOrUpdate(
+            existingContent: existing,
+            contributions: [coreContribution("Updated core")],
+            values: [:]
+        )
+
+        let sections = TemplateComposer.parseSections(from: result.content)
+        #expect(sections.count == 1)
+        #expect(sections[0].content == "Updated core")
+        #expect(!result.content.contains("Old core"))
+        #expect(result.warnings.isEmpty)
+    }
+
+    @Test("v2 update preserves user content outside markers")
+    func v2UpdatePreservesUserContent() {
+        let existing = TemplateComposer.compose(coreContent: "Core")
+            + "\n\nMy custom notes\n"
+
+        let result = TemplateComposer.composeOrUpdate(
+            existingContent: existing,
+            contributions: [coreContribution("New core")],
+            values: [:]
+        )
+
+        #expect(result.content.contains("New core"))
+        #expect(result.content.contains("My custom notes"))
+        #expect(result.warnings.isEmpty)
+    }
+
+    @Test("Template values are substituted during compose")
+    func valuesSubstituted() {
+        let ios = packContribution("ios", "iOS rules for __PROJECT__", placeholders: ["__PROJECT__"])
+
+        let result = TemplateComposer.composeOrUpdate(
+            existingContent: nil,
+            contributions: [coreContribution(), ios],
+            values: ["PROJECT": "MyApp.xcodeproj"]
+        )
+
+        #expect(result.content.contains("MyApp.xcodeproj"))
+        #expect(!result.content.contains("__PROJECT__"))
+    }
+}

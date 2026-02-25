@@ -189,6 +189,84 @@ enum TemplateComposer {
         return result.joined(separator: "\n")
     }
 
+    // MARK: - Compose or update
+
+    /// Result of composing or updating CLAUDE.local.md content.
+    struct ComposeResult {
+        let content: String
+        let warnings: [String]
+    }
+
+    /// Pure compose-or-update decision: produces final content from contributions
+    /// without performing any file I/O.
+    ///
+    /// - If `existingContent` is nil or has no section markers → fresh compose.
+    /// - If `existingContent` has markers → update each section in place, preserving user content.
+    static func composeOrUpdate(
+        existingContent: String?,
+        contributions: [TemplateContribution],
+        values: [String: String]
+    ) -> ComposeResult {
+        let version = MCSVersion.current
+        let coreContribution = contributions.first { $0.sectionIdentifier == "core" }
+        let otherContributions = contributions.filter { $0.sectionIdentifier != "core" }
+        let coreContent = coreContribution?.templateContent ?? ""
+
+        let hasMarkers = existingContent.map { !parseSections(from: $0).isEmpty } ?? false
+
+        guard let existingContent, hasMarkers else {
+            let composed = compose(
+                coreContent: coreContent,
+                packContributions: otherContributions,
+                values: values
+            )
+            return ComposeResult(content: composed, warnings: [])
+        }
+
+        var warnings: [String] = []
+
+        let unpaired = unpairedSections(in: existingContent)
+        if !unpaired.isEmpty {
+            warnings.append("Unpaired section markers in CLAUDE.local.md: \(unpaired.joined(separator: ", "))")
+            warnings.append("Sections with missing end markers will not be updated to prevent data loss.")
+            warnings.append("Add the missing end markers manually, then re-run mcs sync.")
+        }
+
+        let userContent = extractUserContent(from: existingContent)
+
+        let processedCore = TemplateEngine.substitute(template: coreContent, values: values)
+        var updated = replaceSection(
+            in: existingContent,
+            sectionIdentifier: "core",
+            newContent: processedCore,
+            newVersion: version
+        )
+
+        for contribution in otherContributions {
+            let processedContent = TemplateEngine.substitute(
+                template: contribution.templateContent,
+                values: values
+            )
+            updated = replaceSection(
+                in: updated,
+                sectionIdentifier: contribution.sectionIdentifier,
+                newContent: processedContent,
+                newVersion: version
+            )
+        }
+
+        let trimmedUser = userContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedUser.isEmpty {
+            let currentUser = extractUserContent(from: updated)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if currentUser.isEmpty {
+                updated += "\n\n" + trimmedUser + "\n"
+            }
+        }
+
+        return ComposeResult(content: updated, warnings: warnings)
+    }
+
     // MARK: - Section removal
 
     /// Remove a section identified by its begin/end markers from the content.

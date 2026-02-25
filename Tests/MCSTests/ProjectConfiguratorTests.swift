@@ -410,9 +410,12 @@ struct PackSettingsMergeTests {
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         // Create a pack settings file
-        var packSettings = Settings()
-        packSettings.env = ["MY_KEY": "my_value"]
-        packSettings.alwaysThinkingEnabled = true
+        let packSettings = Settings(extraJSON: [
+            "env": try JSONSerialization.data(withJSONObject: ["MY_KEY": "my_value"]),
+            "alwaysThinkingEnabled": try JSONSerialization.data(
+                withJSONObject: true, options: .fragmentsAllowed
+            ),
+        ])
         let settingsURL = try writeSettingsFile(
             in: tmpDir, name: "pack-settings.json", settings: packSettings
         )
@@ -451,8 +454,9 @@ struct PackSettingsMergeTests {
 
         // Check settings.local.json was created with merged settings
         let result = try Settings.load(from: settingsPath)
-        #expect(result.env?["MY_KEY"] == "my_value")
-        #expect(result.alwaysThinkingEnabled == true)
+        let env = try JSONSerialization.jsonObject(with: result.extraJSON["env"]!) as! [String: String]
+        #expect(env["MY_KEY"] == "my_value")
+        #expect(result.extraJSON["alwaysThinkingEnabled"] != nil)
     }
 
     @Test("Multiple packs merge settings additively")
@@ -461,16 +465,20 @@ struct PackSettingsMergeTests {
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         // Pack A settings
-        var settingsA = Settings()
-        settingsA.env = ["KEY_A": "value_a"]
+        let settingsA = Settings(extraJSON: [
+            "env": try JSONSerialization.data(withJSONObject: ["KEY_A": "value_a"]),
+        ])
         let urlA = try writeSettingsFile(
             in: tmpDir, name: "settings-a.json", settings: settingsA
         )
 
         // Pack B settings
-        var settingsB = Settings()
-        settingsB.env = ["KEY_B": "value_b"]
-        settingsB.enabledPlugins = ["my-plugin": true]
+        let settingsB = Settings(
+            enabledPlugins: ["my-plugin": true],
+            extraJSON: [
+                "env": try JSONSerialization.data(withJSONObject: ["KEY_B": "value_b"]),
+            ]
+        )
         let urlB = try writeSettingsFile(
             in: tmpDir, name: "settings-b.json", settings: settingsB
         )
@@ -512,8 +520,9 @@ struct PackSettingsMergeTests {
 
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let result = try Settings.load(from: settingsPath)
-        #expect(result.env?["KEY_A"] == "value_a")
-        #expect(result.env?["KEY_B"] == "value_b")
+        let env = try JSONSerialization.jsonObject(with: result.extraJSON["env"]!) as! [String: String]
+        #expect(env["KEY_A"] == "value_a")
+        #expect(env["KEY_B"] == "value_b")
         #expect(result.enabledPlugins?["my-plugin"] == true)
     }
 
@@ -523,8 +532,9 @@ struct PackSettingsMergeTests {
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         // Pack settings
-        var packSettings = Settings()
-        packSettings.env = ["PACK_KEY": "pack_value"]
+        let packSettings = Settings(extraJSON: [
+            "env": try JSONSerialization.data(withJSONObject: ["PACK_KEY": "pack_value"]),
+        ])
         let settingsURL = try writeSettingsFile(
             in: tmpDir, name: "pack-settings.json", settings: packSettings
         )
@@ -553,7 +563,12 @@ struct PackSettingsMergeTests {
 
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let afterAdd = try Settings.load(from: settingsPath)
-        #expect(afterAdd.env?["PACK_KEY"] == "pack_value")
+        if let envData = afterAdd.extraJSON["env"],
+           let env = try JSONSerialization.jsonObject(with: envData) as? [String: String] {
+            #expect(env["PACK_KEY"] == "pack_value")
+        } else {
+            Issue.record("Expected env key PACK_KEY in settings.local.json")
+        }
 
         // Re-configure with no packs (simulate removal)
         try configurator.configure(at: tmpDir, packs: [], confirmRemovals: false)
@@ -561,7 +576,10 @@ struct PackSettingsMergeTests {
         // settings.local.json should either not exist or not have the pack's key
         if FileManager.default.fileExists(atPath: settingsPath.path) {
             let afterRemove = try Settings.load(from: settingsPath)
-            #expect(afterRemove.env?["PACK_KEY"] == nil)
+            if let envData = afterRemove.extraJSON["env"],
+               let env = try? JSONSerialization.jsonObject(with: envData) as? [String: String] {
+                #expect(env["PACK_KEY"] == nil)
+            }
         }
         // If file doesn't exist, that's also fine — no settings to write
     }

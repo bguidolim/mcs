@@ -1,16 +1,21 @@
 import Foundation
 
 /// Codable model for ~/.claude/settings.json with deep-merge support.
+///
+/// Only `hooks` and `enabledPlugins` are typed stored properties (they need
+/// structured access by configurators and doctor checks). All other top-level
+/// keys flow through `extraJSON` — a `[String: Data]` bag of serialized JSON
+/// fragments — so any key works without code changes.
 struct Settings: Codable, Sendable {
-    var env: [String: String]?
-    var permissions: Permissions?
     var hooks: [String: [HookGroup]]?
     var enabledPlugins: [String: Bool]?
-    var alwaysThinkingEnabled: Bool?
 
-    struct Permissions: Codable, Sendable {
-        var defaultMode: String?
-    }
+    /// Arbitrary top-level keys not modeled as typed properties, stored as
+    /// serialized JSON fragments. `Data` is `Sendable`, keeping the struct
+    /// concurrency-safe under Swift 6.
+    var extraJSON: [String: Data] = [:]
+
+    // MARK: - Nested Types
 
     struct HookGroup: Codable, Sendable {
         var matcher: String?
@@ -22,29 +27,67 @@ struct Settings: Codable, Sendable {
         var command: String?
     }
 
+    // MARK: - Initializers
+
+    init(
+        hooks: [String: [HookGroup]]? = nil,
+        enabledPlugins: [String: Bool]? = nil,
+        extraJSON: [String: Data] = [:]
+    ) {
+        self.hooks = hooks
+        self.enabledPlugins = enabledPlugins
+        self.extraJSON = extraJSON
+    }
+
+    // MARK: - Codable
+
+    /// Only typed stored properties participate in Codable synthesis.
+    /// Everything else goes through `extraJSON` via `load(from:)` / `save(to:)`.
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case hooks, enabledPlugins
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hooks = try container.decodeIfPresent([String: [HookGroup]].self, forKey: .hooks)
+        enabledPlugins = try container.decodeIfPresent([String: Bool].self, forKey: .enabledPlugins)
+        // extraJSON is populated by load(from:), not by the decoder
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(hooks, forKey: .hooks)
+        try container.encodeIfPresent(enabledPlugins, forKey: .enabledPlugins)
+        // extraJSON is written by save(to:) via JSONSerialization
+    }
+
+    // MARK: - Hook Helpers
+
+    /// Add a hook entry for the given event, deduplicated by command.
+    /// Returns `true` if the entry was added (not a duplicate).
+    @discardableResult
+    mutating func addHookEntry(event: String, command: String) -> Bool {
+        let entry = HookEntry(type: "command", command: command)
+        let group = HookGroup(matcher: nil, hooks: [entry])
+        var existing = hooks ?? [:]
+        var groups = existing[event] ?? []
+        guard !groups.contains(where: { $0.hooks?.first?.command == command }) else {
+            return false
+        }
+        groups.append(group)
+        existing[event] = groups
+        hooks = existing
+        return true
+    }
+
     // MARK: - Deep Merge
 
     /// Merge `other` into `self`, preserving existing user values.
-    /// - Objects: keys from `other` are added; existing keys in `self` are kept.
     /// - Hook arrays: deduplicated by the first hook entry's `command` field.
-    /// - Plugin dict: merged (doesn't replace).
+    /// - Plugin dict: merged at key level (existing keys win).
+    /// - Extra JSON: generic merge — JSON objects get key-level merge,
+    ///   scalars/arrays use "existing wins" semantics.
     mutating func merge(with other: Settings) {
-        // Env: merge dicts
-        if let otherEnv = other.env {
-            var merged = self.env ?? [:]
-            for (key, value) in otherEnv {
-                if merged[key] == nil {
-                    merged[key] = value
-                }
-            }
-            self.env = merged
-        }
-
-        // Permissions: use other if self is nil
-        if self.permissions == nil {
-            self.permissions = other.permissions
-        }
-
         // Hooks: deduplicate by command
         if let otherHooks = other.hooks {
             var merged = self.hooks ?? [:]
@@ -64,20 +107,33 @@ struct Settings: Codable, Sendable {
             self.hooks = merged
         }
 
-        // Plugins: merge without replacing
+        // Plugins: merge without replacing (existing keys win)
         if let otherPlugins = other.enabledPlugins {
             var merged = self.enabledPlugins ?? [:]
-            for (key, value) in otherPlugins {
-                if merged[key] == nil {
-                    merged[key] = value
-                }
-            }
+            merged.merge(otherPlugins) { existing, _ in existing }
             self.enabledPlugins = merged
         }
 
-        // Thinking: use other if self is nil
-        if self.alwaysThinkingEnabled == nil {
-            self.alwaysThinkingEnabled = other.alwaysThinkingEnabled
+        // Extra JSON: generic merge for all non-typed keys (env, permissions,
+        // alwaysThinkingEnabled, attribution, and any future keys).
+        for (key, valueData) in other.extraJSON {
+            if let existingData = self.extraJSON[key] {
+                // Both have the key — attempt dict-level merge if both are JSON objects
+                if let selfDict = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any],
+                   let otherDict = try? JSONSerialization.jsonObject(with: valueData) as? [String: Any] {
+                    var merged = selfDict
+                    for (k, v) in otherDict where merged[k] == nil {
+                        merged[k] = v
+                    }
+                    if let data = try? JSONSerialization.data(withJSONObject: merged) {
+                        self.extraJSON[key] = data
+                    }
+                    // Re-serialization failure: keep existing value (no-op)
+                }
+                // Non-dict: existing wins (no action)
+            } else {
+                self.extraJSON[key] = valueData
+            }
         }
     }
 
@@ -85,6 +141,7 @@ struct Settings: Codable, Sendable {
 
     /// Remove settings keys that mcs previously owned but are no longer in the template.
     /// Key paths use dot notation: `env.KEY`, `permissions.defaultMode`, `enabledPlugins.NAME`.
+    /// Single-part paths remove from `extraJSON` or typed properties as appropriate.
     mutating func removeKeys(_ keyPaths: [String]) {
         for keyPath in keyPaths {
             let parts = keyPath.split(separator: ".", maxSplits: 1)
@@ -92,53 +149,74 @@ struct Settings: Codable, Sendable {
                 let section = String(parts[0])
                 let key = String(parts[1])
                 switch section {
-                case "env":
-                    env?.removeValue(forKey: key)
-                case "permissions":
-                    if key == "defaultMode" { permissions?.defaultMode = nil }
                 case "hooks":
                     hooks?.removeValue(forKey: key)
                 case "enabledPlugins":
                     enabledPlugins?.removeValue(forKey: key)
                 default:
-                    break
+                    // Handle dotted paths for extraJSON keys (e.g. "env.FOO",
+                    // "permissions.defaultMode")
+                    removeExtraJSONSubKey(topLevel: section, subKey: key)
                 }
-            } else if keyPath == "alwaysThinkingEnabled" {
-                alwaysThinkingEnabled = nil
+            } else {
+                // Single-part key — check typed properties first, then extraJSON
+                switch keyPath {
+                case "hooks":
+                    hooks = nil
+                case "enabledPlugins":
+                    enabledPlugins = nil
+                default:
+                    extraJSON.removeValue(forKey: keyPath)
+                }
             }
         }
     }
 
     // MARK: - File I/O
 
-    /// Top-level JSON keys modeled by this struct. Keys outside this set
-    /// are preserved during round-trips to avoid dropping unknown fields
-    /// that Claude Code or other tools may have written.
-    private static let knownTopLevelKeys: Set<String> = [
-        "env", "permissions", "hooks", "enabledPlugins", "alwaysThinkingEnabled",
-    ]
+    /// Top-level JSON keys with typed stored properties. Keys outside this set
+    /// are managed via `extraJSON` and preserved during round-trips.
+    private static let knownTopLevelKeys: Set<String> = Set(CodingKeys.allCases.map(\.stringValue))
 
     /// Load settings from a JSON file. Returns empty settings if file doesn't exist.
+    /// Unknown top-level keys are captured into `extraJSON` as serialized Data fragments.
     static func load(from url: URL) throws -> Settings {
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path) else {
             return Settings()
         }
         let data = try Data(contentsOf: url)
-        let decoder = JSONDecoder()
-        return try decoder.decode(Settings.self, from: data)
+        var settings = try JSONDecoder().decode(Settings.self, from: data)
+
+        // Second pass: capture all non-typed top-level keys
+        if let rawJSON = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for (key, value) in rawJSON where !knownTopLevelKeys.contains(key) {
+                settings.extraJSON[key] = try JSONSerialization.data(
+                    withJSONObject: value, options: .fragmentsAllowed
+                )
+            }
+        }
+
+        return settings
     }
 
     /// Save settings to a JSON file, creating parent directories as needed.
-    /// Preserves unknown top-level keys already present in the file.
-    func save(to url: URL) throws {
+    ///
+    /// Three-layer priority:
+    /// 1. Typed fields (`hooks`, `enabledPlugins`) via JSONEncoder
+    /// 2. `extraJSON` from the struct (does not overwrite Layer 1)
+    /// 3. Destination file unknown keys — only if not already in output and not in `dropKeys`
+    ///
+    /// - Parameter dropKeys: Top-level keys to explicitly exclude from destination
+    ///   file preservation (used during pack removal to prevent re-adding stale keys).
+    func save(to url: URL, dropKeys: Set<String> = []) throws {
         let fm = FileManager.default
         let dir = url.deletingLastPathComponent()
         if !fm.fileExists(atPath: dir.path) {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
 
-        // Read existing JSON to preserve unknown top-level keys
+        // Read existing JSON to preserve user-written unknown top-level keys
         var preserved: [String: Any] = [:]
         if let existingData = try? Data(contentsOf: url),
            let existingJSON = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any]
@@ -148,7 +226,7 @@ struct Settings: Codable, Sendable {
             }
         }
 
-        // Encode our known fields
+        // Layer 1: Encode typed fields
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let knownData = try encoder.encode(self)
@@ -158,9 +236,18 @@ struct Settings: Codable, Sendable {
             return
         }
 
-        // Merge preserved unknown keys back
+        // Layer 2: Merge extraJSON (does not overwrite typed fields)
+        for (key, data) in extraJSON where !Self.knownTopLevelKeys.contains(key) {
+            if json[key] == nil {
+                json[key] = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
+            }
+        }
+
+        // Layer 3: Preserve destination file unknown keys, except dropped ones
         for (key, value) in preserved {
-            json[key] = value
+            if json[key] == nil && !dropKeys.contains(key) {
+                json[key] = value
+            }
         }
 
         let mergedData = try JSONSerialization.data(
@@ -168,5 +255,22 @@ struct Settings: Codable, Sendable {
             options: [.prettyPrinted, .sortedKeys]
         )
         try mergedData.write(to: url, options: .atomic)
+    }
+
+    // MARK: - Private Helpers
+
+    /// Remove a sub-key from an extraJSON entry that holds a JSON object.
+    private mutating func removeExtraJSONSubKey(topLevel: String, subKey: String) {
+        guard let data = extraJSON[topLevel],
+              var dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        dict.removeValue(forKey: subKey)
+        if dict.isEmpty {
+            extraJSON.removeValue(forKey: topLevel)
+        } else if let newData = try? JSONSerialization.data(withJSONObject: dict) {
+            extraJSON[topLevel] = newData
+        }
+        // Re-serialization failure: keep existing value (no-op)
     }
 }

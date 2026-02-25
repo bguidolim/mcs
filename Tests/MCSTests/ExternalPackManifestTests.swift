@@ -1313,14 +1313,14 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
+        let normalized = try raw.normalized()
 
         #expect(normalized.components?[0].id == "my-pack.server")
         #expect(normalized.components?[1].id == "my-pack.brew")
     }
 
-    @Test("normalized() leaves already-prefixed IDs unchanged")
-    func normalizeAlreadyPrefixed() throws {
+    @Test("normalized() rejects component IDs containing dots")
+    func normalizeRejectsDottedComponentIDs() throws {
         let yaml = """
             schemaVersion: 1
             identifier: my-pack
@@ -1346,9 +1346,9 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
-
-        #expect(normalized.components?[0].id == "my-pack.server")
+        #expect(throws: ManifestError.dotInRawID("my-pack.server")) {
+            try raw.normalized()
+        }
     }
 
     @Test("normalized() auto-prefixes intra-pack dependencies")
@@ -1387,7 +1387,7 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
+        let normalized = try raw.normalized()
 
         #expect(normalized.components?[1].dependencies == ["my-pack.brew"])
     }
@@ -1422,7 +1422,7 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
+        let normalized = try raw.normalized()
 
         #expect(normalized.components?[0].dependencies == ["other-pack.tool", "my-pack.brew"])
     }
@@ -1444,7 +1444,7 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
+        let normalized = try raw.normalized()
 
         #expect(normalized.components == nil)
         #expect(normalized.identifier == "my-pack")
@@ -1477,7 +1477,7 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
+        let normalized = try raw.normalized()
 
         // Should not throw — normalized IDs now have the correct prefix
         try normalized.validate()
@@ -1505,14 +1505,14 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
+        let normalized = try raw.normalized()
 
         #expect(normalized.templates?[0].sectionIdentifier == "my-pack.ios")
         #expect(normalized.templates?[1].sectionIdentifier == "my-pack.git")
     }
 
-    @Test("normalized() leaves already-prefixed template sections unchanged")
-    func normalizeTemplateSectionsAlreadyPrefixed() throws {
+    @Test("normalized() rejects template sectionIdentifiers containing dots")
+    func normalizeRejectsDottedSectionIDs() throws {
         let yaml = """
             schemaVersion: 1
             identifier: my-pack
@@ -1529,9 +1529,9 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
-
-        #expect(normalized.templates?[0].sectionIdentifier == "my-pack.ios")
+        #expect(throws: ManifestError.dotInRawID("my-pack.ios")) {
+            try raw.normalized()
+        }
     }
 
     @Test("normalized() then validate() accepts short template section identifiers")
@@ -1552,10 +1552,164 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let raw = try ExternalPackManifest.load(from: file)
-        let normalized = raw.normalized()
+        let normalized = try raw.normalized()
 
         // Should not throw — normalized section IDs now have the correct prefix
         try normalized.validate()
+    }
+
+    // MARK: - Dependency resolution validation
+
+    @Test("validate() throws unresolvedDependency for nonexistent intra-pack dep")
+    func validateUnresolvedIntraPackDep() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                dependencies:
+                  - nonexistent
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = try raw.normalized()
+
+        #expect(throws: ManifestError.unresolvedDependency(
+            componentID: "my-pack.server",
+            dependency: "my-pack.nonexistent"
+        )) {
+            try normalized.validate()
+        }
+    }
+
+    @Test("validate() passes for cross-pack dependencies")
+    func validateCrossPackDepsPass() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                dependencies:
+                  - other-pack.tool
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = try raw.normalized()
+
+        // Should not throw — cross-pack deps are not validated
+        try normalized.validate()
+    }
+
+    @Test("validate() passes when all intra-pack deps resolve")
+    func validateResolvedIntraPackDeps() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: brew
+                displayName: Brew
+                description: A package
+                type: brewPackage
+                installAction:
+                  type: brewInstall
+                  package: my-pkg
+              - id: server
+                displayName: Server
+                description: A server
+                type: mcpServer
+                dependencies:
+                  - brew
+                installAction:
+                  type: mcpServer
+                  name: server
+                  command: npx
+                  args: ["-y", "server@latest"]
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let raw = try ExternalPackManifest.load(from: file)
+        let normalized = try raw.normalized()
+
+        // Should not throw — "brew" normalizes to "my-pack.brew" which exists
+        try normalized.validate()
+    }
+
+    @Test("validate() rejects bare sectionIdentifier equal to pack identifier")
+    func validateRejectsBarePackIdentifierSection() throws {
+        // After normalization, sectionIdentifier "my-pack" becomes "my-pack.my-pack"
+        // which passes via hasPrefix. But if someone constructs a manifest with
+        // a raw sectionIdentifier equal to the identifier, it should be rejected.
+        let manifest = ExternalPackManifest(
+            schemaVersion: 1,
+            identifier: "my-pack",
+            displayName: "Test",
+            description: "Test",
+            version: "1.0.0",
+            minMCSVersion: nil,
+            peerDependencies: nil,
+            components: nil,
+            templates: [
+                ExternalTemplateDefinition(
+                    sectionIdentifier: "my-pack",
+                    placeholders: nil,
+                    contentFile: "t.md"
+                )
+            ],
+            hookContributions: nil,
+            gitignoreEntries: nil,
+            prompts: nil,
+            configureProject: nil,
+            supplementaryDoctorChecks: nil
+        )
+
+        #expect(throws: ManifestError.templateSectionMismatch(
+            sectionIdentifier: "my-pack",
+            packIdentifier: "my-pack"
+        )) {
+            try manifest.validate()
+        }
     }
 
     // MARK: - Hook contribution default position
@@ -2142,7 +2296,7 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let manifest = try ExternalPackManifest.load(from: file)
-        let normalized = manifest.normalized()
+        let normalized = try manifest.normalized()
 
         let comps = try #require(normalized.components)
         #expect(comps[0].id == "my-pack.node")
@@ -2182,7 +2336,7 @@ struct ExternalPackManifestTests {
         #expect(config.name == "serena")
 
         // After normalization, id becomes "my-pack.serena" but name stays "serena"
-        let normalized = manifest.normalized()
+        let normalized = try manifest.normalized()
         #expect(normalized.components?.first?.id == "my-pack.serena")
         guard case .mcpServer(let normalizedConfig) = normalized.components?.first?.installAction else {
             Issue.record("Expected mcpServer"); return

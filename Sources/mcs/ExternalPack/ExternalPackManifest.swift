@@ -54,11 +54,11 @@ extension ExternalPackManifest {
             throw ManifestError.invalidIdentifier(identifier)
         }
 
-        // Component ID prefix
+        // Component ID prefix and dependency resolution
         if let components {
+            let expectedPrefix = "\(identifier)."
             var seenIDs = Set<String>()
             for component in components {
-                let expectedPrefix = "\(identifier)."
                 guard component.id.hasPrefix(expectedPrefix) else {
                     throw ManifestError.componentIDPrefixViolation(
                         componentID: component.id,
@@ -70,14 +70,24 @@ extension ExternalPackManifest {
                 }
                 seenIDs.insert(component.id)
             }
+
+            // Validate intra-pack dependency references resolve to existing component IDs
+            for component in components {
+                for dep in component.dependencies ?? [] {
+                    if dep.hasPrefix(expectedPrefix) && !seenIDs.contains(dep) {
+                        throw ManifestError.unresolvedDependency(
+                            componentID: component.id,
+                            dependency: dep
+                        )
+                    }
+                }
+            }
         }
 
-        // Template section identifiers must match pack identifier
+        // Template section identifiers must be prefixed with pack identifier
         if let templates {
             for template in templates {
-                guard template.sectionIdentifier == identifier
-                    || template.sectionIdentifier.hasPrefix("\(identifier).")
-                else {
+                guard template.sectionIdentifier.hasPrefix("\(identifier).") else {
                     throw ManifestError.templateSectionMismatch(
                         sectionIdentifier: template.sectionIdentifier,
                         packIdentifier: identifier
@@ -154,24 +164,27 @@ extension ExternalPackManifest {
 
 extension ExternalPackManifest {
     /// Returns a copy with short component IDs and intra-pack dependencies auto-prefixed
-    /// with the pack identifier. IDs that already contain a dot are left as-is.
-    func normalized() -> ExternalPackManifest {
+    /// with the pack identifier. Throws if any component ID or template section identifier
+    /// contains a dot — pack authors must use short names and let the tool add the prefix.
+    func normalized() throws -> ExternalPackManifest {
         let prefix = "\(identifier)."
-        let normalizedComponents = components?.map { component -> ExternalComponentDefinition in
+        let normalizedComponents = try components?.map { component -> ExternalComponentDefinition in
             var c = component
-            if !c.id.contains(".") {
-                c.id = prefix + c.id
+            guard !c.id.contains(".") else {
+                throw ManifestError.dotInRawID(c.id)
             }
+            c.id = prefix + c.id
             c.dependencies = c.dependencies?.map { dep in
                 dep.contains(".") ? dep : prefix + dep
             }
             return c
         }
-        let normalizedTemplates = templates?.map { template -> ExternalTemplateDefinition in
+        let normalizedTemplates = try templates?.map { template -> ExternalTemplateDefinition in
             var t = template
-            if !t.sectionIdentifier.contains(".") {
-                t.sectionIdentifier = prefix + t.sectionIdentifier
+            guard !t.sectionIdentifier.contains(".") else {
+                throw ManifestError.dotInRawID(t.sectionIdentifier)
             }
+            t.sectionIdentifier = prefix + t.sectionIdentifier
             return t
         }
         return ExternalPackManifest(
@@ -205,6 +218,8 @@ enum ManifestError: Error, Equatable, Sendable, LocalizedError {
     case templateSectionMismatch(sectionIdentifier: String, packIdentifier: String)
     case duplicatePromptKey(String)
     case invalidDoctorCheck(name: String, reason: String)
+    case dotInRawID(String)
+    case unresolvedDependency(componentID: String, dependency: String)
 
     var errorDescription: String? {
         switch self {
@@ -219,11 +234,15 @@ enum ManifestError: Error, Equatable, Sendable, LocalizedError {
         case .duplicateComponentID(let id):
             return "Duplicate component ID: '\(id)'"
         case .templateSectionMismatch(let section, let pack):
-            return "Template section '\(section)' does not match pack identifier '\(pack)'"
+            return "Template section '\(section)' must be prefixed with '\(pack).' (e.g. '\(pack).main')"
         case .duplicatePromptKey(let key):
             return "Duplicate prompt key: '\(key)'"
         case .invalidDoctorCheck(let name, let reason):
             return "Invalid doctor check '\(name)': \(reason)"
+        case .dotInRawID(let id):
+            return "ID '\(id)' must not contain dots — use a short name and the pack prefix will be added automatically"
+        case .unresolvedDependency(let componentID, let dependency):
+            return "Component '\(componentID)' depends on '\(dependency)' which does not exist in the pack"
         }
     }
 }

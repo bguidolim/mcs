@@ -25,7 +25,7 @@ Only check items that apply to this PR. Delete irrelevant ones.
 - [ ] `.shellCommand` components have `supplementaryDoctorChecks` defined (`deriveDoctorCheck()` returns `nil` for shell actions)
 - [ ] Any `fix()` implementation does cleanup/migration only — never installs or registers resources
 - [ ] State migrations are guarded by `isNeeded()` to stay idempotent with `mcs sync`
+- [ ] New file write/copy/delete paths use `PathContainment.safePath()` and handle the `nil` (escape) case
 - [ ] `CLAUDE.md` updated if architecture, commands, or subsystems changed
-- [ ] `MCSVersion.current` bumped in `Sources/mcs/CLI.swift` for user-visible changes
 
 </details>

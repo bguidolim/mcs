@@ -195,16 +195,18 @@ mcs sync
 
 ### Pack add fails
 
-**Symptom**: `mcs pack add <url>` fails with a Git error.
+**Symptom**: `mcs pack add` fails with a Git error or "path does not exist".
 
 **Causes**:
-1. The URL is not a valid Git repository
-2. No `techpack.yaml` exists in the repository root
-3. Network connectivity issues
+1. The URL/shorthand is not a valid Git repository
+2. No `techpack.yaml` exists in the repository or directory root
+3. Network connectivity issues (for git packs)
+4. The local path does not exist or is a file instead of a directory
 
-**Fix**: Verify the URL is correct and the repo contains a `techpack.yaml`:
+**Fix**: Verify the source is correct and contains a `techpack.yaml`:
 ```bash
-git ls-remote <url>  # Verify repo exists
+git ls-remote <url>            # Verify git repo exists
+ls /path/to/pack/techpack.yaml # Verify local pack has manifest
 ```
 
 ### Pack update fails

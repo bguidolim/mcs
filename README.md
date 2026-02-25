@@ -14,7 +14,7 @@
 
 ```bash
 brew install bguidolim/tap/managed-claude-stack
-mcs pack add https://github.com/you/your-pack
+mcs pack add you/your-pack
 mcs sync
 ```
 
@@ -77,7 +77,7 @@ brew install bguidolim/tap/managed-claude-stack
 ### 2. Add a tech pack
 
 ```bash
-mcs pack add https://github.com/bguidolim/mcs-personal-setup
+mcs pack add bguidolim/mcs-personal-setup
 ```
 
 ### 3. Sync a project
@@ -123,7 +123,7 @@ Create a team pack with your org's MCP servers, approved plugins, commit hooks, 
 ```bash
 # New team member onboarding
 brew install bguidolim/tap/managed-claude-stack
-mcs pack add https://github.com/your-org/team-claude-pack
+mcs pack add your-org/team-claude-pack
 mcs sync --all
 # Done. Everything configured.
 ```
@@ -260,13 +260,15 @@ mcs sync --update                # Fetch latest and update mcs.lock.yaml
 ### Pack Management
 
 ```bash
-mcs pack add <url>               # Add a tech pack from a Git URL
-mcs pack add <url> --ref <tag>   # Pin to a specific tag, branch, or commit
+mcs pack add <source>            # Add a tech pack (git URL, GitHub shorthand, or local path)
+mcs pack add user/repo           # GitHub shorthand → https://github.com/user/repo.git
+mcs pack add /path/to/pack       # Add a local pack (read in-place, no clone)
+mcs pack add <url> --ref <tag>   # Pin to a specific tag, branch, or commit (git only)
 mcs pack add <url> --preview     # Preview pack contents without installing
 mcs pack remove <name>           # Remove a registered pack
 mcs pack remove <name> --force   # Remove without confirmation
 mcs pack list                    # List registered packs
-mcs pack update [name]           # Update pack(s) to latest version
+mcs pack update [name]           # Update pack(s) to latest version (skips local packs)
 ```
 
 ### Health Checks

@@ -20,7 +20,7 @@ Tests/MCSTests/                  # Test target
 
 ## Design Philosophy
 
-`mcs` is a **pure pack management engine** with zero bundled content. It ships no templates, hooks, settings, skills, or slash commands. Everything comes from external tech packs that users add via `mcs pack add <url>`.
+`mcs` is a **pure pack management engine** with zero bundled content. It ships no templates, hooks, settings, skills, or slash commands. Everything comes from external tech packs that users add via `mcs pack add` (git URL, GitHub shorthand, or local path).
 
 The primary command is **`mcs sync`**, which handles both global and per-project configuration:
 - **`mcs sync [path]`** — per-project setup with multi-pack selection and convergent artifact management

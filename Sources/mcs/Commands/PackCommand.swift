@@ -87,7 +87,11 @@ struct AddPack: LockedCommand {
             let expanded = NSString(string: pathString).expandingTildeInPath
             resolved = URL(fileURLWithPath: expanded).standardized
         } else {
-            resolved = URL(fileURLWithPath: pathString).standardized
+            // URL(fileURLWithPath:) resolves relative paths (../, ./) against CWD.
+            // Extract .path first to get the absolute path, then re-wrap —
+            // calling .standardized directly on a relative URL mangles ".." components.
+            let absolute = URL(fileURLWithPath: pathString).path
+            resolved = URL(fileURLWithPath: absolute)
         }
 
         var isDir: ObjCBool = false

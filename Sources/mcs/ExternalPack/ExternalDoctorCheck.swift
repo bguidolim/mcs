@@ -20,8 +20,10 @@ struct MisconfiguredDoctorCheck: DoctorCheck, Sendable {
 
 // MARK: - Command Exists Check
 
-/// Checks that a command is available. Runs the command with the given arguments;
-/// if no args are provided and the run fails, falls back to checking PATH presence.
+/// Checks that a command is available. Bare command names are resolved via `/usr/bin/which`.
+/// - **No args**: only checks PATH presence (does not run the command — avoids hangs from
+///   interactive CLIs like `ollama`).
+/// - **With args**: executes the resolved command with the given arguments and checks the exit code.
 struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
     let name: String
     let section: String

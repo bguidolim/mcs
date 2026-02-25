@@ -20,8 +20,8 @@ struct MisconfiguredDoctorCheck: DoctorCheck, Sendable {
 
 // MARK: - Command Exists Check
 
-/// Checks that a command is available. First attempts to run with the given arguments;
-/// if that fails, falls back to checking PATH presence.
+/// Checks that a command is available. Runs the command with the given arguments;
+/// if no args are provided and the run fails, falls back to checking PATH presence.
 struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
     let name: String
     let section: String
@@ -32,17 +32,26 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
 
     func check() -> CheckResult {
         let shell = ShellRunner(environment: Environment())
-        if args.isEmpty {
-            // No args: try direct execution, fall back to PATH presence check.
-            let result = shell.run(command, arguments: [])
-            if result.succeeded { return .pass("available") }
-            if shell.commandExists(command) { return .pass("installed") }
+
+        // Resolve bare command names to absolute paths. Process.executableURL
+        // does not search PATH, so "ollama" must become "/opt/homebrew/bin/ollama".
+        let resolved: String
+        if command.hasPrefix("/") {
+            resolved = command
         } else {
-            // With args: run through shell so PATH resolves bare command names.
-            let quoted = ([command] + args).map { "'\($0)'" }.joined(separator: " ")
-            let result = shell.shell(quoted)
-            if result.succeeded { return .pass("available") }
+            let which = shell.run("/usr/bin/which", arguments: [command])
+            guard which.succeeded, !which.stdout.isEmpty else {
+                // Command not on PATH at all.
+                return .fail("not found")
+            }
+            resolved = which.stdout
         }
+
+        let result = shell.run(resolved, arguments: args)
+        if result.succeeded { return .pass("available") }
+        // No args: the intent is just "is this binary available?" — treat a
+        // resolved path as sufficient proof of installation.
+        if args.isEmpty { return .pass("installed") }
         return .fail("not found")
     }
 

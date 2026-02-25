@@ -289,7 +289,15 @@ struct GlobalConfigurator {
         }
 
         // 4. Compose global settings.json from ALL selected packs
-        try composeGlobalSettings(packs: packs, excludedComponents: excludedComponents)
+        let contributedKeys = try composeGlobalSettings(packs: packs, excludedComponents: excludedComponents)
+
+        // 4b. Record contributed settings keys in artifact records
+        for (packID, keys) in contributedKeys {
+            if var artifacts = state.artifacts(for: packID) {
+                artifacts.settingsKeys = keys
+                state.setArtifacts(artifacts, for: packID)
+            }
+        }
 
         // 5. Ensure gitignore entries
         try ensureGitignoreEntries()
@@ -359,37 +367,50 @@ struct GlobalConfigurator {
             }
         }
 
-        // Remove auto-derived hook commands from settings.json
-        if !artifacts.hookCommands.isEmpty {
+        // Remove auto-derived hook commands and contributed settings keys
+        let hasHooksToRemove = !artifacts.hookCommands.isEmpty
+        let hasSettingsToRemove = !artifacts.settingsKeys.isEmpty
+        if hasHooksToRemove || hasSettingsToRemove {
             let settingsPath = environment.claudeSettings
             var settings: Settings
             do {
                 settings = try Settings.load(from: settingsPath)
             } catch {
                 output.warn("  Could not parse settings.json: \(error.localizedDescription)")
-                output.warn("  Hook entries for \(packID) were not cleaned up. Fix settings.json and re-run.")
+                output.warn("  Settings for \(packID) were not cleaned up. Fix settings.json and re-run.")
                 state.removePack(packID)
                 return
             }
-            let commandsToRemove = Set(artifacts.hookCommands)
-            if var hooks = settings.hooks {
-                for (event, groups) in hooks {
-                    hooks[event] = groups.filter { group in
-                        guard let cmd = group.hooks?.first?.command else { return true }
-                        return !commandsToRemove.contains(cmd)
+            if hasHooksToRemove {
+                let commandsToRemove = Set(artifacts.hookCommands)
+                if var hooks = settings.hooks {
+                    for (event, groups) in hooks {
+                        hooks[event] = groups.filter { group in
+                            guard let cmd = group.hooks?.first?.command else { return true }
+                            return !commandsToRemove.contains(cmd)
+                        }
                     }
+                    hooks = hooks.filter { !$0.value.isEmpty }
+                    settings.hooks = hooks.isEmpty ? nil : hooks
                 }
-                hooks = hooks.filter { !$0.value.isEmpty }
-                settings.hooks = hooks.isEmpty ? nil : hooks
+            }
+            if hasSettingsToRemove {
+                settings.removeKeys(artifacts.settingsKeys)
             }
             do {
-                try settings.save(to: settingsPath)
+                // dropKeys prevents save(to:) Layer 3 from re-adding removed
+                // top-level keys that still exist in the destination file.
+                let dropKeys = Set(artifacts.settingsKeys.filter { !$0.contains(".") })
+                try settings.save(to: settingsPath, dropKeys: dropKeys)
                 for cmd in artifacts.hookCommands {
                     output.dimmed("  Removed hook: \(cmd)")
                 }
+                for key in artifacts.settingsKeys {
+                    output.dimmed("  Removed setting: \(key)")
+                }
             } catch {
                 output.warn("  Could not write settings.json: \(error.localizedDescription)")
-                output.warn("  Hook entries may still be present. Re-run 'mcs sync --global' to retry.")
+                output.warn("  Settings may still be present. Re-run 'mcs sync --global' to retry.")
             }
         }
 
@@ -516,10 +537,12 @@ struct GlobalConfigurator {
     /// the global `settings.json` may contain user-written content. We load the existing
     /// file first and merge pack contributions into it — `Settings.merge(with:)` preserves
     /// existing user values, and `Settings.save(to:)` preserves unknown top-level keys.
+    /// Returns a mapping of pack identifier to contributed extraJSON key paths,
+    /// so the caller can store them in artifact records for later cleanup.
     private func composeGlobalSettings(
         packs: [any TechPack],
         excludedComponents: [String: Set<String>] = [:]
-    ) throws {
+    ) throws -> [String: [String]] {
         let settingsPath = environment.claudeSettings
 
         var settings: Settings
@@ -548,6 +571,7 @@ struct GlobalConfigurator {
         }
 
         var hasContent = false
+        var contributedKeys: [String: [String]] = [:]
 
         // Single pass: derive hook entries, plugins, and merge settings files
         for pack in packs {
@@ -561,16 +585,9 @@ struct GlobalConfigurator {
                    case .copyPackFile(_, let destination, .hook) = component.installAction {
                     // Global hooks reference ~/.claude/hooks/ (home-relative, not project-relative)
                     let command = "bash ~/.claude/hooks/\(destination)"
-                    let entry = Settings.HookEntry(type: "command", command: command)
-                    let group = Settings.HookGroup(matcher: nil, hooks: [entry])
-                    var existing = settings.hooks ?? [:]
-                    var groups = existing[hookEvent] ?? []
-                    if !groups.contains(where: { $0.hooks?.first?.command == command }) {
-                        groups.append(group)
+                    if settings.addHookEntry(event: hookEvent, command: command) {
+                        hasContent = true
                     }
-                    existing[hookEvent] = groups
-                    settings.hooks = existing
-                    hasContent = true
                 }
 
                 // Auto-derive enabledPlugins from plugin components
@@ -582,12 +599,18 @@ struct GlobalConfigurator {
                     }
                     settings.enabledPlugins = plugins
                     hasContent = true
+                    // Track for cleanup on pack removal (dotted path handled by removeKeys)
+                    contributedKeys[pack.identifier, default: []].append("enabledPlugins.\(ref.bareName)")
                 }
 
                 // Merge settings files from packs
                 if case .settingsMerge(let source) = component.installAction, let source {
                     do {
                         let packSettings = try Settings.load(from: source)
+                        // Track extraJSON keys this pack contributes for artifact cleanup
+                        if !packSettings.extraJSON.isEmpty {
+                            contributedKeys[pack.identifier, default: []].append(contentsOf: packSettings.extraJSON.keys)
+                        }
                         settings.merge(with: packSettings)
                         hasContent = true
                     } catch {
@@ -610,6 +633,8 @@ struct GlobalConfigurator {
                 )
             }
         }
+
+        return contributedKeys
     }
 
     // MARK: - Value Resolution

@@ -353,7 +353,15 @@ struct ProjectConfigurator {
         try projectState.save()
 
         // 6. Compose settings.local.json from ALL selected packs
-        try composeProjectSettings(at: projectPath, packs: packs, excludedComponents: excludedComponents)
+        let contributedKeys = try composeProjectSettings(at: projectPath, packs: packs, excludedComponents: excludedComponents)
+
+        // 6b. Record contributed settings keys in artifact records
+        for (packID, keys) in contributedKeys {
+            if var artifacts = projectState.artifacts(for: packID) {
+                artifacts.settingsKeys = keys
+                projectState.setArtifacts(artifacts, for: packID)
+            }
+        }
 
         // 7. Compose CLAUDE.local.md with pre-resolved values
         try composeClaudeLocal(at: projectPath, packs: packs, values: allValues)
@@ -420,30 +428,41 @@ struct ProjectConfigurator {
             output.dimmed("  Removed: \(path)")
         }
 
-        // Remove auto-derived hook commands from settings.local.json
-        if !artifacts.hookCommands.isEmpty {
+        // Remove auto-derived hook commands and contributed settings keys
+        let hasHooksToRemove = !artifacts.hookCommands.isEmpty
+        let hasSettingsToRemove = !artifacts.settingsKeys.isEmpty
+        if hasHooksToRemove || hasSettingsToRemove {
             let settingsPath = projectPath
                 .appendingPathComponent(Constants.FileNames.claudeDirectory)
                 .appendingPathComponent("settings.local.json")
             do {
                 var settings = try Settings.load(from: settingsPath)
-                let commandsToRemove = Set(artifacts.hookCommands)
-                if var hooks = settings.hooks {
-                    for (event, groups) in hooks {
-                        hooks[event] = groups.filter { group in
-                            guard let cmd = group.hooks?.first?.command else { return true }
-                            return !commandsToRemove.contains(cmd)
+                if hasHooksToRemove {
+                    let commandsToRemove = Set(artifacts.hookCommands)
+                    if var hooks = settings.hooks {
+                        for (event, groups) in hooks {
+                            hooks[event] = groups.filter { group in
+                                guard let cmd = group.hooks?.first?.command else { return true }
+                                return !commandsToRemove.contains(cmd)
+                            }
                         }
+                        hooks = hooks.filter { !$0.value.isEmpty }
+                        settings.hooks = hooks.isEmpty ? nil : hooks
                     }
-                    hooks = hooks.filter { !$0.value.isEmpty }
-                    settings.hooks = hooks.isEmpty ? nil : hooks
                 }
-                try settings.save(to: settingsPath)
+                if hasSettingsToRemove {
+                    settings.removeKeys(artifacts.settingsKeys)
+                }
+                let dropKeys = Set(artifacts.settingsKeys.filter { !$0.contains(".") })
+                try settings.save(to: settingsPath, dropKeys: dropKeys)
                 for cmd in artifacts.hookCommands {
                     output.dimmed("  Removed hook: \(cmd)")
                 }
+                for key in artifacts.settingsKeys {
+                    output.dimmed("  Removed setting: \(key)")
+                }
             } catch {
-                output.warn("Could not clean up hooks from settings.local.json: \(error.localizedDescription)")
+                output.warn("Could not clean up settings from settings.local.json: \(error.localizedDescription)")
             }
         }
 
@@ -578,66 +597,49 @@ struct ProjectConfigurator {
     // MARK: - Settings Composition
 
     /// Build `settings.local.json` from all selected packs' hook entries and settings files.
+    /// Returns a mapping of pack identifier to contributed extraJSON key paths,
+    /// so the caller can store them in artifact records for consistency.
     private func composeProjectSettings(
         at projectPath: URL,
         packs: [any TechPack],
         excludedComponents: [String: Set<String>] = [:]
-    ) throws {
+    ) throws -> [String: [String]] {
         let settingsPath = projectPath
             .appendingPathComponent(Constants.FileNames.claudeDirectory)
             .appendingPathComponent("settings.local.json")
 
         var settings = Settings()
         var hasContent = false
+        var contributedKeys: [String: [String]] = [:]
 
-        // Gather hook entries from all packs
-        for pack in packs {
-            for contribution in try pack.hookContributions {
-                let command = "bash .claude/hooks/\(contribution.hookName).sh"
-                let entry = Settings.HookEntry(type: "command", command: command)
-                let group = Settings.HookGroup(matcher: nil, hooks: [entry])
-
-                let event = ConfiguratorSupport.hookEventName(for: contribution.hookName)
-                var existing = settings.hooks ?? [:]
-                var groups = existing[event] ?? []
-                // Deduplicate by command
-                if !groups.contains(where: { $0.hooks?.first?.command == command }) {
-                    groups.append(group)
-                }
-                existing[event] = groups
-                settings.hooks = existing
-                hasContent = true
-            }
-        }
-
-        // Auto-derive hook entries from hookFile components with hookEvent
+        // Single pass: derive hook entries, plugins, and merge settings files
         for pack in packs {
             let excluded = excludedComponents[pack.identifier] ?? []
+
+            // Hook contributions (from pack.hookContributions)
+            for contribution in try pack.hookContributions {
+                let command = "bash .claude/hooks/\(contribution.hookName).sh"
+                let event = ConfiguratorSupport.hookEventName(for: contribution.hookName)
+                if settings.addHookEntry(event: event, command: command) {
+                    hasContent = true
+                }
+            }
+
+            // Component-derived entries
             for component in pack.components {
                 guard !excluded.contains(component.id) else { continue }
+
+                // Auto-derive hook entries from hookFile components with hookEvent
                 if component.type == .hookFile,
                    let hookEvent = component.hookEvent,
                    case .copyPackFile(_, let destination, .hook) = component.installAction {
                     let command = "bash .claude/hooks/\(destination)"
-                    let entry = Settings.HookEntry(type: "command", command: command)
-                    let group = Settings.HookGroup(matcher: nil, hooks: [entry])
-                    var existing = settings.hooks ?? [:]
-                    var groups = existing[hookEvent] ?? []
-                    if !groups.contains(where: { $0.hooks?.first?.command == command }) {
-                        groups.append(group)
+                    if settings.addHookEntry(event: hookEvent, command: command) {
+                        hasContent = true
                     }
-                    existing[hookEvent] = groups
-                    settings.hooks = existing
-                    hasContent = true
                 }
-            }
-        }
 
-        // Auto-derive enabledPlugins from plugin components
-        for pack in packs {
-            let excluded = excludedComponents[pack.identifier] ?? []
-            for component in pack.components {
-                guard !excluded.contains(component.id) else { continue }
+                // Auto-derive enabledPlugins from plugin components
                 if case .plugin(let name) = component.installAction {
                     let ref = PluginRef(name)
                     var plugins = settings.enabledPlugins ?? [:]
@@ -646,18 +648,16 @@ struct ProjectConfigurator {
                     }
                     settings.enabledPlugins = plugins
                     hasContent = true
+                    contributedKeys[pack.identifier, default: []].append("enabledPlugins.\(ref.bareName)")
                 }
-            }
-        }
 
-        // Merge settings files from packs
-        for pack in packs {
-            let excluded = excludedComponents[pack.identifier] ?? []
-            for component in pack.components {
-                guard !excluded.contains(component.id) else { continue }
+                // Merge settings files from packs
                 if case .settingsMerge(let source) = component.installAction, let source {
                     do {
                         let packSettings = try Settings.load(from: source)
+                        if !packSettings.extraJSON.isEmpty {
+                            contributedKeys[pack.identifier, default: []].append(contentsOf: packSettings.extraJSON.keys)
+                        }
                         settings.merge(with: packSettings)
                         hasContent = true
                     } catch {
@@ -689,6 +689,8 @@ struct ProjectConfigurator {
                 output.warn("Could not remove stale settings.local.json: \(error.localizedDescription)")
             }
         }
+
+        return contributedKeys
     }
 
     // MARK: - CLAUDE.local.md Composition

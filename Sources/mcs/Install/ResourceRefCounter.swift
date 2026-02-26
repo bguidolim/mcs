@@ -16,13 +16,21 @@ struct ResourceRefCounter {
     enum Resource: Equatable {
         case brewPackage(String)
         case plugin(String)
+
+        var displayName: String {
+            switch self {
+            case .brewPackage(let name): return "brew package '\(name)'"
+            case .plugin(let name): return "plugin '\(PluginRef(name).bareName)'"
+            }
+        }
     }
 
     /// Check if a resource is still needed by any scope OTHER than the one being removed.
     ///
     /// - Parameters:
     ///   - resource: The brew package or plugin to check.
-    ///   - scopePath: The scope being removed (project path or `ProjectIndex.globalSentinel`).
+    ///   - scopePath: The scope being removed (project path, `ProjectIndex.globalSentinel`,
+    ///     or `ProjectIndex.packRemoveSentinel` when removing a pack entirely).
     ///   - packID: The pack being unconfigured within that scope.
     /// - Returns: `true` if the resource is still needed (do NOT remove), `false` if safe to remove.
     func isStillNeeded(
@@ -30,17 +38,8 @@ struct ResourceRefCounter {
         excludingScope scopePath: String,
         excludingPack packID: String
     ) -> Bool {
-        // 1. Check global-state artifact records for other packs
-        if checkGlobalArtifacts(resource, excludingScope: scopePath, excludingPack: packID) {
-            return true
-        }
-
-        // 2. Check project index for all other scopes via manifest declarations
-        if checkProjectIndex(resource, excludingScope: scopePath, excludingPack: packID) {
-            return true
-        }
-
-        return false
+        checkGlobalArtifacts(resource, excludingScope: scopePath, excludingPack: packID)
+            || checkProjectIndex(resource, excludingScope: scopePath, excludingPack: packID)
     }
 
     // MARK: - Private
@@ -52,13 +51,14 @@ struct ResourceRefCounter {
         excludingPack packID: String
     ) -> Bool {
         guard let globalState = try? ProjectState(stateFile: environment.globalStateFile) else {
-            // Can't read global state — be conservative
+            output.warn("Could not read global state — keeping \(resource.displayName) as a precaution")
             return true
         }
 
         for otherPackID in globalState.configuredPacks {
-            // Skip the pack being removed if we're in the global scope
-            if scopePath == ProjectIndex.globalSentinel && otherPackID == packID {
+            // Skip the pack being removed if we're in the global scope or removing the pack entirely
+            if (scopePath == ProjectIndex.globalSentinel || scopePath == ProjectIndex.packRemoveSentinel)
+                && otherPackID == packID {
                 continue
             }
 
@@ -68,8 +68,6 @@ struct ResourceRefCounter {
             case .brewPackage(let name):
                 if artifacts.brewPackages.contains(name) { return true }
             case .plugin(let name):
-                if artifacts.plugins.contains(name) { return true }
-                // Also check by bare name for matching different full-name formats
                 let refBareName = PluginRef(name).bareName
                 if artifacts.plugins.contains(where: { PluginRef($0).bareName == refBareName }) {
                     return true
@@ -88,7 +86,7 @@ struct ResourceRefCounter {
     ) -> Bool {
         let indexFile = ProjectIndex(path: environment.projectsIndexFile)
         guard var indexData = try? indexFile.load() else {
-            // Can't read index — be conservative
+            output.warn("Could not read project index — keeping \(resource.displayName) as a precaution")
             return true
         }
 
@@ -109,9 +107,6 @@ struct ResourceRefCounter {
 
             // Check each pack in this scope
             for otherPackID in entry.packs {
-                // Skip the same pack in the same scope (shouldn't happen, but be safe)
-                if entry.path == scopePath && otherPackID == packID { continue }
-
                 if packDeclaresResource(packID: otherPackID, resource: resource) {
                     // Clean up stale entries we found along the way before returning
                     pruneStaleEntries(stalePaths, in: &indexData, indexFile: indexFile)
@@ -160,6 +155,10 @@ struct ResourceRefCounter {
             output.warn("Project not found: \(path) — removing from index")
             indexFile.remove(projectPath: path, from: &data)
         }
-        try? indexFile.save(data)
+        do {
+            try indexFile.save(data)
+        } catch {
+            output.warn("Could not persist pruned index entries: \(error.localizedDescription)")
+        }
     }
 }

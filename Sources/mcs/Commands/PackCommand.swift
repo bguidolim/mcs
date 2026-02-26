@@ -565,7 +565,8 @@ struct RemovePack: LockedCommand {
                 try globalState.save()
             }
         } catch {
-            output.warn("Could not update global state: \(error.localizedDescription)")
+            output.error("Could not update global state: \(error.localizedDescription)")
+            output.error("Run 'mcs sync --global' to reconcile, or manually edit ~/.mcs/global-state.json")
         }
 
         // 5c. Remove pack from project index entries
@@ -575,7 +576,8 @@ struct RemovePack: LockedCommand {
             indexFile.removePack(identifier, from: &indexData)
             try indexFile.save(indexData)
         } catch {
-            output.warn("Could not update project index: \(error.localizedDescription)")
+            output.error("Could not update project index: \(error.localizedDescription)")
+            output.error("Run 'mcs sync' to reconcile, or manually edit ~/.mcs/projects.yaml")
         }
 
         // 6. Remove from registry

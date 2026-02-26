@@ -431,7 +431,8 @@ struct ProjectConfigurator {
             )
             try indexFile.save(indexData)
         } catch {
-            output.warn("Could not update project index: \(error.localizedDescription)")
+            output.error("Could not update project index: \(error.localizedDescription)")
+            output.error("Cross-project resource tracking may be inaccurate. Re-run 'mcs sync' to retry.")
         }
     }
 
@@ -456,51 +457,41 @@ struct ProjectConfigurator {
         var removedServers: Set<MCPServerRef> = []
         var removedFiles: Set<String> = []
 
-        // Remove MCS-owned brew packages (with reference counting)
-        if !artifacts.brewPackages.isEmpty {
-            let refCounter = ResourceRefCounter(
-                environment: environment,
-                output: output,
-                registry: registry
-            )
-            for package in artifacts.brewPackages {
-                if refCounter.isStillNeeded(
-                    .brewPackage(package),
-                    excludingScope: projectPath.path,
-                    excludingPack: packID
-                ) {
-                    output.dimmed("  Keeping brew package '\(package)' — still needed by another scope")
-                } else {
-                    if exec.uninstallBrewPackage(package) {
-                        output.dimmed("  Removed brew package: \(package)")
-                    }
+        // Remove MCS-owned brew packages and plugins (with reference counting)
+        let refCounter = ResourceRefCounter(
+            environment: environment,
+            output: output,
+            registry: registry
+        )
+        for package in artifacts.brewPackages {
+            if refCounter.isStillNeeded(
+                .brewPackage(package),
+                excludingScope: projectPath.path,
+                excludingPack: packID
+            ) {
+                output.dimmed("  Keeping brew package '\(package)' — still needed by another scope")
+            } else {
+                if exec.uninstallBrewPackage(package) {
+                    output.dimmed("  Removed brew package: \(package)")
                 }
             }
-            remaining.brewPackages = []
         }
+        remaining.brewPackages = []
 
-        // Remove MCS-owned plugins (with reference counting)
-        if !artifacts.plugins.isEmpty {
-            let refCounter = ResourceRefCounter(
-                environment: environment,
-                output: output,
-                registry: registry
-            )
-            for pluginName in artifacts.plugins {
-                if refCounter.isStillNeeded(
-                    .plugin(pluginName),
-                    excludingScope: projectPath.path,
-                    excludingPack: packID
-                ) {
-                    output.dimmed("  Keeping plugin '\(PluginRef(pluginName).bareName)' — still needed by another scope")
-                } else {
-                    if exec.removePlugin(pluginName) {
-                        output.dimmed("  Removed plugin: \(PluginRef(pluginName).bareName)")
-                    }
+        for pluginName in artifacts.plugins {
+            if refCounter.isStillNeeded(
+                .plugin(pluginName),
+                excludingScope: projectPath.path,
+                excludingPack: packID
+            ) {
+                output.dimmed("  Keeping plugin '\(PluginRef(pluginName).bareName)' — still needed by another scope")
+            } else {
+                if exec.removePlugin(pluginName) {
+                    output.dimmed("  Removed plugin: \(PluginRef(pluginName).bareName)")
                 }
             }
-            remaining.plugins = []
         }
+        remaining.plugins = []
 
         // Remove MCP servers
         for server in artifacts.mcpServers {

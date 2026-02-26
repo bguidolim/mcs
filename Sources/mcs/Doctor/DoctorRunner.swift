@@ -47,8 +47,14 @@ struct DoctorRunner {
             }
         } catch {
             // Corrupt state file — fall back to registry
+            output.warn("Could not read global state: \(error.localizedDescription) — falling back to pack registry")
             let packRegistry = PackRegistryFile(path: env.packsRegistry)
-            globallyConfiguredPackIDs = Set((try? packRegistry.load())?.packs.map(\.identifier) ?? [])
+            do {
+                globallyConfiguredPackIDs = Set((try packRegistry.load()).packs.map(\.identifier))
+            } catch {
+                output.warn("Could not read pack registry: \(error.localizedDescription) — no packs will be checked")
+                globallyConfiguredPackIDs = []
+            }
         }
 
         // Detect project root

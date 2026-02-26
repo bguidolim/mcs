@@ -69,7 +69,10 @@ struct ComponentExecutor {
     /// Uninstall a Homebrew package. Returns `true` if removal succeeded or package was already gone.
     func uninstallBrewPackage(_ package: String) -> Bool {
         let brew = Homebrew(shell: shell, environment: environment)
-        guard brew.isInstalled else { return false }
+        guard brew.isInstalled else {
+            output.warn("Homebrew not found, cannot uninstall '\(package)'")
+            return false
+        }
         guard brew.isPackageInstalled(package) else { return true }
         let result = brew.uninstall(package)
         if !result.succeeded {

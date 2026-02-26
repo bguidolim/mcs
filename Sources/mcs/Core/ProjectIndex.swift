@@ -9,6 +9,9 @@ struct ProjectIndex: Sendable {
     /// Sentinel path representing the global scope (`mcs sync --global`).
     static let globalSentinel = "__global__"
 
+    /// Sentinel scope used during `mcs pack remove` (excludes all scopes).
+    static let packRemoveSentinel = "__pack_remove__"
+
     struct ProjectEntry: Codable, Sendable, Equatable {
         /// Absolute project path or `__global__` for the global scope.
         let path: String
@@ -57,19 +60,15 @@ struct ProjectIndex: Sendable {
 
     /// Register or update a project entry with its current pack list.
     func upsert(projectPath: String, packIDs: [String], in data: inout IndexData) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let entry = ProjectEntry(
+            path: projectPath,
+            packs: packIDs.sorted(),
+            lastSynced: ISO8601DateFormatter().string(from: Date())
+        )
         if let index = data.projects.firstIndex(where: { $0.path == projectPath }) {
-            data.projects[index] = ProjectEntry(
-                path: projectPath,
-                packs: packIDs.sorted(),
-                lastSynced: timestamp
-            )
+            data.projects[index] = entry
         } else {
-            data.projects.append(ProjectEntry(
-                path: projectPath,
-                packs: packIDs.sorted(),
-                lastSynced: timestamp
-            ))
+            data.projects.append(entry)
         }
     }
 

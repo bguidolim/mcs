@@ -55,6 +55,20 @@ struct PackArtifactRecord: Codable, Equatable, Sendable {
         self.brewPackages = brewPackages
         self.plugins = plugins
     }
+
+    /// Record a brew package as MCS-owned, deduplicating automatically.
+    mutating func recordBrewPackage(_ package: String) {
+        if !brewPackages.contains(package) {
+            brewPackages.append(package)
+        }
+    }
+
+    /// Record a plugin as MCS-owned, deduplicating automatically.
+    mutating func recordPlugin(_ name: String) {
+        if !plugins.contains(name) {
+            plugins.append(name)
+        }
+    }
 }
 
 /// Reference to a registered MCP server for later removal.

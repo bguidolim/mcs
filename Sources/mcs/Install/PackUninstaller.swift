@@ -94,7 +94,7 @@ struct PackUninstaller {
             let ref = PluginRef(name)
             if refCounter.isStillNeeded(
                 .plugin(name),
-                excludingScope: "__pack_remove__",
+                excludingScope: ProjectIndex.packRemoveSentinel,
                 excludingPack: packIdentifier
             ) {
                 output.dimmed("  Keeping plugin '\(ref.bareName)' — still needed by another scope")
@@ -155,7 +155,7 @@ struct PackUninstaller {
                 )
                 if refCounter.isStillNeeded(
                     .brewPackage(package),
-                    excludingScope: "__pack_remove__",
+                    excludingScope: ProjectIndex.packRemoveSentinel,
                     excludingPack: packIdentifier
                 ) {
                     output.dimmed("  Keeping brew package '\(package)' — still needed by another scope")

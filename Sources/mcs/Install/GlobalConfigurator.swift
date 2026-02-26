@@ -342,7 +342,8 @@ struct GlobalConfigurator {
             )
             try indexFile.save(indexData)
         } catch {
-            output.warn("Could not update project index: \(error.localizedDescription)")
+            output.error("Could not update project index: \(error.localizedDescription)")
+            output.error("Cross-project resource tracking may be inaccurate. Re-run 'mcs sync --global' to retry.")
         }
 
         // 8. Inform user about project-scoped features that were skipped
@@ -539,10 +540,7 @@ struct GlobalConfigurator {
             case .brewInstall(let package):
                 output.dimmed("  Installing \(component.displayName)...")
                 if exec.installBrewPackage(package) {
-                    // Record ownership — MCS installed this package
-                    if !artifacts.brewPackages.contains(package) {
-                        artifacts.brewPackages.append(package)
-                    }
+                    artifacts.recordBrewPackage(package)
                     output.success("  \(component.displayName) installed")
                 } else {
                     output.warn("  \(component.displayName) failed to install")
@@ -568,10 +566,7 @@ struct GlobalConfigurator {
             case .plugin(let name):
                 output.dimmed("  Installing plugin \(component.displayName)...")
                 if exec.installPlugin(name) {
-                    // Record ownership — MCS installed this plugin
-                    if !artifacts.plugins.contains(name) {
-                        artifacts.plugins.append(name)
-                    }
+                    artifacts.recordPlugin(name)
                     output.success("  \(component.displayName) installed")
                 } else {
                     output.warn("  \(component.displayName) failed to install")

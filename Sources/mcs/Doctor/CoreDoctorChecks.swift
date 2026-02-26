@@ -208,8 +208,11 @@ struct ProjectIndexCheck: DoctorCheck, Sendable {
     func check() -> CheckResult {
         let env = Environment()
         let indexFile = ProjectIndex(path: env.projectsIndexFile)
-        guard let data = try? indexFile.load() else {
-            return .warn("~/.mcs/projects.yaml not found — run 'mcs sync' to create")
+        let data: ProjectIndex.IndexData
+        do {
+            data = try indexFile.load()
+        } catch {
+            return .fail("~/.mcs/projects.yaml is corrupt: \(error.localizedDescription) — delete and re-run 'mcs sync'")
         }
         if data.projects.isEmpty {
             return .warn("no projects tracked — run 'mcs sync' to populate")
@@ -234,8 +237,11 @@ struct ProjectIndexCheck: DoctorCheck, Sendable {
     func fix() -> FixResult {
         let env = Environment()
         let indexFile = ProjectIndex(path: env.projectsIndexFile)
-        guard var data = try? indexFile.load() else {
-            return .notFixable("Could not read project index")
+        var data: ProjectIndex.IndexData
+        do {
+            data = try indexFile.load()
+        } catch {
+            return .notFixable("Could not read project index: \(error.localizedDescription)")
         }
         let pruned = indexFile.pruneStale(in: &data)
         if pruned.isEmpty {

@@ -228,7 +228,7 @@ struct ProjectIndexCheck: DoctorCheck, Sendable {
         if stale.isEmpty {
             return .pass("\(projectCount) scope(s) tracked")
         }
-        return .warn("\(stale.count) stale path(s) in \(projectCount) tracked scope(s)")
+        return .fail("\(stale.count) stale path(s) in \(projectCount) tracked scope(s)")
     }
 
     func fix() -> FixResult {

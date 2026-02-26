@@ -29,9 +29,33 @@ struct DoctorRunner {
         let env = Environment()
         let registry = self.registry
 
-        // Resolve registered pack IDs from the YAML registry
-        let packRegistry = PackRegistryFile(path: env.packsRegistry)
-        let registeredPackIDs = Set((try? packRegistry.load())?.packs.map(\.identifier) ?? [])
+        // Resolve globally-configured pack IDs from global state.
+        // This reflects packs actively synced to the global scope, not just
+        // registered (available) packs. A pack in registry.yaml but not in
+        // global-state.json's configuredPacks has been unsynced and shouldn't
+        // trigger doctor checks.
+        let globallyConfiguredPackIDs: Set<String>
+        do {
+            let globalState = try ProjectState(stateFile: env.globalStateFile)
+            if globalState.exists {
+                // Global state file exists — use its configured packs (may be empty)
+                globallyConfiguredPackIDs = globalState.configuredPacks
+            } else {
+                // No global state file yet — fall back to registry for backward compat
+                let packRegistry = PackRegistryFile(path: env.packsRegistry)
+                globallyConfiguredPackIDs = Set((try? packRegistry.load())?.packs.map(\.identifier) ?? [])
+            }
+        } catch {
+            // Corrupt state file — fall back to registry
+            output.warn("Could not read global state: \(error.localizedDescription) — falling back to pack registry")
+            let packRegistry = PackRegistryFile(path: env.packsRegistry)
+            do {
+                globallyConfiguredPackIDs = Set((try packRegistry.load()).packs.map(\.identifier))
+            } catch {
+                output.warn("Could not read pack registry: \(error.localizedDescription) — no packs will be checked")
+                globallyConfiguredPackIDs = []
+            }
+        }
 
         // Detect project root
         let projectRoot = ProjectDetector.findProjectRoot()
@@ -82,17 +106,17 @@ struct DoctorRunner {
                         installedPackIDs = inferred
                         packSource = "project: \(projectName ?? "unknown") (inferred)"
                     } else {
-                        installedPackIDs = registeredPackIDs
+                        installedPackIDs = globallyConfiguredPackIDs
                         packSource = "global"
                     }
                 } else {
-                    installedPackIDs = registeredPackIDs
+                    installedPackIDs = globallyConfiguredPackIDs
                     packSource = "global"
                 }
             }
         } else {
             // 4. Not in a project — fall back to pack registry
-            installedPackIDs = registeredPackIDs
+            installedPackIDs = globallyConfiguredPackIDs
             packSource = "global"
         }
 
@@ -163,6 +187,9 @@ struct DoctorRunner {
 
         // Gitignore (cross-component aggregation — engine-level)
         checks.append(GitignoreCheck(registry: registry, installedPackIDs: installedPackIDs))
+
+        // Project index (cross-project tracking)
+        checks.append(ProjectIndexCheck())
 
         return checks
     }

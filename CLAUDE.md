@@ -58,10 +58,11 @@ mcs cleanup --force              # Delete backups without confirmation
 - `Backup.swift` — timestamped backups for mixed-ownership files (CLAUDE.local.md), backup discovery and deletion
 - `GitignoreManager.swift` — global gitignore management, core entry list
 - `ClaudeIntegration.swift` — `claude mcp add/remove` (with scope support), `claude plugin install/remove`
-- `Homebrew.swift` — brew detection, package install
+- `Homebrew.swift` — brew detection, package install/uninstall
 - `Lockfile.swift` — `mcs.lock.yaml` model for pinning pack versions
 - `ProjectDetector.swift` — walk-up project root detection (`.git/` or `CLAUDE.local.md`)
-- `ProjectState.swift` — per-project `.claude/.mcs-project` JSON state (configured packs, per-pack `PackArtifactRecord`, version)
+- `ProjectState.swift` — per-project `.claude/.mcs-project` JSON state (configured packs, per-pack `PackArtifactRecord` with ownership tracking, version)
+- `ProjectIndex.swift` — cross-project index (`~/.mcs/projects.yaml`) mapping project paths to pack IDs for reference counting
 - `MCSError.swift` — error types for the CLI
 
 ### TechPack System (`Sources/mcs/TechPack/`)
@@ -84,7 +85,7 @@ mcs cleanup --force              # Delete backups without confirmation
 
 ### Doctor (`Sources/mcs/Doctor/`)
 - `DoctorRunner.swift` — 5-layer check orchestration with project-aware pack resolution
-- `CoreDoctorChecks.swift` — check structs (CommandCheck, MCPServerCheck, PluginCheck, HookCheck, GitignoreCheck, CommandFileCheck, FileExistsCheck)
+- `CoreDoctorChecks.swift` — check structs (CommandCheck, MCPServerCheck, PluginCheck, HookCheck, GitignoreCheck, CommandFileCheck, FileExistsCheck, ProjectIndexCheck)
 - `DerivedDoctorChecks.swift` — `deriveDoctorCheck()` extension on ComponentDefinition
 - `ProjectDoctorChecks.swift` — project-scoped checks (CLAUDE.local.md freshness, state file)
 - `SectionValidator.swift` — validation of CLAUDE.local.md section markers
@@ -100,8 +101,9 @@ mcs cleanup --force              # Delete backups without confirmation
 - `GlobalConfigurator.swift` — global-scope sync engine (brew packages, plugins, MCP servers to ~/.claude/)
 - `ComponentExecutor.swift` — dispatches install actions (brew, MCP servers, plugins, gitignore, project-scoped file copy/removal)
 - `PackInstaller.swift` — auto-installs missing pack components
-- `PackUninstaller.swift` — removes pack components (MCP servers, plugins, settings keys)
+- `PackUninstaller.swift` — removes pack components (MCP servers, plugins, brew packages, settings keys) with reference-counted removal for shared resources
 - `PackUpdater.swift` — shared fetch → validate → trust cycle for updating a single git pack (used by `UpdatePack` and `LockfileOperations`)
+- `ResourceRefCounter.swift` — two-tier reference counting (global artifacts + project index manifests) for safe brew/plugin removal
 - `LockfileOperations.swift` — reads/writes `mcs.lock.yaml`, checks out locked versions, updates lockfile
 
 ### Templates (`Sources/mcs/Templates/`)
@@ -131,3 +133,4 @@ mcs cleanup --force              # Delete backups without confirmation
 - **Lockfile support**: `mcs.lock.yaml` pins pack versions for reproducible builds; `--lock` checks out pinned versions, `--update` fetches latest
 - **Local packs**: `mcs pack add /path` registers a pack read in-place — no git clone, no `mcs pack update`, no directory deletion on remove. Uses `isLocal: Bool?` on `PackEntry` (backward-compatible) and `commitSHA: "local"` sentinel. Trust verification is skipped since scripts change during development
 - **GitHub shorthand**: `mcs pack add user/repo` expands to `https://github.com/user/repo.git`. Filesystem paths are checked before shorthand regex to prevent ambiguity with relative paths like `org/pack`
+- **Cross-project reference counting**: `ProjectIndex` (`~/.mcs/projects.yaml`) tracks which projects use which packs; `ResourceRefCounter` checks all scopes before removing shared brew packages or plugins. Conservative by default — if state is unreadable, assume resource is still needed. MCP servers are project-independent (scoped via `-s local`) and skip ref counting

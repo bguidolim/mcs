@@ -133,6 +133,10 @@ struct DoctorRunner {
 
         // === Layered check collection ===
 
+        // Determine effective project root for derived checks:
+        // only use project path when packs were resolved from project scope
+        let effectiveProjectRoot = packSource.hasPrefix("project") ? projectRoot : nil
+
         // Layer 1+2: Derived + supplementary checks from installed components
         let allComponents = registry.availablePacks
             .filter { installedPackIDs.contains($0.identifier) }
@@ -140,7 +144,7 @@ struct DoctorRunner {
 
         var allChecks: [any DoctorCheck] = []
         for component in allComponents {
-            allChecks.append(contentsOf: component.allDoctorChecks())
+            allChecks.append(contentsOf: component.allDoctorChecks(projectRoot: effectiveProjectRoot))
         }
 
         // Layer 3: Pack-level supplementary checks (non-component concerns)

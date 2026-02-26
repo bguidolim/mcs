@@ -6,7 +6,7 @@ extension ComponentDefinition {
     /// Auto-generates doctor check(s) from installAction.
     /// Returns nil for actions that have no mechanical verification
     /// (e.g. .shellCommand, .settingsMerge, .gitignoreEntries).
-    func deriveDoctorCheck() -> (any DoctorCheck)? {
+    func deriveDoctorCheck(projectRoot: URL? = nil) -> (any DoctorCheck)? {
         switch installAction {
         case .mcpServer(let config):
             return MCPServerCheck(name: displayName, serverName: config.name)
@@ -23,7 +23,13 @@ extension ComponentDefinition {
             )
 
         case .copyPackFile(_, let destination, let fileType):
-            let destURL = fileType.destinationURL(in: Environment(), destination: destination)
+            let destURL: URL
+            if let projectRoot {
+                destURL = fileType.projectBaseDirectory(projectPath: projectRoot)
+                    .appendingPathComponent(destination)
+            } else {
+                destURL = fileType.destinationURL(in: Environment(), destination: destination)
+            }
             return FileExistsCheck(
                 name: displayName,
                 section: type.doctorSection,
@@ -36,9 +42,9 @@ extension ComponentDefinition {
     }
 
     /// All doctor checks for this component: auto-derived + supplementary.
-    func allDoctorChecks() -> [any DoctorCheck] {
+    func allDoctorChecks(projectRoot: URL? = nil) -> [any DoctorCheck] {
         var checks: [any DoctorCheck] = []
-        if let derived = deriveDoctorCheck() {
+        if let derived = deriveDoctorCheck(projectRoot: projectRoot) {
             checks.append(derived)
         }
         checks.append(contentsOf: supplementaryChecks)

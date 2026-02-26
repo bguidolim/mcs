@@ -108,6 +108,87 @@ struct DerivedDoctorCheckTests {
         #expect(component.deriveDoctorCheck() == nil)
     }
 
+    // MARK: - copyPackFile derivation
+
+    @Test("copyPackFile without projectRoot derives FileExistsCheck with global path")
+    func copyPackFileGlobalPath() {
+        let component = ComponentDefinition(
+            id: "test.skill",
+            displayName: "MySkill",
+            description: "test",
+            type: .skill,
+            packIdentifier: nil,
+            dependencies: [],
+            isRequired: false,
+            installAction: .copyPackFile(
+                source: URL(fileURLWithPath: "/tmp/source.md"),
+                destination: "my-skill.md",
+                fileType: .skill
+            )
+        )
+        let check = component.deriveDoctorCheck()
+        #expect(check != nil)
+        let fileCheck = check as? FileExistsCheck
+        #expect(fileCheck != nil)
+        // Global path: ~/.claude/skills/my-skill.md
+        #expect(fileCheck!.path.path.hasSuffix("/.claude/skills/my-skill.md"))
+        #expect(!fileCheck!.path.path.contains("/my-project/"))
+    }
+
+    @Test("copyPackFile with projectRoot derives FileExistsCheck with project path")
+    func copyPackFileProjectPath() {
+        let projectRoot = URL(fileURLWithPath: "/tmp/my-project")
+        let component = ComponentDefinition(
+            id: "test.skill",
+            displayName: "MySkill",
+            description: "test",
+            type: .skill,
+            packIdentifier: nil,
+            dependencies: [],
+            isRequired: false,
+            installAction: .copyPackFile(
+                source: URL(fileURLWithPath: "/tmp/source.md"),
+                destination: "my-skill.md",
+                fileType: .skill
+            )
+        )
+        let check = component.deriveDoctorCheck(projectRoot: projectRoot)
+        #expect(check != nil)
+        let fileCheck = check as? FileExistsCheck
+        #expect(fileCheck != nil)
+        #expect(fileCheck!.path.path == "/tmp/my-project/.claude/skills/my-skill.md")
+    }
+
+    @Test("copyPackFile projectRoot resolves correctly for all CopyFileType variants")
+    func copyPackFileAllTypes() {
+        let projectRoot = URL(fileURLWithPath: "/tmp/proj")
+        let cases: [(CopyFileType, String)] = [
+            (.skill, "/tmp/proj/.claude/skills/test.md"),
+            (.hook, "/tmp/proj/.claude/hooks/test.md"),
+            (.command, "/tmp/proj/.claude/commands/test.md"),
+            (.generic, "/tmp/proj/.claude/test.md"),
+        ]
+        for (fileType, expectedPath) in cases {
+            let component = ComponentDefinition(
+                id: "test.\(fileType.rawValue)",
+                displayName: "Test",
+                description: "test",
+                type: .skill,
+                packIdentifier: nil,
+                dependencies: [],
+                isRequired: false,
+                installAction: .copyPackFile(
+                    source: URL(fileURLWithPath: "/tmp/source.md"),
+                    destination: "test.md",
+                    fileType: fileType
+                )
+            )
+            let check = component.deriveDoctorCheck(projectRoot: projectRoot)
+            let fileCheck = check as? FileExistsCheck
+            #expect(fileCheck?.path.path == expectedPath, "Expected \(expectedPath) for \(fileType.rawValue)")
+        }
+    }
+
     // MARK: - allDoctorChecks combines derived + supplementary
 
     @Test("allDoctorChecks returns derived + supplementary")

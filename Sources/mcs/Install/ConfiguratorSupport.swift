@@ -97,6 +97,75 @@ enum ConfiguratorSupport {
         return true
     }
 
+    /// Display a dry-run summary of what sync would do.
+    ///
+    /// Shared orchestration for both project and global dry-run flows.
+    /// Callers provide scope-specific closures for artifact and removal display.
+    static func dryRunSummary(
+        packs: [any TechPack],
+        state: ProjectState,
+        header: String,
+        output: CLIOutput,
+        artifactSummary: (_ pack: any TechPack) -> Void,
+        removalSummary: (_ artifacts: PackArtifactRecord) -> Void
+    ) {
+        let selectedIDs = Set(packs.map(\.identifier))
+        let previousIDs = state.configuredPacks
+
+        let removals = previousIDs.subtracting(selectedIDs)
+        let additions = selectedIDs.subtracting(previousIDs)
+        let updates = selectedIDs.intersection(previousIDs)
+
+        output.header(header)
+
+        if removals.isEmpty && additions.isEmpty && updates.isEmpty && packs.isEmpty {
+            output.plain("")
+            output.info("No packs selected. Nothing would change.")
+            output.plain("")
+            output.dimmed("No changes made (dry run).")
+            return
+        }
+
+        // Show additions
+        for pack in packs where additions.contains(pack.identifier) {
+            output.plain("")
+            output.success("+ \(pack.displayName) (new)")
+            artifactSummary(pack)
+        }
+
+        // Show removals
+        for packID in removals.sorted() {
+            output.plain("")
+            output.warn("- \(packID) (remove)")
+            if let artifacts = state.artifacts(for: packID) {
+                removalSummary(artifacts)
+            } else {
+                output.dimmed("  No artifact record available")
+            }
+        }
+
+        // Show updates (unchanged packs that would be refreshed)
+        for pack in packs where updates.contains(pack.identifier) {
+            output.plain("")
+            output.info("~ \(pack.displayName) (update)")
+            artifactSummary(pack)
+        }
+
+        output.plain("")
+        let totalChanges = additions.count + removals.count
+        if totalChanges == 0 {
+            output.info("\(updates.count) pack(s) would be refreshed, no additions or removals.")
+        } else {
+            var parts: [String] = []
+            if !additions.isEmpty { parts.append("+\(additions.count) added") }
+            if !removals.isEmpty { parts.append("-\(removals.count) removed") }
+            if !updates.isEmpty { parts.append("~\(updates.count) updated") }
+            output.info(parts.joined(separator: ", "))
+        }
+        output.plain("")
+        output.dimmed("No changes made (dry run).")
+    }
+
     /// Present per-pack component multi-select and return excluded component IDs.
     ///
     /// - Parameter componentsProvider: Extracts the relevant components from a pack.

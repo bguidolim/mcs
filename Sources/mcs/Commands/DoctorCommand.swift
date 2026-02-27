@@ -10,6 +10,9 @@ struct DoctorCommand: LockedCommand {
     @Flag(name: .long, help: "Attempt to automatically fix issues")
     var fix = false
 
+    @Flag(name: .shortAndLong, help: "Skip confirmation prompt before applying fixes")
+    var yes = false
+
     @Option(name: .long, help: "Only check a specific tech pack (e.g. ios)")
     var pack: String?
 
@@ -22,7 +25,12 @@ struct DoctorCommand: LockedCommand {
             environment: env,
             output: output
         )
-        var runner = DoctorRunner(fixMode: fix, packFilter: pack, registry: registry)
+        var runner = DoctorRunner(
+            fixMode: fix,
+            skipConfirmation: yes,
+            packFilter: pack,
+            registry: registry
+        )
         try runner.run()
     }
 }

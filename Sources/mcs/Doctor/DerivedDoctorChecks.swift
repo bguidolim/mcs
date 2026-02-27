@@ -6,10 +6,10 @@ extension ComponentDefinition {
     /// Auto-generates doctor check(s) from installAction.
     /// Returns nil for actions that have no mechanical verification
     /// (e.g. .shellCommand, .settingsMerge, .gitignoreEntries).
-    func deriveDoctorCheck() -> (any DoctorCheck)? {
+    func deriveDoctorCheck(projectRoot: URL? = nil) -> (any DoctorCheck)? {
         switch installAction {
         case .mcpServer(let config):
-            return MCPServerCheck(name: displayName, serverName: config.name)
+            return MCPServerCheck(name: displayName, serverName: config.name, projectRoot: projectRoot)
 
         case .plugin(let pluginName):
             return PluginCheck(pluginRef: PluginRef(pluginName))
@@ -23,11 +23,18 @@ extension ComponentDefinition {
             )
 
         case .copyPackFile(_, let destination, let fileType):
-            let destURL = fileType.destinationURL(in: Environment(), destination: destination)
+            let globalURL = fileType.destinationURL(in: Environment(), destination: destination)
+            if let projectRoot {
+                let projectURL = fileType.projectBaseDirectory(projectPath: projectRoot)
+                    .appendingPathComponent(destination)
+                return FileExistsCheck(
+                    name: displayName, section: type.doctorSection,
+                    path: projectURL, fallbackPath: globalURL
+                )
+            }
             return FileExistsCheck(
-                name: displayName,
-                section: type.doctorSection,
-                path: destURL
+                name: displayName, section: type.doctorSection,
+                path: globalURL
             )
 
         case .shellCommand, .settingsMerge, .gitignoreEntries:
@@ -36,12 +43,8 @@ extension ComponentDefinition {
     }
 
     /// All doctor checks for this component: auto-derived + supplementary.
-    func allDoctorChecks() -> [any DoctorCheck] {
-        var checks: [any DoctorCheck] = []
-        if let derived = deriveDoctorCheck() {
-            checks.append(derived)
-        }
-        checks.append(contentsOf: supplementaryChecks)
-        return checks
+    func allDoctorChecks(projectRoot: URL? = nil) -> [any DoctorCheck] {
+        let derived: [any DoctorCheck] = deriveDoctorCheck(projectRoot: projectRoot).map { [$0] } ?? []
+        return derived + supplementaryChecks
     }
 }

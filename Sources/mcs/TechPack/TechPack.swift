@@ -91,6 +91,13 @@ enum CheckResult: Sendable {
     case fail(String)
     case warn(String)
     case skip(String)
+
+    var isFailOrWarn: Bool {
+        switch self {
+        case .fail, .warn: return true
+        case .pass, .skip: return false
+        }
+    }
 }
 
 enum FixResult: Sendable {

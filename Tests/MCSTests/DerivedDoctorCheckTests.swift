@@ -5,18 +5,44 @@ import Testing
 
 @Suite("DerivedDoctorChecks")
 struct DerivedDoctorCheckTests {
+
+    /// Builds a ComponentDefinition with sensible defaults for testing.
+    private func makeComponent(
+        id: String = "test",
+        displayName: String = "Test",
+        type: ComponentType = .skill,
+        isRequired: Bool = false,
+        installAction: ComponentInstallAction,
+        supplementaryChecks: [any DoctorCheck] = []
+    ) -> ComponentDefinition {
+        ComponentDefinition(
+            id: id,
+            displayName: displayName,
+            description: "test",
+            type: type,
+            packIdentifier: nil,
+            dependencies: [],
+            isRequired: isRequired,
+            installAction: installAction,
+            supplementaryChecks: supplementaryChecks
+        )
+    }
+
+    /// Creates a unique temporary directory, cleaned up via `defer` in the caller.
+    private func makeTmpDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
     // MARK: - deriveDoctorCheck() generation
 
     @Test("mcpServer action derives MCPServerCheck")
     func mcpServerDerivation() {
-        let component = ComponentDefinition(
-            id: "test.mcp",
+        let component = makeComponent(
             displayName: "TestServer",
-            description: "test",
             type: .mcpServer,
-            packIdentifier: nil,
-            dependencies: [],
-            isRequired: false,
             installAction: .mcpServer(MCPServerConfig(
                 name: "test-server", command: "cmd", args: [], env: [:]
             ))
@@ -29,14 +55,9 @@ struct DerivedDoctorCheckTests {
 
     @Test("plugin action derives PluginCheck")
     func pluginDerivation() {
-        let component = ComponentDefinition(
-            id: "test.plugin",
+        let component = makeComponent(
             displayName: "test-plugin",
-            description: "test",
             type: .plugin,
-            packIdentifier: nil,
-            dependencies: [],
-            isRequired: false,
             installAction: .plugin(name: "test-plugin@test-org")
         )
         let check = component.deriveDoctorCheck()
@@ -47,14 +68,9 @@ struct DerivedDoctorCheckTests {
 
     @Test("brewInstall action derives CommandCheck")
     func brewInstallDerivation() {
-        let component = ComponentDefinition(
-            id: "test.brew",
+        let component = makeComponent(
             displayName: "TestPkg",
-            description: "test",
             type: .brewPackage,
-            packIdentifier: nil,
-            dependencies: [],
-            isRequired: false,
             installAction: .brewInstall(package: "testpkg")
         )
         let check = component.deriveDoctorCheck()
@@ -65,14 +81,8 @@ struct DerivedDoctorCheckTests {
 
     @Test("shellCommand action returns nil (not derivable)")
     func shellCommandReturnsNil() {
-        let component = ComponentDefinition(
-            id: "test.shell",
-            displayName: "test",
-            description: "test",
+        let component = makeComponent(
             type: .brewPackage,
-            packIdentifier: nil,
-            dependencies: [],
-            isRequired: false,
             installAction: .shellCommand(command: "echo hello")
         )
         #expect(component.deriveDoctorCheck() == nil)
@@ -80,13 +90,8 @@ struct DerivedDoctorCheckTests {
 
     @Test("settingsMerge action returns nil (not derivable)")
     func settingsMergeReturnsNil() {
-        let component = ComponentDefinition(
-            id: "test.settings",
-            displayName: "test",
-            description: "test",
+        let component = makeComponent(
             type: .configuration,
-            packIdentifier: nil,
-            dependencies: [],
             isRequired: true,
             installAction: .settingsMerge(source: nil)
         )
@@ -95,33 +100,165 @@ struct DerivedDoctorCheckTests {
 
     @Test("gitignoreEntries action returns nil (not derivable)")
     func gitignoreReturnsNil() {
-        let component = ComponentDefinition(
-            id: "test.gitignore",
-            displayName: "test",
-            description: "test",
+        let component = makeComponent(
             type: .configuration,
-            packIdentifier: nil,
-            dependencies: [],
             isRequired: true,
             installAction: .gitignoreEntries(entries: [".test"])
         )
         #expect(component.deriveDoctorCheck() == nil)
     }
 
+    // MARK: - copyPackFile derivation
+
+    @Test("copyPackFile without projectRoot derives FileExistsCheck with global path and no fallback")
+    func copyPackFileGlobalPath() {
+        let component = makeComponent(
+            displayName: "MySkill",
+            installAction: .copyPackFile(
+                source: URL(fileURLWithPath: "/tmp/source.md"),
+                destination: "my-skill.md",
+                fileType: .skill
+            )
+        )
+        let fileCheck = component.deriveDoctorCheck() as? FileExistsCheck
+        #expect(fileCheck != nil)
+        #expect(fileCheck!.path.path.hasSuffix("/.claude/skills/my-skill.md"))
+        #expect(fileCheck!.fallbackPath == nil)
+    }
+
+    @Test("copyPackFile with projectRoot derives FileExistsCheck with project path and global fallback")
+    func copyPackFileProjectPath() {
+        let projectRoot = URL(fileURLWithPath: "/tmp/my-project")
+        let component = makeComponent(
+            displayName: "MySkill",
+            installAction: .copyPackFile(
+                source: URL(fileURLWithPath: "/tmp/source.md"),
+                destination: "my-skill.md",
+                fileType: .skill
+            )
+        )
+        let fileCheck = component.deriveDoctorCheck(projectRoot: projectRoot) as? FileExistsCheck
+        #expect(fileCheck != nil)
+        #expect(fileCheck!.path.path == "/tmp/my-project/.claude/skills/my-skill.md")
+        #expect(fileCheck!.fallbackPath != nil)
+        #expect(fileCheck!.fallbackPath!.path.hasSuffix("/.claude/skills/my-skill.md"))
+        #expect(!fileCheck!.fallbackPath!.path.contains("/my-project/"))
+    }
+
+    @Test("copyPackFile projectRoot resolves correctly for all CopyFileType variants")
+    func copyPackFileAllTypes() {
+        let projectRoot = URL(fileURLWithPath: "/tmp/proj")
+        let cases: [(CopyFileType, String)] = [
+            (.skill, "/tmp/proj/.claude/skills/test.md"),
+            (.hook, "/tmp/proj/.claude/hooks/test.md"),
+            (.command, "/tmp/proj/.claude/commands/test.md"),
+            (.generic, "/tmp/proj/.claude/test.md"),
+        ]
+        for (fileType, expectedPath) in cases {
+            let component = makeComponent(
+                id: "test.\(fileType.rawValue)",
+                installAction: .copyPackFile(
+                    source: URL(fileURLWithPath: "/tmp/source.md"),
+                    destination: "test.md",
+                    fileType: fileType
+                )
+            )
+            let fileCheck = component.deriveDoctorCheck(projectRoot: projectRoot) as? FileExistsCheck
+            #expect(fileCheck?.path.path == expectedPath, "Expected \(expectedPath) for \(fileType.rawValue)")
+        }
+    }
+
+    // MARK: - FileExistsCheck fallback behavior
+
+    @Test("FileExistsCheck passes when primary path exists")
+    func fileExistsCheckPrimaryPath() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("test.md")
+        try "content".write(to: file, atomically: true, encoding: .utf8)
+
+        let check = FileExistsCheck(
+            name: "test", section: "Skills", path: file,
+            fallbackPath: URL(fileURLWithPath: "/nonexistent/fallback.md")
+        )
+        if case .pass(let msg) = check.check() {
+            #expect(msg == "present")
+        } else {
+            Issue.record("Expected pass")
+        }
+    }
+
+    @Test("FileExistsCheck falls back to global path when primary missing")
+    func fileExistsCheckFallback() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let globalFile = tmpDir.appendingPathComponent("global.md")
+        try "content".write(to: globalFile, atomically: true, encoding: .utf8)
+
+        let check = FileExistsCheck(
+            name: "test", section: "Skills",
+            path: URL(fileURLWithPath: "/nonexistent/project.md"),
+            fallbackPath: globalFile
+        )
+        if case .pass(let msg) = check.check() {
+            #expect(msg == "present (global)")
+        } else {
+            Issue.record("Expected pass with global fallback")
+        }
+    }
+
+    @Test("FileExistsCheck fails when neither primary nor fallback exist")
+    func fileExistsCheckBothMissing() {
+        let check = FileExistsCheck(
+            name: "test", section: "Skills",
+            path: URL(fileURLWithPath: "/nonexistent/project.md"),
+            fallbackPath: URL(fileURLWithPath: "/nonexistent/global.md")
+        )
+        if case .fail = check.check() {
+            // expected
+        } else {
+            Issue.record("Expected fail")
+        }
+    }
+
+    // MARK: - MCPServerCheck project root
+
+    @Test("mcpServer action passes projectRoot to MCPServerCheck")
+    func mcpServerDerivationWithProjectRoot() {
+        let projectRoot = URL(fileURLWithPath: "/tmp/my-project")
+        let component = makeComponent(
+            type: .mcpServer,
+            installAction: .mcpServer(MCPServerConfig(
+                name: "test-server", command: "cmd", args: [], env: [:]
+            ))
+        )
+        let mcpCheck = component.deriveDoctorCheck(projectRoot: projectRoot) as? MCPServerCheck
+        #expect(mcpCheck != nil)
+        #expect(mcpCheck!.projectRoot?.path == "/tmp/my-project")
+    }
+
+    @Test("mcpServer action without projectRoot has nil projectRoot")
+    func mcpServerDerivationWithoutProjectRoot() {
+        let component = makeComponent(
+            type: .mcpServer,
+            installAction: .mcpServer(MCPServerConfig(
+                name: "test-server", command: "cmd", args: [], env: [:]
+            ))
+        )
+        let mcpCheck = component.deriveDoctorCheck() as? MCPServerCheck
+        #expect(mcpCheck?.projectRoot == nil)
+    }
+
     // MARK: - allDoctorChecks combines derived + supplementary
 
     @Test("allDoctorChecks returns derived + supplementary")
     func allDoctorChecksCombines() {
-        let supplementary = CommandCheck(
-            name: "test", section: "Dependencies", command: "test"        )
-        let component = ComponentDefinition(
-            id: "test.combined",
+        let supplementary = CommandCheck(name: "test", section: "Dependencies", command: "test")
+        let component = makeComponent(
             displayName: "TestPkg",
-            description: "test",
             type: .brewPackage,
-            packIdentifier: nil,
-            dependencies: [],
-            isRequired: false,
             installAction: .brewInstall(package: "testpkg"),
             supplementaryChecks: [supplementary]
         )
@@ -132,16 +269,9 @@ struct DerivedDoctorCheckTests {
 
     @Test("shellCommand with supplementaryChecks returns only supplementary")
     func shellCommandWithSupplementary() {
-        let supplementary = CommandCheck(
-            name: "brew", section: "Dependencies", command: "brew"        )
-        let component = ComponentDefinition(
-            id: "test.shell",
-            displayName: "test",
-            description: "test",
+        let supplementary = CommandCheck(name: "brew", section: "Dependencies", command: "brew")
+        let component = makeComponent(
             type: .brewPackage,
-            packIdentifier: nil,
-            dependencies: [],
-            isRequired: false,
             installAction: .shellCommand(command: "curl ..."),
             supplementaryChecks: [supplementary]
         )

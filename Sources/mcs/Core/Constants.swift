@@ -36,6 +36,8 @@ enum Constants {
     enum JSONKeys {
         /// The top-level key in `~/.claude.json` for MCP server registrations.
         static let mcpServers = "mcpServers"
+        /// The top-level key in `~/.claude.json` for per-project settings.
+        static let projects = "projects"
     }
 
     // MARK: - External Packs

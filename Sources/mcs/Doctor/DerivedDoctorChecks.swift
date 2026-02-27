@@ -23,22 +23,18 @@ extension ComponentDefinition {
             )
 
         case .copyPackFile(_, let destination, let fileType):
-            let destURL: URL
-            let fallbackURL: URL?
+            let globalURL = fileType.destinationURL(in: Environment(), destination: destination)
             if let projectRoot {
-                destURL = fileType.projectBaseDirectory(projectPath: projectRoot)
+                let projectURL = fileType.projectBaseDirectory(projectPath: projectRoot)
                     .appendingPathComponent(destination)
-                // Fall back to global path if not found in project
-                fallbackURL = fileType.destinationURL(in: Environment(), destination: destination)
-            } else {
-                destURL = fileType.destinationURL(in: Environment(), destination: destination)
-                fallbackURL = nil
+                return FileExistsCheck(
+                    name: displayName, section: type.doctorSection,
+                    path: projectURL, fallbackPath: globalURL
+                )
             }
             return FileExistsCheck(
-                name: displayName,
-                section: type.doctorSection,
-                path: destURL,
-                fallbackPath: fallbackURL
+                name: displayName, section: type.doctorSection,
+                path: globalURL
             )
 
         case .shellCommand, .settingsMerge, .gitignoreEntries:
@@ -48,11 +44,7 @@ extension ComponentDefinition {
 
     /// All doctor checks for this component: auto-derived + supplementary.
     func allDoctorChecks(projectRoot: URL? = nil) -> [any DoctorCheck] {
-        var checks: [any DoctorCheck] = []
-        if let derived = deriveDoctorCheck(projectRoot: projectRoot) {
-            checks.append(derived)
-        }
-        checks.append(contentsOf: supplementaryChecks)
-        return checks
+        let derived: [any DoctorCheck] = deriveDoctorCheck(projectRoot: projectRoot).map { [$0] } ?? []
+        return derived + supplementaryChecks
     }
 }

@@ -70,6 +70,7 @@ struct DoctorRunner {
         let installedPackIDs: Set<String>
         let packSource: String
         var projectState: ProjectState?
+        var resolvedFromProject = false
 
         if let filter = packFilter {
             // 1. Explicit --pack flag
@@ -91,6 +92,7 @@ struct DoctorRunner {
                 // 2. Project .mcs-project file
                 installedPackIDs = state.configuredPacks
                 packSource = "project: \(projectName ?? "unknown")"
+                resolvedFromProject = true
             } else {
                 // 3. Fallback: infer from CLAUDE.local.md section markers
                 let claudeLocal = root.appendingPathComponent(Constants.FileNames.claudeLocalMD)
@@ -112,6 +114,7 @@ struct DoctorRunner {
                     if !inferred.isEmpty {
                         installedPackIDs = inferred
                         packSource = "project: \(projectName ?? "unknown") (inferred)"
+                        resolvedFromProject = true
                     } else {
                         installedPackIDs = globallyConfiguredPackIDs
                         packSource = "global"
@@ -135,17 +138,13 @@ struct DoctorRunner {
 
         // === Layered check collection ===
 
-        // Determine effective project root for derived checks:
-        // only use project path when packs were resolved from project scope
-        let effectiveProjectRoot = packSource.hasPrefix("project") ? projectRoot : nil
+        // Only pass project root to derived checks when packs were resolved from project scope
+        let effectiveProjectRoot = resolvedFromProject ? projectRoot : nil
 
-        // Collect excluded component IDs for failure suppression:
-        // excluded components that pass (e.g. globally installed) are still shown,
-        // but failures for excluded components are silently skipped.
-        let excludedComponentIDs: Set<String> = {
-            guard let state = projectState else { return [] }
-            return state.allExcludedComponents.values.reduce(into: Set<String>()) { $0.formUnion($1) }
-        }()
+        // Excluded components that pass (e.g. globally installed) are still shown,
+        // but failures for excluded components are shown as dimmed skips.
+        let excludedComponentIDs: Set<String> = projectState
+            .map { Set($0.allExcludedComponents.values.flatMap { $0 }) } ?? []
 
         // Layer 1+2: Derived + supplementary checks from installed components
         let allComponents = registry.availablePacks
@@ -155,28 +154,20 @@ struct DoctorRunner {
         var allChecks: [(check: any DoctorCheck, isExcluded: Bool)] = []
         for component in allComponents {
             let excluded = excludedComponentIDs.contains(component.id)
-            for check in component.allDoctorChecks(projectRoot: effectiveProjectRoot) {
-                allChecks.append((check: check, isExcluded: excluded))
-            }
+            let checks = component.allDoctorChecks(projectRoot: effectiveProjectRoot)
+            allChecks += checks.map { (check: $0, isExcluded: excluded) }
         }
 
-        // Layer 3: Pack-level supplementary checks (non-component concerns)
-        for check in registry.supplementaryDoctorChecks(installedPacks: installedPackIDs) {
-            allChecks.append((check: check, isExcluded: false))
-        }
-
-        // Layer 4: Standalone checks (not tied to any component)
-        for check in standaloneDoctorChecks(installedPackIDs: installedPackIDs) {
-            allChecks.append((check: check, isExcluded: false))
-        }
-
-        // Layer 5: Project-scoped checks (only when inside a project)
+        // Layers 3-5: Pack supplementary, standalone, and project-scoped checks
+        // (never excluded — exclusion only applies to per-component checks)
+        var nonComponentChecks: [any DoctorCheck] = []
+        nonComponentChecks += registry.supplementaryDoctorChecks(installedPacks: installedPackIDs)
+        nonComponentChecks += standaloneDoctorChecks(installedPackIDs: installedPackIDs)
         if let root = projectRoot {
             let context = ProjectDoctorContext(projectRoot: root, registry: registry)
-            for check in ProjectDoctorChecks.checks(context: context) {
-                allChecks.append((check: check, isExcluded: false))
-            }
+            nonComponentChecks += ProjectDoctorChecks.checks(context: context)
         }
+        allChecks += nonComponentChecks.map { (check: $0, isExcluded: false) }
 
         // Group by section
         let grouped = Dictionary(grouping: allChecks, by: \.check.section)
@@ -227,32 +218,34 @@ struct DoctorRunner {
     private mutating func runChecks(_ checks: [(check: any DoctorCheck, isExcluded: Bool)]) {
         for entry in checks {
             let result = entry.check.check()
+            let name = entry.check.name
+
+            // Show excluded component failures/warnings as skipped
+            // (user explicitly deselected via --customize)
+            if entry.isExcluded, result.isFailOrWarn {
+                docSkip(name, "excluded via --customize")
+                continue
+            }
+
             switch result {
             case .pass(let msg):
-                docPass(entry.check.name, msg)
-            case .fail where entry.isExcluded:
-                // Excluded components that fail are silently skipped —
-                // the user explicitly deselected this component via --customize
-                break
+                docPass(name, msg)
             case .fail(let msg):
-                docFail(entry.check.name, msg)
+                docFail(name, msg)
                 if fixMode {
-                    let fixResult = entry.check.fix()
-                    switch fixResult {
+                    switch entry.check.fix() {
                     case .fixed(let fixMsg):
-                        docFixed(entry.check.name, fixMsg)
+                        docFixed(name, fixMsg)
                     case .failed(let fixMsg):
-                        docFixFailed(entry.check.name, fixMsg)
+                        docFixFailed(name, fixMsg)
                     case .notFixable(let fixMsg):
                         output.warn("  ↳ \(fixMsg)")
                     }
                 }
-            case .warn where entry.isExcluded:
-                break
             case .warn(let msg):
-                docWarn(entry.check.name, msg)
+                docWarn(name, msg)
             case .skip(let msg):
-                docSkip(entry.check.name, msg)
+                docSkip(name, msg)
             }
         }
     }

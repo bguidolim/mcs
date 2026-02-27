@@ -65,7 +65,7 @@ struct MCPServerCheck: DoctorCheck, Sendable {
         }
         // Check project-scoped servers first (stored under projects[path].mcpServers)
         if let root = projectRoot,
-           let projects = json["projects"] as? [String: Any],
+           let projects = json[Constants.JSONKeys.projects] as? [String: Any],
            let projectEntry = projects[root.path] as? [String: Any],
            let projectMCP = projectEntry[Constants.JSONKeys.mcpServers] as? [String: Any],
            projectMCP[serverName] != nil

@@ -30,7 +30,9 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
     let command: String
     let args: [String]
     let fixCommand: String?
-    let scriptRunner: ScriptRunner?
+    let scriptRunner: ScriptRunner
+
+    var fixCommandPreview: String? { fixCommand }
 
     func check() -> CheckResult {
         let shell = ShellRunner(environment: Environment())
@@ -65,16 +67,7 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
         guard let fixCommand else {
             return .notFixable("Run 'mcs sync' to install dependencies")
         }
-        if let scriptRunner {
-            let result = scriptRunner.runCommand(fixCommand)
-            if result.succeeded {
-                return .fixed("fix command succeeded")
-            }
-            return .failed(result.stderr)
-        }
-        // Fallback when no script runner is injected (uses ShellRunner directly)
-        let shell = ShellRunner(environment: Environment())
-        let result = shell.shell(fixCommand)
+        let result = scriptRunner.runCommand(fixCommand)
         if result.succeeded {
             return .fixed("fix command succeeded")
         }
@@ -216,6 +209,8 @@ struct ExternalShellScriptCheck: DoctorCheck, Sendable {
     let fixScriptPath: URL?
     let fixCommand: String?
     let scriptRunner: ScriptRunner
+
+    var fixCommandPreview: String? { fixCommand ?? fixScriptPath?.lastPathComponent }
 
     func check() -> CheckResult {
         let result: ScriptRunner.ScriptResult

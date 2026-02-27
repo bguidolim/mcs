@@ -7,6 +7,8 @@ import Foundation
 /// See CoreDoctorChecks.swift header for the full responsibility boundary.
 struct DoctorRunner {
     let fixMode: Bool
+    /// Skip the confirmation prompt before executing fixes (e.g. `--yes` flag).
+    let skipConfirmation: Bool
     /// Explicit pack filter. If nil, uses packs from project state or pack registry.
     let packFilter: String?
     let registry: TechPackRegistry
@@ -16,9 +18,17 @@ struct DoctorRunner {
     private var failCount = 0
     private var warnCount = 0
     private var fixedCount = 0
+    /// Failed checks collected during diagnosis, to be fixed after confirmation.
+    private var pendingFixes: [(name: String, check: any DoctorCheck)] = []
 
-    init(fixMode: Bool, packFilter: String? = nil, registry: TechPackRegistry = .shared) {
+    init(
+        fixMode: Bool,
+        skipConfirmation: Bool = false,
+        packFilter: String? = nil,
+        registry: TechPackRegistry = .shared
+    ) {
         self.fixMode = fixMode
+        self.skipConfirmation = skipConfirmation
         self.packFilter = packFilter
         self.registry = registry
     }
@@ -188,6 +198,11 @@ struct DoctorRunner {
             runChecks(checks)
         }
 
+        // Phase 2: Confirm and execute pending fixes
+        if fixMode {
+            executePendingFixes()
+        }
+
         // Summary
         output.header("Summary")
         output.doctorSummary(
@@ -215,6 +230,8 @@ struct DoctorRunner {
 
     // MARK: - Check execution
 
+    /// Phase 1: Diagnose all checks. Failures are collected into `pendingFixes`
+    /// for later confirmation instead of being fixed immediately.
     private mutating func runChecks(_ checks: [(check: any DoctorCheck, isExcluded: Bool)]) {
         for entry in checks {
             let result = entry.check.check()
@@ -233,19 +250,48 @@ struct DoctorRunner {
             case .fail(let msg):
                 docFail(name, msg)
                 if fixMode {
-                    switch entry.check.fix() {
-                    case .fixed(let fixMsg):
-                        docFixed(name, fixMsg)
-                    case .failed(let fixMsg):
-                        docFixFailed(name, fixMsg)
-                    case .notFixable(let fixMsg):
-                        output.warn("  ↳ \(fixMsg)")
-                    }
+                    pendingFixes.append((name: name, check: entry.check))
                 }
             case .warn(let msg):
                 docWarn(name, msg)
             case .skip(let msg):
                 docSkip(name, msg)
+            }
+        }
+    }
+
+    /// Phase 2: Show a summary of pending fixes with their actual commands,
+    /// prompt for confirmation, then execute.
+    private mutating func executePendingFixes() {
+        guard !pendingFixes.isEmpty else { return }
+
+        output.header("Fixes")
+
+        // Show what will be executed
+        for (name, check) in pendingFixes {
+            if let command = check.fixCommandPreview {
+                output.dimmed("• \(name): `\(command)`")
+            } else {
+                output.dimmed("• \(name): built-in fix")
+            }
+        }
+
+        // Prompt unless --yes
+        if !skipConfirmation {
+            guard output.askYesNo("Apply \(pendingFixes.count) fix\(pendingFixes.count == 1 ? "" : "es")?") else {
+                output.dimmed("Skipped all fixes.")
+                return
+            }
+        }
+
+        for (name, check) in pendingFixes {
+            switch check.fix() {
+            case .fixed(let fixMsg):
+                docFixed(name, fixMsg)
+            case .failed(let fixMsg):
+                docFixFailed(name, fixMsg)
+            case .notFixable(let fixMsg):
+                output.warn("  ↳ \(fixMsg)")
             }
         }
     }

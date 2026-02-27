@@ -30,7 +30,7 @@ struct ExternalDoctorCheckTests {
             command: "/bin/ls",
             args: [],
             fixCommand: nil,
-            scriptRunner: nil
+            scriptRunner: makeScriptRunner()
         )
         let result = check.check()
         if case .pass = result {
@@ -48,7 +48,7 @@ struct ExternalDoctorCheckTests {
             command: "/bin/ls",
             args: ["--nonexistent-flag-xyz"],
             fixCommand: nil,
-            scriptRunner: nil
+            scriptRunner: makeScriptRunner()
         )
         let result = check.check()
         if case .fail = result {
@@ -66,7 +66,7 @@ struct ExternalDoctorCheckTests {
             command: "nonexistent-tool-xyz-12345",
             args: [],
             fixCommand: nil,
-            scriptRunner: nil
+            scriptRunner: makeScriptRunner()
         )
         let result = check.check()
         if case .fail = result {
@@ -84,7 +84,7 @@ struct ExternalDoctorCheckTests {
             command: "nonexistent",
             args: [],
             fixCommand: nil,
-            scriptRunner: nil
+            scriptRunner: makeScriptRunner()
         )
         let result = check.fix()
         if case .notFixable = result {

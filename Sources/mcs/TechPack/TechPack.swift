@@ -82,8 +82,16 @@ extension TechPack {
 protocol DoctorCheck: Sendable {
     var section: String { get }
     var name: String { get }
+    /// The verbatim command or script that `fix()` will execute.
+    /// Shown in the `doctor --fix` confirmation prompt so the user sees exactly what will run.
+    /// Returns `nil` for built-in fixes that don't execute external commands.
+    var fixCommandPreview: String? { get }
     func check() -> CheckResult
     func fix() -> FixResult
+}
+
+extension DoctorCheck {
+    var fixCommandPreview: String? { nil }
 }
 
 enum CheckResult: Sendable {

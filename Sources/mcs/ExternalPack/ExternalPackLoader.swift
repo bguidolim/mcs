@@ -215,16 +215,6 @@ struct ExternalPackLoader: Sendable {
             }
         }
 
-        // Hook fragment files
-        if let hooks = manifest.hookContributions {
-            for hook in hooks {
-                let file = packPath.appendingPathComponent(hook.fragmentFile)
-                if !fm.fileExists(atPath: file.path) {
-                    missing.append(hook.fragmentFile)
-                }
-            }
-        }
-
         // Configure project script
         if let configure = manifest.configureProject {
             let file = packPath.appendingPathComponent(configure.script)

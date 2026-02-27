@@ -227,7 +227,6 @@ protocol TechPack: Sendable {
     var description: String { get }
     var components: [ComponentDefinition] { get }
     var templates: [TemplateContribution] { get }
-    var hookContributions: [HookContribution] { get }
     var gitignoreEntries: [String] { get }
     var supplementaryDoctorChecks: [any DoctorCheck] { get }
     func templateValues(context: ProjectConfigContext) -> [String: String]
@@ -238,7 +237,6 @@ protocol TechPack: Sendable {
 Packs provide:
 - **Components**: installable units (MCP servers, skills, etc.)
 - **Templates**: sections to inject into `CLAUDE.local.md`
-- **Hook contributions**: script files to install in `<project>/.claude/hooks/` with entries in `settings.local.json`
 - **Gitignore entries**: patterns to add to the global gitignore
 - **Supplementary doctor checks**: pack-level diagnostics not derivable from components
 - **Template values**: resolved via prompts or scripts during sync

@@ -92,20 +92,6 @@ struct PackTrustManager: Sendable {
             }
         }
 
-        // Hook contribution scripts
-        if let hooks = manifest.hookContributions {
-            for hook in hooks {
-                let scriptFile = packPath.appendingPathComponent(hook.fragmentFile)
-                let content = try readFileContent(at: scriptFile, fallback: hook.fragmentFile)
-                items.append(TrustableItem(
-                    type: .hookFragment,
-                    relativePath: hook.fragmentFile,
-                    content: content,
-                    description: "Hook fragment injected into \(hook.hookName) — runs on every session"
-                ))
-            }
-        }
-
         // Prompt script commands
         if let prompts = manifest.prompts {
             for prompt in prompts where prompt.type == .script {

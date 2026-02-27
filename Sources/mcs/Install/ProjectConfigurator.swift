@@ -146,20 +146,6 @@ struct ProjectConfigurator {
             output.dimmed("  Templates:    \(templateSections.joined(separator: ", ")) in CLAUDE.local.md")
         }
 
-        // Hook entries (settings.local.json)
-        let hookEntries: [String]
-        do {
-            hookEntries = try pack.hookContributions.map {
-                "+\(ConfiguratorSupport.hookEventName(for: $0.hookName)) hook entry"
-            }
-        } catch {
-            output.warn("Could not load hook contributions for \(pack.displayName): \(error.localizedDescription)")
-            hookEntries = []
-        }
-        if !hookEntries.isEmpty {
-            output.dimmed("  Hooks:        \(hookEntries.joined(separator: ", "))")
-        }
-
         // Settings files
         let settingsFiles = pack.components.compactMap { component -> String? in
             if case .settingsMerge(let source) = component.installAction, source != nil {
@@ -671,15 +657,6 @@ struct ProjectConfigurator {
         // Single pass: derive hook entries, plugins, and merge settings files
         for pack in packs {
             let excluded = excludedComponents[pack.identifier] ?? []
-
-            // Hook contributions (from pack.hookContributions)
-            for contribution in try pack.hookContributions {
-                let command = "bash .claude/hooks/\(contribution.hookName).sh"
-                let event = ConfiguratorSupport.hookEventName(for: contribution.hookName)
-                if settings.addHookEntry(event: event, command: command) {
-                    hasContent = true
-                }
-            }
 
             // Component-derived entries
             for component in pack.components {

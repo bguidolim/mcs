@@ -153,34 +153,6 @@ struct PackTrustManagerTests {
         #expect(items[0].relativePath == "scripts/configure.sh")
     }
 
-    @Test("analyzeScripts surfaces hook fragments")
-    func analyzeScriptsHookFragments() throws {
-        let tmpDir = try makeTmpDir()
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let hooksDir = tmpDir.appendingPathComponent("hooks")
-        try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        try writeFile("# hook fragment\necho check", at: hooksDir.appendingPathComponent("check.sh"))
-
-        let yaml = """
-        schemaVersion: 1
-        identifier: test
-        displayName: Test Pack
-        description: A test pack
-        version: "1.0.0"
-        hookContributions:
-          - hookName: session_start
-            fragmentFile: hooks/check.sh
-        """
-        let manifest = try loadManifest(yaml: yaml, in: tmpDir)
-        let manager = PackTrustManager(output: CLIOutput(colorsEnabled: false))
-        let items = try manager.analyzeScripts(manifest: manifest, packPath: tmpDir)
-
-        #expect(items.count == 1)
-        #expect(items[0].type == .hookFragment)
-        #expect(items[0].relativePath == "hooks/check.sh")
-    }
-
     @Test("analyzeScripts surfaces prompt script commands")
     func analyzeScriptsPromptScriptCommand() throws {
         let tmpDir = try makeTmpDir()

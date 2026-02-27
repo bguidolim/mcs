@@ -14,7 +14,6 @@ struct ExternalPackManifest: Codable, Sendable {
     let peerDependencies: [PeerDependency]?
     let components: [ExternalComponentDefinition]?
     let templates: [ExternalTemplateDefinition]?
-    let hookContributions: [ExternalHookContribution]?
     let gitignoreEntries: [String]?
     let prompts: [ExternalPromptDefinition]?
     let configureProject: ExternalConfigureProject?
@@ -69,6 +68,16 @@ extension ExternalPackManifest {
                     throw ManifestError.duplicateComponentID(component.id)
                 }
                 seenIDs.insert(component.id)
+
+                // Validate hookEvent against known Claude Code hook events
+                if let hookEvent = component.hookEvent {
+                    guard Constants.Hooks.validEvents.contains(hookEvent) else {
+                        throw ManifestError.invalidHookEvent(
+                            componentID: component.id,
+                            hookEvent: hookEvent
+                        )
+                    }
+                }
             }
 
             // Validate intra-pack dependency references resolve to existing component IDs
@@ -197,7 +206,6 @@ extension ExternalPackManifest {
             peerDependencies: peerDependencies,
             components: normalizedComponents,
             templates: normalizedTemplates,
-            hookContributions: hookContributions,
             gitignoreEntries: gitignoreEntries,
             prompts: prompts,
             configureProject: configureProject,
@@ -220,6 +228,7 @@ enum ManifestError: Error, Equatable, Sendable, LocalizedError {
     case invalidDoctorCheck(name: String, reason: String)
     case dotInRawID(String)
     case unresolvedDependency(componentID: String, dependency: String)
+    case invalidHookEvent(componentID: String, hookEvent: String)
 
     var errorDescription: String? {
         switch self {
@@ -243,6 +252,8 @@ enum ManifestError: Error, Equatable, Sendable, LocalizedError {
             return "ID '\(id)' must not contain dots — use a short name and the pack prefix will be added automatically"
         case .unresolvedDependency(let componentID, let dependency):
             return "Component '\(componentID)' depends on '\(dependency)' which does not exist in the pack"
+        case .invalidHookEvent(let componentID, let hookEvent):
+            return "Component '\(componentID)' has unknown hookEvent '\(hookEvent)'"
         }
     }
 }
@@ -655,28 +666,6 @@ struct ExternalTemplateDefinition: Codable, Sendable {
     var sectionIdentifier: String
     let placeholders: [String]?
     let contentFile: String
-}
-
-// MARK: - Hook Contributions
-
-/// A hook contribution declared in an external pack manifest.
-struct ExternalHookContribution: Codable, Sendable {
-    let hookName: String
-    let fragmentFile: String
-    let position: ExternalHookPosition?
-}
-
-enum ExternalHookPosition: String, Codable, Sendable {
-    case before
-    case after
-
-    /// Convert to the internal `HookContribution.HookPosition`.
-    var hookPosition: HookContribution.HookPosition {
-        switch self {
-        case .before: return .before
-        case .after: return .after
-        }
-    }
 }
 
 // MARK: - Prompts

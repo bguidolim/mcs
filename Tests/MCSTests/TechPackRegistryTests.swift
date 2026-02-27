@@ -140,7 +140,6 @@ private struct FakeTechPack: TechPack {
     let description: String = "A fake pack for testing"
     let components: [ComponentDefinition]
     let templates: [TemplateContribution]
-    let hookContributions: [HookContribution]
     let gitignoreEntries: [String]
     let supplementaryDoctorChecks: [any DoctorCheck]
 
@@ -148,14 +147,12 @@ private struct FakeTechPack: TechPack {
         identifier: String,
         components: [ComponentDefinition] = [],
         templates: [TemplateContribution] = [],
-        hookContributions: [HookContribution] = [],
         gitignoreEntries: [String] = [],
         supplementaryDoctorChecks: [any DoctorCheck] = []
     ) {
         self.identifier = identifier
         self.components = components
         self.templates = templates
-        self.hookContributions = hookContributions
         self.gitignoreEntries = gitignoreEntries
         self.supplementaryDoctorChecks = supplementaryDoctorChecks
     }

@@ -59,6 +59,24 @@ enum Constants {
         static let projectsIndexFilename = "projects.yaml"
     }
 
+    // MARK: - Hooks
+
+    enum Hooks {
+        /// All Claude Code hook event names (PascalCase).
+        /// Source: https://docs.anthropic.com/en/docs/claude-code/hooks
+        static let validEvents: Set<String> = [
+            "SessionStart", "UserPromptSubmit",
+            "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure",
+            "Notification",
+            "SubagentStart", "SubagentStop",
+            "Stop",
+            "TeammateIdle", "TaskCompleted",
+            "ConfigChange",
+            "WorktreeCreate", "WorktreeRemove",
+            "PreCompact", "SessionEnd",
+        ]
+    }
+
     // MARK: - Plugins
 
     enum Plugins {

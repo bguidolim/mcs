@@ -59,22 +59,6 @@ struct ExternalPackAdapter: TechPack {
         manifest.templates?.map(\.sectionIdentifier) ?? []
     }
 
-    // MARK: - Hook Contributions
-
-    var hookContributions: [HookContribution] {
-        get throws {
-            guard let externalHooks = manifest.hookContributions else { return [] }
-            return try externalHooks.map { ext in
-                let fragment = try readPackFile(ext.fragmentFile)
-                return HookContribution(
-                    hookName: ext.hookName,
-                    scriptFragment: fragment,
-                    position: ext.position?.hookPosition ?? .after
-                )
-            }
-        }
-    }
-
     // MARK: - Gitignore Entries
 
     var gitignoreEntries: [String] {

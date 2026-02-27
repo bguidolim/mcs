@@ -18,7 +18,6 @@ Complete field-by-field reference for `techpack.yaml`. For a tutorial-style intr
 | `prompts` | `[Prompt]` | No | Interactive prompts for `mcs sync` |
 | `configureProject` | `ConfigureProject` | No | Script to run after project configuration |
 | `supplementaryDoctorChecks` | `[DoctorCheck]` | No | Pack-level health checks |
-| `hookContributions` | `[HookContribution]` | No | Legacy hook fragments (prefer `hook:` components) |
 | `gitignoreEntries` | `[String]` | No | Legacy gitignore entries (prefer `gitignore:` component) |
 
 ### PeerDependency
@@ -425,25 +424,6 @@ The script receives:
 |----------|-------------|
 | `MCS_PROJECT_PATH` | Absolute path to the project root |
 | `MCS_RESOLVED_<KEY>` | Resolved prompt values (uppercased key) |
-
----
-
-## Hook Contributions (Legacy)
-
-```yaml
-hookContributions:
-  - hookName: session_start
-    fragmentFile: hooks/fragment.sh
-    position: after
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `hookName` | `String` | Yes | Hook name (e.g. `session_start`, `pre_tool_use`) |
-| `fragmentFile` | `String` | Yes | Path to script file in the pack repo |
-| `position` | `String` | No | `before` or `after` |
-
-> **Prefer `hook:` components** over `hookContributions`. Hook components are tracked per-project and support convergence (add/remove on re-configure). Hook contributions are a legacy mechanism.
 
 ---
 

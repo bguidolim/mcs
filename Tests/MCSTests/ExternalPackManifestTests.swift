@@ -57,10 +57,6 @@ struct ExternalPackManifestTests {
                 placeholders:
                   - __PROJECT__
                 contentFile: templates/section.md
-            hookContributions:
-              - hookName: session_start
-                fragmentFile: hooks/fragment.sh
-                position: after
             gitignoreEntries:
               - .my-pack
             prompts:
@@ -124,12 +120,6 @@ struct ExternalPackManifestTests {
         #expect(manifest.templates?[0].placeholders == ["__PROJECT__"])
         #expect(manifest.templates?[0].contentFile == "templates/section.md")
 
-        // Hook contributions
-        #expect(manifest.hookContributions?.count == 1)
-        #expect(manifest.hookContributions?[0].hookName == "session_start")
-        #expect(manifest.hookContributions?[0].fragmentFile == "hooks/fragment.sh")
-        #expect(manifest.hookContributions?[0].position == .after)
-
         // Gitignore entries
         #expect(manifest.gitignoreEntries == [".my-pack"])
 
@@ -179,7 +169,6 @@ struct ExternalPackManifestTests {
         #expect(manifest.peerDependencies == nil)
         #expect(manifest.components == nil)
         #expect(manifest.templates == nil)
-        #expect(manifest.hookContributions == nil)
         #expect(manifest.gitignoreEntries == nil)
         #expect(manifest.prompts == nil)
         #expect(manifest.configureProject == nil)
@@ -467,6 +456,33 @@ struct ExternalPackManifestTests {
               - type: hookEventExists
                 name: Bad hook check
                 section: Hooks
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("Validation rejects hookEventExists with unknown event")
+    func rejectHookEventExistsUnknownEvent() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: test
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            supplementaryDoctorChecks:
+              - type: hookEventExists
+                name: Bad hook check
+                section: Hooks
+                event: BogusEvent
             """
 
         let tmpDir = try makeTmpDir()
@@ -1079,14 +1095,6 @@ struct ExternalPackManifestTests {
         #expect(ExternalComponentType.configuration.componentType == .configuration)
     }
 
-    // MARK: - ExternalHookPosition mapping
-
-    @Test("ExternalHookPosition maps to HookPosition correctly")
-    func hookPositionMapping() {
-        #expect(ExternalHookPosition.before.hookPosition == .before)
-        #expect(ExternalHookPosition.after.hookPosition == .after)
-    }
-
     // MARK: - MCPServerConfig conversion
 
     @Test("ExternalMCPServerConfig converts to MCPServerConfig for stdio")
@@ -1697,7 +1705,6 @@ struct ExternalPackManifestTests {
                     contentFile: "t.md"
                 )
             ],
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
@@ -1712,19 +1719,23 @@ struct ExternalPackManifestTests {
         }
     }
 
-    // MARK: - Hook contribution default position
+    // MARK: - hookEvent validation
 
-    @Test("Hook contribution without position defaults to nil")
-    func hookContributionDefaultPosition() throws {
+    @Test("Validation rejects unknown hookEvent on component")
+    func rejectUnknownHookEvent() throws {
         let yaml = """
             schemaVersion: 1
-            identifier: test
-            displayName: Test
+            identifier: my-pack
+            displayName: My Pack
             description: Test
             version: "1.0.0"
-            hookContributions:
-              - hookName: session_start
-                fragmentFile: hooks/fragment.sh
+            components:
+              - id: hook
+                description: A hook
+                hookEvent: BogusEvent
+                hook:
+                  source: hooks/test.sh
+                  destination: test.sh
             """
 
         let tmpDir = try makeTmpDir()
@@ -1733,8 +1744,45 @@ struct ExternalPackManifestTests {
         let file = tmpDir.appendingPathComponent("techpack.yaml")
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
-        let manifest = try ExternalPackManifest.load(from: file)
-        #expect(manifest.hookContributions?[0].position == nil)
+        let raw = try ExternalPackManifest.load(from: file)
+        let manifest = try raw.normalized()
+
+        #expect(throws: ManifestError.invalidHookEvent(
+            componentID: "my-pack.hook",
+            hookEvent: "BogusEvent"
+        )) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("Validation accepts all known hookEvent values")
+    func acceptKnownHookEvents() throws {
+        for event in Constants.Hooks.validEvents.sorted() {
+            let yaml = """
+                schemaVersion: 1
+                identifier: my-pack
+                displayName: My Pack
+                description: Test
+                version: "1.0.0"
+                components:
+                  - id: hook
+                    description: A hook
+                    hookEvent: \(event)
+                    hook:
+                      source: hooks/test.sh
+                      destination: test.sh
+                """
+
+            let tmpDir = try makeTmpDir()
+            defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+            let file = tmpDir.appendingPathComponent("techpack.yaml")
+            try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+            let raw = try ExternalPackManifest.load(from: file)
+            let manifest = try raw.normalized()
+            try manifest.validate()
+        }
     }
 
     // MARK: - Shorthand: brew

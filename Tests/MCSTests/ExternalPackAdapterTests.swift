@@ -241,7 +241,6 @@ struct ExternalPackAdapterTests {
                     contentFile: "templates/ios.md"
                 ),
             ],
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
@@ -254,49 +253,6 @@ struct ExternalPackAdapterTests {
         #expect(templates[0].sectionIdentifier == "test-pack")
         #expect(templates[0].templateContent.contains("__PROJECT__"))
         #expect(templates[0].placeholders == ["__PROJECT__"])
-    }
-
-    // MARK: - Hook Contributions
-
-    @Test("Adapter loads hook fragment from file")
-    func hookContributionLoading() throws {
-        let tmpDir = try makeTmpDir()
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let hooksDir = tmpDir.appendingPathComponent("hooks")
-        try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        try "echo 'checking simulator'".write(
-            to: hooksDir.appendingPathComponent("sim-check.sh"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let manifest = ExternalPackManifest(
-            schemaVersion: 1,
-            identifier: "test-pack",
-            displayName: "Test Pack",
-            description: "desc",
-            version: "1.0.0",
-            minMCSVersion: nil,
-            peerDependencies: nil,
-            components: nil,
-            templates: nil,
-            hookContributions: [
-                ExternalHookContribution(hookName: "session_start", fragmentFile: "hooks/sim-check.sh", position: .after),
-            ],
-            gitignoreEntries: nil,
-            prompts: nil,
-            configureProject: nil,
-            supplementaryDoctorChecks: nil
-        )
-
-        let adapter = ExternalPackAdapter(manifest: manifest, packPath: tmpDir)
-        let hooks = try adapter.hookContributions
-        #expect(hooks.count == 1)
-        #expect(hooks[0].hookName == "session_start")
-        #expect(hooks[0].scriptFragment.contains("checking simulator"))
-        if case .after = hooks[0].position { /* expected */ }
-        else { Issue.record("Expected .after position") }
     }
 
     // MARK: - Gitignore
@@ -313,7 +269,6 @@ struct ExternalPackAdapterTests {
             peerDependencies: nil,
             components: nil,
             templates: nil,
-            hookContributions: nil,
             gitignoreEntries: [".xcodebuildmcp", ".build"],
             prompts: nil,
             configureProject: nil,
@@ -359,7 +314,6 @@ struct ExternalPackAdapterTests {
                     contentFile: "../secret.md"
                 )
             ],
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
@@ -406,7 +360,6 @@ struct ExternalPackAdapterTests {
                     contentFile: "templates/link.md"
                 )
             ],
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
@@ -416,45 +369,6 @@ struct ExternalPackAdapterTests {
 
         // Symlink escapes pack dir — should be blocked
         #expect(throws: PackAdapterError.self) { _ = try adapter.templates }
-    }
-
-    @Test("Hook fragment with ../ path traversal returns empty")
-    func hookFragmentPathTraversal() throws {
-        let tmpDir = try makeTmpDir()
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let outsideFile = tmpDir.appendingPathComponent("evil.sh")
-        try "rm -rf /".write(to: outsideFile, atomically: true, encoding: .utf8)
-
-        let packDir = tmpDir.appendingPathComponent("pack")
-        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
-
-        let manifest = ExternalPackManifest(
-            schemaVersion: 1,
-            identifier: "test-pack",
-            displayName: "Test Pack",
-            description: "A test pack",
-            version: "1.0.0",
-            minMCSVersion: nil,
-            peerDependencies: nil,
-            components: nil,
-            templates: nil,
-            hookContributions: [
-                ExternalHookContribution(
-                    hookName: "session_start",
-                    fragmentFile: "../evil.sh",
-                    position: nil
-                )
-            ],
-            gitignoreEntries: nil,
-            prompts: nil,
-            configureProject: nil,
-            supplementaryDoctorChecks: nil
-        )
-        let adapter = ExternalPackAdapter(manifest: manifest, packPath: packDir)
-
-        // Path traversal should be blocked
-        #expect(throws: PackAdapterError.self) { _ = try adapter.hookContributions }
     }
 
     // MARK: - Path Traversal via copyPackFile Source
@@ -585,7 +499,6 @@ struct ExternalPackAdapterTests {
                     contentFile: "templates/section.md"
                 )
             ],
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
@@ -611,7 +524,6 @@ struct ExternalPackAdapterTests {
             peerDependencies: nil,
             components: nil,
             templates: nil,
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
@@ -632,7 +544,6 @@ struct ExternalPackAdapterTests {
             peerDependencies: nil,
             components: components,
             templates: nil,
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,

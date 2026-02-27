@@ -32,18 +32,6 @@ struct TemplateContribution: Sendable {
     let placeholders: [String] // Required placeholder names (e.g., ["__PROJECT__"])
 }
 
-/// Hook contribution from a tech pack
-struct HookContribution: Sendable {
-    let hookName: String // e.g., "session_start"
-    let scriptFragment: String // Bash script fragment to inject
-    let position: HookPosition // Where in the hook to inject
-
-    enum HookPosition: Sendable {
-        case before // Insert before core hook content
-        case after // Insert after core hook content
-    }
-}
-
 /// Protocol that all tech packs must conform to.
 /// Packs are applied to projects via `mcs sync`.
 /// Doctor and configure only run pack-specific logic for installed packs.
@@ -56,7 +44,6 @@ protocol TechPack: Sendable {
     /// Section identifiers for template contributions, available without reading
     /// content files from disk. Used for artifact tracking and display.
     var templateSectionIdentifiers: [String] { get }
-    var hookContributions: [HookContribution] { get throws }
     var gitignoreEntries: [String] { get }
     /// Doctor checks that cannot be auto-derived from components.
     /// For pack-level or project-level concerns (e.g. Xcode CLT, config files).

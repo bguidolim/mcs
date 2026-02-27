@@ -420,13 +420,6 @@ struct AddPack: LockedCommand {
             }
         }
 
-        if let hooks = manifest.hookContributions, !hooks.isEmpty {
-            output.plain("  Hook contributions (\(hooks.count)):")
-            for hook in hooks {
-                output.plain("    - \(hook.hookName)")
-            }
-        }
-
         output.plain("")
     }
 }
@@ -510,16 +503,12 @@ struct RemovePack: LockedCommand {
         }
         if let manifest {
             let componentCount = manifest.components?.count ?? 0
-            let hookCount = manifest.hookContributions?.count ?? 0
             let gitignoreCount = manifest.gitignoreEntries?.count ?? 0
-            if componentCount + hookCount + gitignoreCount > 0 {
+            if componentCount + gitignoreCount > 0 {
                 output.plain("")
                 output.plain("  Will remove:")
                 if componentCount > 0 {
                     output.plain("    \(componentCount) component(s)")
-                }
-                if hookCount > 0 {
-                    output.plain("    \(hookCount) hook fragment(s)")
                 }
                 if gitignoreCount > 0 {
                     output.plain("    \(gitignoreCount) gitignore entry/entries")

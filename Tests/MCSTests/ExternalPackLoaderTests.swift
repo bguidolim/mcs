@@ -46,20 +46,6 @@ struct ExternalPackLoaderTests {
         """
     }
 
-    /// Create a manifest with a hook contribution.
-    private func manifestWithHook(identifier: String = "test-pack", fragmentFile: String) -> String {
-        """
-        schemaVersion: 1
-        identifier: \(identifier)
-        displayName: Test Pack
-        description: A test pack
-        version: "1.0.0"
-        hookContributions:
-          - hookName: session_start
-            fragmentFile: \(fragmentFile)
-        """
-    }
-
     /// Set up a minimal test environment with pack directories.
     private func sampleLocalEntry(
         identifier: String = "local-pack",
@@ -271,28 +257,6 @@ struct ExternalPackLoaderTests {
 
         let manifest = try loader.validate(at: packDir)
         #expect(manifest.templates?.count == 1)
-    }
-
-    @Test("Validate detects missing hook fragment files")
-    func validateMissingHookFile() throws {
-        let tmpDir = try makeTmpDir()
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let packDir = tmpDir.appendingPathComponent("missing-hook")
-        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
-
-        let yaml = manifestWithHook(fragmentFile: "hooks/fragment.sh")
-        let manifestURL = packDir.appendingPathComponent("techpack.yaml")
-        try yaml.write(to: manifestURL, atomically: true, encoding: .utf8)
-        // Do NOT create hooks/fragment.sh
-
-        let env = Environment(home: tmpDir)
-        let registry = PackRegistryFile(path: env.packsRegistry)
-        let loader = ExternalPackLoader(environment: env, registry: registry)
-
-        #expect(throws: ExternalPackLoader.LoadError.self) {
-            try loader.validate(at: packDir)
-        }
     }
 
     // MARK: - loadAll
@@ -645,7 +609,6 @@ struct PeerDependencyValidatorTests {
             peerDependencies: peers.isEmpty ? nil : peers,
             components: nil,
             templates: nil,
-            hookContributions: nil,
             gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,

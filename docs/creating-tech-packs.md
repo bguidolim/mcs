@@ -158,7 +158,7 @@ Hook scripts run at specific Claude Code lifecycle events:
 
 This copies `hooks/session_start.sh` from your pack repo into `<project>/.claude/hooks/` and registers it in `settings.local.json` under the `SessionStart` event.
 
-Available events: `SessionStart`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`.
+Available events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `SubagentStart`, `SubagentStop`, `Stop`, `TeammateIdle`, `TaskCompleted`, `ConfigChange`, `WorktreeCreate`, `WorktreeRemove`, `PreCompact`, `SessionEnd`.
 
 ### Skills
 

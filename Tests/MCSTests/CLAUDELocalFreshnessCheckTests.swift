@@ -440,7 +440,6 @@ private struct StubTechPack: TechPack {
     let description: String = "A stub pack for testing"
     let components: [ComponentDefinition] = []
     let templates: [TemplateContribution]
-    let hookContributions: [HookContribution] = []
     let gitignoreEntries: [String] = []
     let supplementaryDoctorChecks: [any DoctorCheck] = []
 
@@ -455,7 +454,6 @@ private struct ThrowingTechPack: TechPack {
     var templates: [TemplateContribution] {
         get throws { throw TestError.templateLoadFailed }
     }
-    let hookContributions: [HookContribution] = []
     let gitignoreEntries: [String] = []
     let supplementaryDoctorChecks: [any DoctorCheck] = []
 

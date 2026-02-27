@@ -92,20 +92,6 @@ struct PackTrustManager: Sendable {
             }
         }
 
-        // Hook contribution scripts
-        if let hooks = manifest.hookContributions {
-            for hook in hooks {
-                let scriptFile = packPath.appendingPathComponent(hook.fragmentFile)
-                let content = try readFileContent(at: scriptFile, fallback: hook.fragmentFile)
-                items.append(TrustableItem(
-                    type: .hookFragment,
-                    relativePath: hook.fragmentFile,
-                    content: content,
-                    description: "Hook fragment injected into \(hook.hookName) — runs on every session"
-                ))
-            }
-        }
-
         // Prompt script commands
         if let prompts = manifest.prompts {
             for prompt in prompts where prompt.type == .script {
@@ -164,7 +150,7 @@ struct PackTrustManager: Sendable {
 
         if !hookFragments.isEmpty {
             output.plain("")
-            output.sectionHeader("Hook Fragments (run on every session)")
+            output.sectionHeader("Hook Files (run on every session)")
             for item in hookFragments {
                 let lineCount = item.content.components(separatedBy: "\n").count
                 let path = item.relativePath ?? "inline"
@@ -416,7 +402,7 @@ struct TrustableItem: Sendable {
 
     enum TrustableType: Sendable {
         case shellCommand      // From component install actions
-        case hookFragment      // From hook contributions (runs on every session)
+        case hookFragment      // From hook component files (runs on every session)
         case configureScript   // From configureProject
         case doctorCommand     // From commandExists doctor checks (runs during doctor)
         case doctorScript      // From shellScript doctor checks

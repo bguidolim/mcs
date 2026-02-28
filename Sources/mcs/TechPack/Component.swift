@@ -79,6 +79,17 @@ enum CopyFileType: String, Sendable {
 }
 
 extension CopyFileType {
+    /// Relative subdirectory within `.claude/` (e.g. `"skills/"`, `"hooks/"`).
+    /// Returns `""` for `.generic`.
+    var subdirectory: String {
+        switch self {
+        case .skill: return "skills/"
+        case .hook: return "hooks/"
+        case .command: return "commands/"
+        case .generic: return ""
+        }
+    }
+
     func baseDirectory(in environment: Environment) -> URL {
         switch self {
         case .skill: return environment.skillsDirectory

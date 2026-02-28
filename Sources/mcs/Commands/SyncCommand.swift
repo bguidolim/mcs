@@ -68,11 +68,12 @@ struct SyncCommand: LockedCommand {
         shell: ShellRunner,
         registry: TechPackRegistry
     ) throws {
-        let configurator = GlobalConfigurator(
+        let configurator = Configurator(
             environment: env,
             output: output,
             shell: shell,
-            registry: registry
+            registry: registry,
+            strategy: GlobalSyncStrategy(environment: env)
         )
 
         let persistedExclusions: [String: Set<String>]
@@ -163,11 +164,12 @@ struct SyncCommand: LockedCommand {
             try lockOps.checkoutLockedVersions(at: projectPath)
         }
 
-        let configurator = ProjectConfigurator(
+        let configurator = Configurator(
             environment: env,
             output: output,
             shell: shell,
-            registry: registry
+            registry: registry,
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
 
         // Load persisted exclusions for non-interactive paths
@@ -194,9 +196,9 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                try configurator.dryRun(at: projectPath, packs: allPacks)
+                try configurator.dryRun(packs: allPacks)
             } else {
-                try configurator.configure(at: projectPath, packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
+                try configurator.configure(packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
                 output.info("Run 'mcs doctor' to verify configuration")
             }
@@ -221,15 +223,15 @@ struct SyncCommand: LockedCommand {
             output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
 
             if dryRun {
-                try configurator.dryRun(at: projectPath, packs: resolvedPacks)
+                try configurator.dryRun(packs: resolvedPacks)
             } else {
-                try configurator.configure(at: projectPath, packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
+                try configurator.configure(packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
                 output.header("Done")
                 output.info("Run 'mcs doctor' to verify configuration")
             }
         } else {
             // Interactive flow — multi-select of all registered packs
-            try configurator.interactiveConfigure(at: projectPath, dryRun: dryRun, customize: customize)
+            try configurator.interactiveConfigure(dryRun: dryRun, customize: customize)
         }
 
         // Write lockfile after successful sync (unless dry-run)

@@ -116,7 +116,7 @@ struct PackInstaller {
             )
 
         case .settingsMerge:
-            // Settings merge is handled at the project level by ProjectConfigurator.
+            // Settings merge is handled at the project level by Configurator.
             return true
         }
     }

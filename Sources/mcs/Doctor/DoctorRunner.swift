@@ -177,6 +177,16 @@ struct DoctorRunner {
             let context = ProjectDoctorContext(projectRoot: root, registry: registry)
             nonComponentChecks += ProjectDoctorChecks.checks(context: context)
         }
+
+        // Global-scoped template freshness check (always runs, self-skips if no global CLAUDE.md)
+        nonComponentChecks.append(CLAUDEMDFreshnessCheck(
+            fileURL: env.globalClaudeMD,
+            stateLoader: { try ProjectState(stateFile: env.globalStateFile) },
+            registry: registry,
+            displayName: "CLAUDE.md freshness (global)",
+            syncHint: "mcs sync --global"
+        ))
+
         allChecks += nonComponentChecks.map { (check: $0, isExcluded: false) }
 
         // Group by section

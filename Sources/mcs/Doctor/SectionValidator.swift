@@ -158,6 +158,7 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
 
     var name: String { displayName }
     var section: String { "Templates" }
+    var fixCommandPreview: String? { "re-render outdated sections from stored values" }
 
     func check() -> CheckResult {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
@@ -199,9 +200,29 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
         }
 
         if result.hasOutdated {
-            let outdated = result.outdatedSections.map { "\($0.identifier) (\($0.detail))" }
-            return .fail("outdated sections: \(outdated.joined(separator: ", ")) — run '\(syncHint)' or 'mcs doctor --fix'")
+            var lines = ["outdated sections"]
+            for section in result.outdatedSections {
+                lines.append("  ↳ \(section.identifier) (\(section.detail))")
+            }
+            lines.append("  run '\(syncHint)' or 'mcs doctor --fix'")
+            return .fail(lines.joined(separator: "\n"))
         }
+
+        // Warn about unreplaced placeholders in installed sections
+        var unreplacedPlaceholders = Set<String>()
+        for section in sections {
+            for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: section.content) {
+                unreplacedPlaceholders.insert(placeholder)
+            }
+        }
+        if !unreplacedPlaceholders.isEmpty {
+            var lines = ["unresolved placeholders in \(fileURL.lastPathComponent)"]
+            for placeholder in unreplacedPlaceholders.sorted() {
+                lines.append("  ↳ \(placeholder)")
+            }
+            return .warn(lines.joined(separator: "\n"))
+        }
+
         return .pass("all sections up to date (content verified)")
     }
 
@@ -259,7 +280,8 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
             for contribution in templates {
                 let rendered = TemplateEngine.substitute(
                     template: contribution.templateContent,
-                    values: values
+                    values: values,
+                    emitWarnings: false
                 )
                 expected[contribution.sectionIdentifier] = (
                     version: MCSVersion.current,

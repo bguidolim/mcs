@@ -761,6 +761,10 @@ struct GlobalConfigurator {
     // MARK: - CLAUDE.md Composition
 
     /// Compose `~/.claude/CLAUDE.md` from all selected packs' pre-loaded template contributions.
+    ///
+    /// Before writing, checks for unreplaced placeholders (e.g. `__REPO_NAME__`) that
+    /// cannot be resolved in global scope. If found, presents a three-way prompt:
+    /// proceed (keep literal placeholders), skip (omit affected sections), or stop.
     private func composeGlobalClaudeMD(
         packs: [any TechPack],
         preloadedTemplates: [String: [TemplateContribution]],
@@ -777,7 +781,69 @@ struct GlobalConfigurator {
 
         guard !allContributions.isEmpty else { return }
 
+        // Check for unreplaced placeholders before writing
+        var affectedSections: Set<String> = []
+        var placeholdersBySectionID: [String: [String]] = [:]
+        for contribution in allContributions {
+            let rendered = TemplateEngine.substitute(
+                template: contribution.templateContent,
+                values: values,
+                emitWarnings: false
+            )
+            let unreplaced = TemplateEngine.findUnreplacedPlaceholders(in: rendered)
+            if !unreplaced.isEmpty {
+                affectedSections.insert(contribution.sectionIdentifier)
+                placeholdersBySectionID[contribution.sectionIdentifier] = unreplaced
+            }
+        }
+
+        if !affectedSections.isEmpty {
+            output.warn("Global templates contain placeholders that cannot be resolved:")
+            for (sectionID, placeholders) in placeholdersBySectionID.sorted(by: { $0.key < $1.key }) {
+                output.warn("  \(placeholders.joined(separator: ", ")) in: \(sectionID)")
+            }
+            output.plain("")
+
+            let choice = promptPlaceholderAction()
+            switch choice {
+            case .proceed:
+                break
+            case .skip:
+                allContributions.removeAll { affectedSections.contains($0.sectionIdentifier) }
+                if allContributions.isEmpty {
+                    output.info("All template sections contained unresolved placeholders — skipping CLAUDE.md composition.")
+                    return
+                }
+            case .stop:
+                throw MCSError.configurationFailed(
+                    reason: "Aborted: templates contain unresolved placeholders. "
+                        + "Remove project-scoped placeholders from global templates or provide values via pack prompts."
+                )
+            }
+        }
+
         try writeGlobalClaudeMD(contributions: allContributions, values: values)
+    }
+
+    /// Three-way prompt for handling unreplaced template placeholders.
+    private enum PlaceholderAction {
+        case proceed, skip, stop
+    }
+
+    private func promptPlaceholderAction() -> PlaceholderAction {
+        output.plain("  [p]roceed — include sections with unresolved placeholders")
+        output.plain("  [s]kip    — omit sections containing unresolved placeholders")
+        output.plain("  s[t]op    — abort global sync")
+        while true {
+            let answer = output.promptInline("Choose", default: "p").lowercased()
+            switch answer.first {
+            case "p": return .proceed
+            case "s": return .skip
+            case "t": return .stop
+            default:
+                output.plain("  Please enter p, s, or t.")
+            }
+        }
     }
 
     /// Compose and write `~/.claude/CLAUDE.md` from template contributions.

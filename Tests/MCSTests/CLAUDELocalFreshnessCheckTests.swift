@@ -383,6 +383,95 @@ struct CLAUDEMDFreshnessCheckTests {
         }
     }
 
+    // MARK: - Outdated sections multi-line format
+
+    @Test("Outdated sections message uses multi-line format with indentation")
+    func outdatedSectionsFormat() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let resolvedValues = ["NAME": "World"]
+
+        try writeClaudeLocal(at: tmpDir, sections: [
+            (id: "pack-a", version: MCSVersion.current, content: "Tampered A"),
+            (id: "pack-b", version: MCSVersion.current, content: "Tampered B"),
+        ])
+        try writeProjectState(at: tmpDir, packs: ["pack-a", "pack-b"], resolvedValues: resolvedValues)
+
+        let registry = makeRegistry(packs: [
+            (id: "pack-a", templates: [
+                TemplateContribution(sectionIdentifier: "pack-a", templateContent: "Original A", placeholders: []),
+            ]),
+            (id: "pack-b", templates: [
+                TemplateContribution(sectionIdentifier: "pack-b", templateContent: "Original B", placeholders: []),
+            ]),
+        ])
+        let check = makeProjectCheck(projectRoot: tmpDir, registry: registry)
+
+        let result = check.check()
+        if case .fail(let msg) = result {
+            // Each section appears on its own indented line
+            #expect(msg.contains("↳ pack-a"))
+            #expect(msg.contains("↳ pack-b"))
+            // Hint appears on its own line
+            #expect(msg.contains("run 'mcs sync' or 'mcs doctor --fix'"))
+            // Multi-line format uses newlines
+            #expect(msg.contains("\n"))
+        } else {
+            Issue.record("Expected fail but got \(result)")
+        }
+    }
+
+    // MARK: - fixCommandPreview
+
+    @Test("fixCommandPreview returns a descriptive string")
+    func fixCommandPreviewIsSet() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let registry = makeRegistry(packs: [])
+        let check = makeProjectCheck(projectRoot: tmpDir, registry: registry)
+        #expect(check.fixCommandPreview != nil)
+    }
+
+    // MARK: - Unreplaced placeholders warn
+
+    @Test("Sections up to date but with unreplaced placeholders — warns")
+    func unreplacedPlaceholdersWarn() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Template has __REPO_NAME__ with no value provided
+        let templateContent = "Project: __REPO_NAME__"
+        let resolvedValues: [String: String] = [:]
+        let rendered = TemplateEngine.substitute(
+            template: templateContent,
+            values: resolvedValues,
+            emitWarnings: false
+        )
+        // rendered = "Project: __REPO_NAME__" (unreplaced)
+
+        try writeClaudeLocal(at: tmpDir, sections: [
+            (id: "test-pack", version: MCSVersion.current, content: rendered),
+        ])
+        try writeProjectState(at: tmpDir, packs: ["test-pack"], resolvedValues: resolvedValues)
+
+        let registry = makeRegistry(packs: [
+            (id: "test-pack", templates: [
+                TemplateContribution(sectionIdentifier: "test-pack", templateContent: templateContent, placeholders: ["__REPO_NAME__"]),
+            ]),
+        ])
+        let check = makeProjectCheck(projectRoot: tmpDir, registry: registry)
+
+        let result = check.check()
+        if case .warn(let msg) = result {
+            #expect(msg.contains("unresolved placeholders"))
+            #expect(msg.contains("__REPO_NAME__"))
+        } else {
+            Issue.record("Expected warn but got \(result)")
+        }
+    }
+
     // MARK: - Corrupt state file
 
     @Test("Corrupt state — check warns with descriptive message")

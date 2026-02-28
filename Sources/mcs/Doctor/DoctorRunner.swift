@@ -174,8 +174,18 @@ struct DoctorRunner {
         nonComponentChecks += registry.supplementaryDoctorChecks(installedPacks: installedPackIDs)
         nonComponentChecks += standaloneDoctorChecks(installedPackIDs: installedPackIDs)
         if let root = projectRoot {
-            let context = ProjectDoctorContext(projectRoot: root, registry: registry)
-            nonComponentChecks += ProjectDoctorChecks.checks(context: context)
+            // Only add project-scoped checks if mcs was used in this project
+            let claudeLocalExists = FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(Constants.FileNames.claudeLocalMD).path
+            )
+            let mcsProjectExists = FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(Constants.FileNames.claudeDirectory)
+                    .appendingPathComponent(Constants.FileNames.mcsProject).path
+            )
+            if claudeLocalExists || mcsProjectExists {
+                let context = ProjectDoctorContext(projectRoot: root, registry: registry)
+                nonComponentChecks += ProjectDoctorChecks.checks(context: context)
+            }
         }
 
         // Global-scoped template freshness check (always runs, self-skips if no global CLAUDE.md)

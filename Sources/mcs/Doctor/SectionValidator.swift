@@ -278,7 +278,18 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
                 errors.append("\(packID): failed to load templates — \(error.localizedDescription)")
                 continue
             }
+
+            // Only expect sections that were actually written to the file.
+            // When user skips sections with unresolved placeholders during
+            // global sync, those section IDs are removed from the artifact
+            // record's templateSections. If no artifact record exists
+            // (backward compat), include all sections.
+            let writtenSections = state.artifacts(for: packID)?.templateSections
+
             for contribution in templates {
+                if let writtenSections, !writtenSections.contains(contribution.sectionIdentifier) {
+                    continue
+                }
                 let rendered = TemplateEngine.substitute(
                     template: contribution.templateContent,
                     values: values,

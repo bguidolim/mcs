@@ -33,7 +33,8 @@ struct CLAUDEMDFreshnessCheckTests {
     private func writeProjectState(
         at projectRoot: URL,
         packs: [String],
-        resolvedValues: [String: String]? = nil
+        resolvedValues: [String: String]? = nil,
+        artifacts: [String: PackArtifactRecord]? = nil
     ) throws {
         var state = try ProjectState(projectRoot: projectRoot)
         for pack in packs {
@@ -41,6 +42,11 @@ struct CLAUDEMDFreshnessCheckTests {
         }
         if let values = resolvedValues {
             state.setResolvedValues(values)
+        }
+        if let artifacts {
+            for (packID, record) in artifacts {
+                state.setArtifacts(record, for: packID)
+            }
         }
         try state.save()
     }
@@ -469,6 +475,92 @@ struct CLAUDEMDFreshnessCheckTests {
             #expect(msg.contains("__REPO_NAME__"))
         } else {
             Issue.record("Expected warn but got \(result)")
+        }
+    }
+
+    // MARK: - Corrupt state file
+
+    // MARK: - Skipped sections (global placeholder skip)
+
+    @Test("Skipped sections are not reported as missing when artifact record excludes them")
+    func skippedSectionsNotReportedAsMissing() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let templateA = "Section A content"
+        let templateB = "Section B with __REPO_NAME__"
+        let resolvedValues: [String: String] = [:]
+
+        // Only section-a was written (user skipped section-b due to unresolved placeholder)
+        let renderedA = TemplateEngine.substitute(template: templateA, values: resolvedValues, emitWarnings: false)
+        try writeClaudeLocal(at: tmpDir, sections: [
+            (id: "test-pack.section-a", version: MCSVersion.current, content: renderedA),
+        ])
+
+        // Artifact record tracks only section-a (section-b was skipped)
+        try writeProjectState(
+            at: tmpDir,
+            packs: ["test-pack"],
+            resolvedValues: resolvedValues,
+            artifacts: ["test-pack": PackArtifactRecord(templateSections: ["test-pack.section-a"])]
+        )
+
+        let registry = makeRegistry(packs: [
+            (id: "test-pack", templates: [
+                TemplateContribution(sectionIdentifier: "test-pack.section-a", templateContent: templateA, placeholders: []),
+                TemplateContribution(sectionIdentifier: "test-pack.section-b", templateContent: templateB, placeholders: ["__REPO_NAME__"]),
+            ]),
+        ])
+        let check = makeProjectCheck(projectRoot: tmpDir, registry: registry)
+
+        let result = check.check()
+        if case .pass(let msg) = result {
+            #expect(msg.contains("content verified"))
+        } else {
+            Issue.record("Expected pass but got \(result)")
+        }
+    }
+
+    @Test("Fix does not add back skipped sections")
+    func fixDoesNotAddSkippedSections() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let templateA = "Section A __NAME__"
+        let templateB = "Section B with __REPO_NAME__"
+        let resolvedValues = ["NAME": "World"]
+
+        // Write section-a with drifted content to trigger a fix
+        try writeClaudeLocal(at: tmpDir, sections: [
+            (id: "test-pack.section-a", version: MCSVersion.current, content: "Tampered content"),
+        ])
+
+        // Artifact record tracks only section-a
+        try writeProjectState(
+            at: tmpDir,
+            packs: ["test-pack"],
+            resolvedValues: resolvedValues,
+            artifacts: ["test-pack": PackArtifactRecord(templateSections: ["test-pack.section-a"])]
+        )
+
+        let registry = makeRegistry(packs: [
+            (id: "test-pack", templates: [
+                TemplateContribution(sectionIdentifier: "test-pack.section-a", templateContent: templateA, placeholders: ["__NAME__"]),
+                TemplateContribution(sectionIdentifier: "test-pack.section-b", templateContent: templateB, placeholders: ["__REPO_NAME__"]),
+            ]),
+        ])
+        let check = makeProjectCheck(projectRoot: tmpDir, registry: registry)
+
+        let fixResult = check.fix()
+        if case .fixed = fixResult {
+            // Verify section-b was NOT added to the file
+            let content = try String(contentsOf: tmpDir.appendingPathComponent(Constants.FileNames.claudeLocalMD), encoding: .utf8)
+            #expect(!content.contains("section-b"))
+            #expect(!content.contains("__REPO_NAME__"))
+            // Verify section-a was fixed
+            #expect(content.contains("Section A World"))
+        } else {
+            Issue.record("Expected fixed but got \(fixResult)")
         }
     }
 

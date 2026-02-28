@@ -264,7 +264,11 @@ struct ProjectConfigurator {
 
         // 3. Resolve all template/placeholder values upfront (single pass)
         let repoName = resolveRepoName(at: projectPath)
-        var allValues = try resolveAllTemplateValues(packs: packs, projectPath: projectPath, repoName: repoName)
+        let projectDirName = resolveProjectDirName(at: projectPath)
+        var allValues = try resolveAllTemplateValues(
+            packs: packs, projectPath: projectPath,
+            repoName: repoName, projectDirName: projectDirName
+        )
 
         // 4. Auto-prompt for undeclared placeholders in pack files
         let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(
@@ -798,13 +802,18 @@ struct ProjectConfigurator {
     // MARK: - Value Resolution
 
     /// Resolve all template/placeholder values from pack prompts in a single pass.
-    /// Returns a merged dictionary with `REPO_NAME` and all pack-declared prompt values.
+    /// Returns a merged dictionary with built-in placeholders (`REPO_NAME`, `PROJECT_DIR_NAME`)
+    /// and all pack-declared prompt values.
     private func resolveAllTemplateValues(
         packs: [any TechPack],
         projectPath: URL,
-        repoName: String
+        repoName: String,
+        projectDirName: String
     ) throws -> [String: String] {
-        var allValues: [String: String] = ["REPO_NAME": repoName]
+        var allValues: [String: String] = [
+            "REPO_NAME": repoName,
+            "PROJECT_DIR_NAME": projectDirName,
+        ]
         let context = ProjectConfigContext(
             projectPath: projectPath,
             repoName: repoName,
@@ -830,6 +839,26 @@ struct ProjectConfigurator {
     }
 
     private func resolveRepoName(at projectPath: URL) -> String {
+        // Prefer the repository name from git remote URL
+        let remoteResult = shell.run(
+            "/usr/bin/git",
+            arguments: ["-C", projectPath.path, "remote", "get-url", "origin"]
+        )
+        if remoteResult.succeeded, !remoteResult.stdout.isEmpty {
+            if let parsed = Self.parseRepoName(from: remoteResult.stdout) {
+                return parsed
+            }
+            output.warn(
+                "Could not parse repo name from remote URL '\(remoteResult.stdout)'"
+                + " — falling back to directory name"
+            )
+        }
+
+        // Fallback: directory name from git toplevel
+        return resolveProjectDirName(at: projectPath)
+    }
+
+    private func resolveProjectDirName(at projectPath: URL) -> String {
         let gitResult = shell.run(
             "/usr/bin/git",
             arguments: ["-C", projectPath.path, "rev-parse", "--show-toplevel"]
@@ -838,5 +867,39 @@ struct ProjectConfigurator {
             return URL(fileURLWithPath: gitResult.stdout).lastPathComponent
         }
         return projectPath.lastPathComponent
+    }
+
+    /// Parse the repository name from a git remote URL.
+    ///
+    /// Handles any URL with a scheme (`://`) and SCP-style SSH formats:
+    /// - `https://github.com/user/repo.git` → `repo`
+    /// - `git@github.com:user/repo.git` → `repo`
+    /// - `ssh://git@github.com/user/repo.git` → `repo`
+    /// - `file:///Users/dev/repos/my-repo.git` → `my-repo`
+    /// - `https://github.com/user/repo` (no `.git`) → `repo`
+    ///
+    /// Returns `nil` if the URL cannot be parsed.
+    static func parseRepoName(from remoteURL: String) -> String? {
+        let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let lastComponent: String
+
+        if trimmed.contains("://") {
+            guard let url = URL(string: trimmed) else { return nil }
+            lastComponent = url.lastPathComponent
+        } else if let colonIndex = trimmed.firstIndex(of: ":") {
+            // SCP-style: git@host:user/repo.git
+            let afterColon = trimmed[trimmed.index(after: colonIndex)...]
+            guard let last = afterColon.split(separator: "/").last else { return nil }
+            lastComponent = String(last)
+        } else {
+            return nil
+        }
+
+        guard !lastComponent.isEmpty, lastComponent != "/" else { return nil }
+
+        let name = lastComponent.strippingGitSuffix
+        return name.isEmpty ? nil : name
     }
 }

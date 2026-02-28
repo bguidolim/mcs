@@ -989,3 +989,73 @@ private struct MockTechPack: TechPack {
 
     func configureProject(at path: URL, context: ProjectConfigContext) throws {}
 }
+
+// MARK: - parseRepoName Tests
+
+@Suite("ProjectConfigurator — parseRepoName")
+struct ParseRepoNameTests {
+    @Test("HTTPS URL with .git suffix")
+    func httpsWithGit() {
+        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/user/awesome-app.git") == "awesome-app")
+    }
+
+    @Test("HTTPS URL without .git suffix")
+    func httpsWithoutGit() {
+        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/user/repo") == "repo")
+    }
+
+    @Test("SCP-style SSH URL")
+    func sshScp() {
+        #expect(ProjectConfigurator.parseRepoName(from: "git@github.com:user/awesome-app.git") == "awesome-app")
+    }
+
+    @Test("ssh:// protocol URL")
+    func sshProtocol() {
+        #expect(ProjectConfigurator.parseRepoName(from: "ssh://git@github.com/user/repo.git") == "repo")
+    }
+
+    @Test("GitLab HTTPS URL")
+    func gitlabHttps() {
+        #expect(ProjectConfigurator.parseRepoName(from: "https://gitlab.com/org/my-project.git") == "my-project")
+    }
+
+    @Test("GitLab SSH URL")
+    func gitlabSsh() {
+        #expect(ProjectConfigurator.parseRepoName(from: "git@gitlab.com:org/my-project.git") == "my-project")
+    }
+
+    @Test("GitLab subgroup HTTPS URL")
+    func gitlabSubgroup() {
+        #expect(ProjectConfigurator.parseRepoName(from: "https://gitlab.com/org/subgroup/repo.git") == "repo")
+    }
+
+    @Test("GitLab subgroup SSH URL")
+    func gitlabSubgroupSsh() {
+        #expect(ProjectConfigurator.parseRepoName(from: "git@gitlab.com:org/subgroup/repo.git") == "repo")
+    }
+
+    @Test("Empty string returns nil")
+    func emptyString() {
+        #expect(ProjectConfigurator.parseRepoName(from: "") == nil)
+    }
+
+    @Test("Whitespace-only returns nil")
+    func whitespaceOnly() {
+        #expect(ProjectConfigurator.parseRepoName(from: "   \n") == nil)
+    }
+
+    @Test("URL ending in just .git returns nil")
+    func onlyDotGit() {
+        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/.git") == nil)
+    }
+
+    @Test("Trailing newline is trimmed")
+    func trailingNewline() {
+        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/user/repo.git\n") == "repo")
+    }
+
+    @Test("file:// protocol URL")
+    func fileProtocol() {
+        #expect(ProjectConfigurator.parseRepoName(from: "file:///Users/dev/repos/my-repo.git") == "my-repo")
+    }
+}

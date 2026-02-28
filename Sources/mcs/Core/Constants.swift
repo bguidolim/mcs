@@ -87,3 +87,12 @@ enum Constants {
         static let officialMarketplaceRepo = "anthropics/claude-plugins-official"
     }
 }
+
+// MARK: - String Helpers
+
+extension String {
+    /// Strips a trailing `.git` suffix, e.g. `"repo.git"` → `"repo"`.
+    var strippingGitSuffix: String {
+        hasSuffix(".git") ? String(dropLast(4)) : self
+    }
+}

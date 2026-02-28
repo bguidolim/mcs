@@ -160,20 +160,22 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
     var section: String { "Templates" }
     var fixCommandPreview: String? { "re-render outdated sections from stored values" }
 
+    private var fileName: String { fileURL.lastPathComponent }
+
     func check() -> CheckResult {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return .skip("\(fileURL.lastPathComponent) not found")
+            return .skip("\(fileName) not found")
         }
         let content: String
         do {
             content = try String(contentsOf: fileURL, encoding: .utf8)
         } catch {
-            return .fail("\(fileURL.lastPathComponent) exists but could not be read: \(error.localizedDescription)")
+            return .fail("\(fileName) exists but could not be read: \(error.localizedDescription)")
         }
 
         let sections = TemplateComposer.parseSections(from: content)
         guard !sections.isEmpty else {
-            return .warn("\(fileURL.lastPathComponent) has no mcs section markers — run '\(syncHint)'")
+            return .warn("\(fileName) has no mcs section markers — run '\(syncHint)'")
         }
 
         let state: ProjectState
@@ -209,14 +211,11 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
         }
 
         // Warn about unreplaced placeholders in installed sections
-        var unreplacedPlaceholders = Set<String>()
-        for section in sections {
-            for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: section.content) {
-                unreplacedPlaceholders.insert(placeholder)
-            }
-        }
+        let unreplacedPlaceholders = Set(sections.flatMap {
+            TemplateEngine.findUnreplacedPlaceholders(in: $0.content)
+        })
         if !unreplacedPlaceholders.isEmpty {
-            var lines = ["unresolved placeholders in \(fileURL.lastPathComponent)"]
+            var lines = ["unresolved placeholders in \(fileName)"]
             for placeholder in unreplacedPlaceholders.sorted() {
                 lines.append("  ↳ \(placeholder)")
             }
@@ -235,7 +234,7 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
         }
 
         guard let storedValues = state.resolvedValues else {
-            return .notFixable("Run '\(syncHint)' to update \(fileURL.lastPathComponent) (no stored values for auto-fix)")
+            return .notFixable("Run '\(syncHint)' to update \(fileName) (no stored values for auto-fix)")
         }
 
         let (expectedSections, buildErrors) = buildExpectedSections(state: state, values: storedValues)
@@ -249,12 +248,14 @@ struct CLAUDEMDFreshnessCheck: DoctorCheck, Sendable {
             if updated {
                 return .fixed("re-rendered outdated sections from stored values")
             }
+            // SectionValidator.fix returns false both when nothing needs fixing
+            // AND when it cannot read the file — distinguish by checking readability.
             guard FileManager.default.isReadableFile(atPath: fileURL.path) else {
-                return .failed("\(fileURL.lastPathComponent) became unreadable during fix")
+                return .failed("\(fileName) became unreadable during fix")
             }
             return .fixed("no changes needed")
         } catch {
-            return .failed("could not fix \(fileURL.lastPathComponent): \(error.localizedDescription)")
+            return .failed("could not fix \(fileName): \(error.localizedDescription)")
         }
     }
 

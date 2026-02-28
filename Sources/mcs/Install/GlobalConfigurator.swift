@@ -320,8 +320,6 @@ struct GlobalConfigurator {
             output.error("Cross-project resource tracking may be inaccurate. Re-run 'mcs sync --global' to retry.")
         }
 
-        // 8. Inform user about project-scoped features that were skipped
-        printProjectScopedSkips(packs: packs)
     }
 
     // MARK: - Pack Unconfiguration
@@ -470,23 +468,28 @@ struct GlobalConfigurator {
         // Remove template sections from ~/.claude/CLAUDE.md
         if !artifacts.templateSections.isEmpty {
             let claudeMDPath = environment.globalClaudeMD
-            do {
-                let content = try String(contentsOf: claudeMDPath, encoding: .utf8)
-                var updated = content
-                for sectionID in artifacts.templateSections {
-                    updated = TemplateComposer.removeSection(in: updated, sectionIdentifier: sectionID)
-                }
-                if updated != content {
-                    try updated.write(to: claudeMDPath, atomically: true, encoding: .utf8)
-                    for sectionID in artifacts.templateSections {
-                        output.dimmed("  Removed template section: \(sectionID)")
-                    }
-                } else {
-                    output.dimmed("  Template sections already absent from CLAUDE.md")
-                }
+            if !FileManager.default.fileExists(atPath: claudeMDPath.path) {
                 remaining.templateSections = []
-            } catch {
-                output.warn("Could not update CLAUDE.md: \(error.localizedDescription)")
+                output.dimmed("  CLAUDE.md not found — clearing template section records")
+            } else {
+                do {
+                    let content = try String(contentsOf: claudeMDPath, encoding: .utf8)
+                    var updated = content
+                    for sectionID in artifacts.templateSections {
+                        updated = TemplateComposer.removeSection(in: updated, sectionIdentifier: sectionID)
+                    }
+                    if updated != content {
+                        try updated.write(to: claudeMDPath, atomically: true, encoding: .utf8)
+                        for sectionID in artifacts.templateSections {
+                            output.dimmed("  Removed template section: \(sectionID)")
+                        }
+                    } else {
+                        output.dimmed("  Template sections already absent from CLAUDE.md")
+                    }
+                    remaining.templateSections = []
+                } catch {
+                    output.warn("Could not update CLAUDE.md: \(error.localizedDescription)")
+                }
             }
         }
 
@@ -617,11 +620,10 @@ struct GlobalConfigurator {
             }
         }
 
-        // Track template sections from pre-loaded cache, or fall back to manifest identifiers
+        // Track template sections from pre-loaded cache only — if loading failed
+        // earlier, we must not record sections that were never written.
         if let templates = preloadedTemplates {
             artifacts.templateSections = templates.map(\.sectionIdentifier)
-        } else {
-            artifacts.templateSections = pack.templateSectionIdentifiers
         }
 
         return artifacts
@@ -782,7 +784,6 @@ struct GlobalConfigurator {
         guard !allContributions.isEmpty else { return }
 
         // Check for unreplaced placeholders before writing
-        var affectedSections: Set<String> = []
         var placeholdersBySectionID: [String: [String]] = [:]
         for contribution in allContributions {
             let rendered = TemplateEngine.substitute(
@@ -792,18 +793,18 @@ struct GlobalConfigurator {
             )
             let unreplaced = TemplateEngine.findUnreplacedPlaceholders(in: rendered)
             if !unreplaced.isEmpty {
-                affectedSections.insert(contribution.sectionIdentifier)
                 placeholdersBySectionID[contribution.sectionIdentifier] = unreplaced
             }
         }
 
-        if !affectedSections.isEmpty {
+        if !placeholdersBySectionID.isEmpty {
             output.warn("Global templates contain placeholders that cannot be resolved:")
             for (sectionID, placeholders) in placeholdersBySectionID.sorted(by: { $0.key < $1.key }) {
                 output.warn("  \(placeholders.joined(separator: ", ")) in: \(sectionID)")
             }
             output.plain("")
 
+            let affectedSections = Set(placeholdersBySectionID.keys)
             let choice = promptPlaceholderAction()
             switch choice {
             case .proceed:
@@ -852,23 +853,24 @@ struct GlobalConfigurator {
         values: [String: String]
     ) throws {
         let claudeMDPath = environment.globalClaudeMD
-        let fm = FileManager.default
+        let fileExists = FileManager.default.fileExists(atPath: claudeMDPath.path)
 
-        let existingContent: String? = fm.fileExists(atPath: claudeMDPath.path)
+        let existingContent: String? = fileExists
             ? try String(contentsOf: claudeMDPath, encoding: .utf8)
             : nil
 
         let result = TemplateComposer.composeOrUpdate(
             existingContent: existingContent,
             contributions: contributions,
-            values: values
+            values: values,
+            emitWarnings: false
         )
 
         for warning in result.warnings {
             output.warn(warning)
         }
 
-        if fm.fileExists(atPath: claudeMDPath.path) {
+        if fileExists {
             var backup = Backup()
             try backup.backupFile(at: claudeMDPath)
         }
@@ -895,9 +897,4 @@ struct GlobalConfigurator {
         try ConfiguratorSupport.ensureGitignoreEntries(shell: shell)
     }
 
-    /// Print a summary of project-scoped features that were skipped during global sync.
-    private func printProjectScopedSkips(packs: [any TechPack]) {
-        // Templates are now composed into ~/.claude/CLAUDE.md during global sync.
-        // No project-scoped features are currently skipped.
-    }
 }

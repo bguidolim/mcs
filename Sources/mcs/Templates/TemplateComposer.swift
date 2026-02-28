@@ -25,13 +25,16 @@ enum TemplateComposer {
     static func compose(
         coreContent: String,
         packContributions: [TemplateContribution] = [],
-        values: [String: String] = [:]
+        values: [String: String] = [:],
+        emitWarnings: Bool = true
     ) -> String {
         let version = MCSVersion.current
         var parts: [String] = []
 
         // Core section
-        let processedCore = TemplateEngine.substitute(template: coreContent, values: values)
+        let processedCore = TemplateEngine.substitute(
+            template: coreContent, values: values, emitWarnings: emitWarnings
+        )
         parts.append(beginMarker(identifier: "core", version: version))
         parts.append(processedCore)
         parts.append(endMarker(identifier: "core"))
@@ -40,7 +43,8 @@ enum TemplateComposer {
         for contribution in packContributions {
             let processedContent = TemplateEngine.substitute(
                 template: contribution.templateContent,
-                values: values
+                values: values,
+                emitWarnings: emitWarnings
             )
             parts.append("")
             parts.append(beginMarker(
@@ -205,25 +209,28 @@ enum TemplateComposer {
     static func composeOrUpdate(
         existingContent: String?,
         contributions: [TemplateContribution],
-        values: [String: String]
+        values: [String: String],
+        emitWarnings: Bool = true
     ) -> ComposeResult {
         let hasMarkers = existingContent.map { !parseSections(from: $0).isEmpty } ?? false
 
         guard let existingContent, hasMarkers else {
-            return freshCompose(contributions: contributions, values: values)
+            return freshCompose(contributions: contributions, values: values, emitWarnings: emitWarnings)
         }
 
         return updateExisting(
             existingContent: existingContent,
             contributions: contributions,
-            values: values
+            values: values,
+            emitWarnings: emitWarnings
         )
     }
 
     /// Build a fresh composed file from contributions.
     private static func freshCompose(
         contributions: [TemplateContribution],
-        values: [String: String]
+        values: [String: String],
+        emitWarnings: Bool = true
     ) -> ComposeResult {
         let coreContent = contributions
             .first { $0.sectionIdentifier == "core" }?.templateContent ?? ""
@@ -233,7 +240,8 @@ enum TemplateComposer {
         let composed = compose(
             coreContent: coreContent,
             packContributions: packContributions,
-            values: values
+            values: values,
+            emitWarnings: emitWarnings
         )
         return ComposeResult(content: composed, warnings: [])
     }
@@ -242,7 +250,8 @@ enum TemplateComposer {
     private static func updateExisting(
         existingContent: String,
         contributions: [TemplateContribution],
-        values: [String: String]
+        values: [String: String],
+        emitWarnings: Bool = true
     ) -> ComposeResult {
         let version = MCSVersion.current
         var warnings: [String] = []
@@ -260,7 +269,8 @@ enum TemplateComposer {
         for contribution in contributions {
             let processedContent = TemplateEngine.substitute(
                 template: contribution.templateContent,
-                values: values
+                values: values,
+                emitWarnings: emitWarnings
             )
             updated = replaceSection(
                 in: updated,

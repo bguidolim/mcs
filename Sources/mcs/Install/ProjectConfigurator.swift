@@ -898,9 +898,7 @@ struct ProjectConfigurator {
 
         guard !lastComponent.isEmpty, lastComponent != "/" else { return nil }
 
-        let name = lastComponent.hasSuffix(".git")
-            ? String(lastComponent.dropLast(4))
-            : lastComponent
+        let name = lastComponent.strippingGitSuffix
         return name.isEmpty ? nil : name
     }
 }

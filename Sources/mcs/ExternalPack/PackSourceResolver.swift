@@ -77,8 +77,7 @@ struct PackSourceResolver {
 
         // 3. GitHub shorthand: user/repo (exactly two path components, no scheme).
         if input.range(of: Self.shorthandPattern, options: .regularExpression) != nil {
-            let base = input.hasSuffix(".git") ? String(input.dropLast(4)) : input
-            return .gitURL("https://github.com/\(base).git")
+            return .gitURL("https://github.com/\(input.strippingGitSuffix).git")
         }
 
         throw PackSourceError.pathNotFound(resolved.path)

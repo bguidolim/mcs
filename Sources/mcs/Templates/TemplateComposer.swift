@@ -242,9 +242,9 @@ enum TemplateComposer {
 
         let unpaired = unpairedSections(in: existingContent)
         if !unpaired.isEmpty {
-            warnings.append("Unpaired section markers in CLAUDE.local.md: \(unpaired.joined(separator: ", "))")
+            warnings.append("Unpaired section markers: \(unpaired.joined(separator: ", "))")
             warnings.append("Sections with missing end markers will not be updated to prevent data loss.")
-            warnings.append("Add the missing end markers manually, then re-run mcs sync.")
+            warnings.append("Add the missing end markers manually, then re-run sync.")
         }
 
         let userContent = extractUserContent(from: existingContent)

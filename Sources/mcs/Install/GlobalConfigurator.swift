@@ -283,7 +283,20 @@ struct GlobalConfigurator {
         }
 
         // 4c. Compose ~/.claude/CLAUDE.md from ALL selected packs' templates
-        try composeGlobalClaudeMD(packs: packs, preloadedTemplates: preloadedTemplates, values: allValues)
+        let writtenSections = try composeGlobalClaudeMD(packs: packs, preloadedTemplates: preloadedTemplates, values: allValues)
+
+        // 4d. Reconcile artifact records — remove template sections skipped by placeholder prompt
+        if let writtenSections {
+            for pack in packs {
+                if var artifacts = state.artifacts(for: pack.identifier) {
+                    let before = artifacts.templateSections.count
+                    artifacts.templateSections = artifacts.templateSections.filter { writtenSections.contains($0) }
+                    if artifacts.templateSections.count != before {
+                        state.setArtifacts(artifacts, for: pack.identifier)
+                    }
+                }
+            }
+        }
 
         // 5. Ensure gitignore entries
         try ensureGitignoreEntries()
@@ -767,11 +780,15 @@ struct GlobalConfigurator {
     /// Before writing, checks for unreplaced placeholders (e.g. `__REPO_NAME__`) that
     /// cannot be resolved in global scope. If found, presents a three-way prompt:
     /// proceed (keep literal placeholders), skip (omit affected sections), or stop.
+    ///
+    /// - Returns: The set of section identifiers actually written, or `nil` if no
+    ///   contributions existed (nothing to reconcile).
+    @discardableResult
     private func composeGlobalClaudeMD(
         packs: [any TechPack],
         preloadedTemplates: [String: [TemplateContribution]],
         values: [String: String]
-    ) throws {
+    ) throws -> Set<String>? {
         var allContributions: [TemplateContribution] = []
         for pack in packs {
             if let templates = preloadedTemplates[pack.identifier] {
@@ -781,7 +798,7 @@ struct GlobalConfigurator {
             }
         }
 
-        guard !allContributions.isEmpty else { return }
+        guard !allContributions.isEmpty else { return nil }
 
         // Check for unreplaced placeholders before writing
         var placeholdersBySectionID: [String: [String]] = [:]
@@ -804,16 +821,15 @@ struct GlobalConfigurator {
             }
             output.plain("")
 
-            let affectedSections = Set(placeholdersBySectionID.keys)
             let choice = promptPlaceholderAction()
             switch choice {
             case .proceed:
                 break
             case .skip:
-                allContributions.removeAll { affectedSections.contains($0.sectionIdentifier) }
+                allContributions.removeAll { placeholdersBySectionID.keys.contains($0.sectionIdentifier) }
                 if allContributions.isEmpty {
                     output.info("All template sections contained unresolved placeholders — skipping CLAUDE.md composition.")
-                    return
+                    return Set()
                 }
             case .stop:
                 throw MCSError.configurationFailed(
@@ -824,6 +840,7 @@ struct GlobalConfigurator {
         }
 
         try writeGlobalClaudeMD(contributions: allContributions, values: values)
+        return Set(allContributions.map(\.sectionIdentifier))
     }
 
     /// Three-way prompt for handling unreplaced template placeholders.
@@ -853,11 +870,7 @@ struct GlobalConfigurator {
         values: [String: String]
     ) throws {
         let claudeMDPath = environment.globalClaudeMD
-        let fileExists = FileManager.default.fileExists(atPath: claudeMDPath.path)
-
-        let existingContent: String? = fileExists
-            ? try String(contentsOf: claudeMDPath, encoding: .utf8)
-            : nil
+        let existingContent = try? String(contentsOf: claudeMDPath, encoding: .utf8)
 
         let result = TemplateComposer.composeOrUpdate(
             existingContent: existingContent,
@@ -870,7 +883,7 @@ struct GlobalConfigurator {
             output.warn(warning)
         }
 
-        if fileExists {
+        if existingContent != nil {
             var backup = Backup()
             try backup.backupFile(at: claudeMDPath)
         }

@@ -64,9 +64,7 @@ struct ProjectStateFileCheck: DoctorCheck, Sendable {
 
         // Infer packs from section markers
         let sections = TemplateComposer.parseSections(from: content)
-        let packIdentifiers = sections
-            .map(\.identifier)
-            .filter { $0 != "core" }
+        let packIdentifiers = sections.map(\.identifier)
 
         // Delete corrupt state file if present so we can rebuild cleanly
         let stateFile = projectRoot

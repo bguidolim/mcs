@@ -120,7 +120,7 @@ struct DoctorRunner {
 
                 if let content = claudeLocalContent {
                     let sections = TemplateComposer.parseSections(from: content)
-                    let inferred = Set(sections.map(\.identifier).filter { $0 != "core" })
+                    let inferred = Set(sections.map(\.identifier))
                     if !inferred.isEmpty {
                         installedPackIDs = inferred
                         packSource = "project: \(projectName ?? "unknown") (inferred)"

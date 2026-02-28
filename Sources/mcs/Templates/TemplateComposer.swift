@@ -3,7 +3,7 @@ import Foundation
 enum TemplateComposer {
     /// A parsed section from a composed file.
     struct Section {
-        let identifier: String  // e.g., "core", "ios"
+        let identifier: String  // e.g., "ios", "swift"
         let version: String     // e.g., "2.0.0"
         let content: String     // Content between markers
     }
@@ -20,33 +20,23 @@ enum TemplateComposer {
 
     // MARK: - Composition
 
-    /// Compose a file from core content and tech pack contributions.
+    /// Compose a file from tech pack template contributions.
     /// Uses `MCSVersion.current` for all section markers.
     static func compose(
-        coreContent: String,
-        packContributions: [TemplateContribution] = [],
+        contributions: [TemplateContribution],
         values: [String: String] = [:],
         emitWarnings: Bool = true
     ) -> String {
         let version = MCSVersion.current
         var parts: [String] = []
 
-        // Core section
-        let processedCore = TemplateEngine.substitute(
-            template: coreContent, values: values, emitWarnings: emitWarnings
-        )
-        parts.append(beginMarker(identifier: "core", version: version))
-        parts.append(processedCore)
-        parts.append(endMarker(identifier: "core"))
-
-        // Pack contributions
-        for contribution in packContributions {
+        for (index, contribution) in contributions.enumerated() {
             let processedContent = TemplateEngine.substitute(
                 template: contribution.templateContent,
                 values: values,
                 emitWarnings: emitWarnings
             )
-            parts.append("")
+            if index > 0 { parts.append("") }
             parts.append(beginMarker(
                 identifier: contribution.sectionIdentifier,
                 version: version
@@ -232,14 +222,8 @@ enum TemplateComposer {
         values: [String: String],
         emitWarnings: Bool = true
     ) -> ComposeResult {
-        let coreContent = contributions
-            .first { $0.sectionIdentifier == "core" }?.templateContent ?? ""
-        let packContributions = contributions
-            .filter { $0.sectionIdentifier != "core" }
-
         let composed = compose(
-            coreContent: coreContent,
-            packContributions: packContributions,
+            contributions: contributions,
             values: values,
             emitWarnings: emitWarnings
         )

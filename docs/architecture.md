@@ -53,7 +53,7 @@ Per-project paths (created by `mcs sync`):
 
 `Settings` is a Codable model that mirrors the structure of Claude Code settings files. It supports deep-merge: when merging, hooks are deduplicated by command string, plugins are merged additively, and scalar values from the template take precedence.
 
-In the per-project model, `ProjectConfigurator` composes `settings.local.json` from all selected packs' hook entries. Each pack gets its own `HookGroup` entry pointing to a script in `<project>/.claude/hooks/`:
+In the per-project model, `Configurator` (with `ProjectSyncStrategy`) composes `settings.local.json` from all selected packs' hook entries. Each pack gets its own `HookGroup` entry pointing to a script in `<project>/.claude/hooks/`:
 
 ```json
 {
@@ -157,7 +157,7 @@ Verbose form is also supported — see [Tech Pack Schema](../docs/techpack-schem
 
 ### Project Sync (`mcs sync [path]`)
 
-`ProjectConfigurator` is the per-project convergence engine:
+`Configurator` (with `ProjectSyncStrategy`) is the per-project convergence engine:
 
 1. **Multi-select**: shows all registered packs, pre-selects previously configured packs
 2. **Compute diff**: `removals = previous - selected`, `additions = selected - previous`
@@ -175,7 +175,7 @@ The `--pack` flag bypasses multi-select for CI use: `mcs sync --pack ios --pack 
 
 ### Global Sync (`mcs sync --global`)
 
-`GlobalConfigurator` handles global-scope installation:
+`Configurator` (with `GlobalSyncStrategy`) handles global-scope installation:
 
 1. **Selection**: interactive multi-select, `--pack <name>`, or `--all`
 2. **Component install**: brew packages, MCP servers (user scope), plugins

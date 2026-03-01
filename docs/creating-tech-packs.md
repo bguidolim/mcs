@@ -20,7 +20,7 @@ mcs export ./my-pack
 mcs export ./my-pack --global --dry-run
 ```
 
-The export wizard discovers your MCP servers, hooks, skills, commands, plugins, CLAUDE.md sections, gitignore entries, and settings — then generates a complete pack directory with `techpack.yaml` and all supporting files.
+The export wizard discovers your MCP servers, hooks, skills, commands, plugins, CLAUDE.md sections, gitignore entries (global export only), and settings — then generates a complete pack directory with `techpack.yaml` and all supporting files.
 
 **What it handles automatically:**
 - Sensitive env vars (API keys, tokens) are replaced with `__PLACEHOLDER__` tokens and corresponding `prompts:` entries are generated

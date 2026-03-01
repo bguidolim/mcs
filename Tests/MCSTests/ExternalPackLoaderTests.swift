@@ -520,37 +520,37 @@ struct ExternalPackLoaderTests {
     // MARK: - VersionCompare
 
     @Test("VersionCompare.isCompatible with equal versions")
-    func semverEqual() {
+    func versionCompareEqual() {
         #expect(VersionCompare.isCompatible(current: "2.0.1", required: "2.0.1"))
     }
 
     @Test("VersionCompare.isCompatible with current higher patch")
-    func semverHigherPatch() {
+    func versionCompareHigherPatch() {
         #expect(VersionCompare.isCompatible(current: "2.0.2", required: "2.0.1"))
     }
 
     @Test("VersionCompare.isCompatible with current higher minor")
-    func semverHigherMinor() {
+    func versionCompareHigherMinor() {
         #expect(VersionCompare.isCompatible(current: "2.1.0", required: "2.0.1"))
     }
 
     @Test("VersionCompare.isCompatible with current higher major")
-    func semverHigherMajor() {
+    func versionCompareHigherMajor() {
         #expect(VersionCompare.isCompatible(current: "3.0.0", required: "2.0.1"))
     }
 
     @Test("VersionCompare.isCompatible returns false when current is lower")
-    func semverIncompatible() {
+    func versionCompareIncompatible() {
         #expect(!VersionCompare.isCompatible(current: "1.9.9", required: "2.0.0"))
     }
 
     @Test("VersionCompare.isCompatible returns false when current patch is lower")
-    func semverLowerPatch() {
+    func versionCompareLowerPatch() {
         #expect(!VersionCompare.isCompatible(current: "2.0.0", required: "2.0.1"))
     }
 
     @Test("VersionCompare.parse extracts components correctly")
-    func semverParse() {
+    func versionCompareParse() {
         let v = VersionCompare.parse("3.14.159")
         #expect(v != nil)
         #expect(v?.major == 3)
@@ -559,13 +559,13 @@ struct ExternalPackLoaderTests {
     }
 
     @Test("VersionCompare.parse handles invalid input gracefully")
-    func semverParseInvalid() {
+    func versionCompareParseInvalid() {
         let v = VersionCompare.parse("invalid")
         #expect(v == nil)
     }
 
     @Test("VersionCompare.parse strips pre-release suffix")
-    func semverParsePreRelease() {
+    func versionCompareParsePreRelease() {
         let v = VersionCompare.parse("2.1.0-alpha")
         #expect(v != nil)
         #expect(v?.major == 2)
@@ -574,14 +574,14 @@ struct ExternalPackLoaderTests {
     }
 
     @Test("VersionCompare.isCompatible with pre-release current version")
-    func semverPreReleaseCompatible() {
+    func versionComparePreReleaseCompatible() {
         #expect(VersionCompare.isCompatible(current: "2.1.0-alpha", required: "2.1.0"))
         #expect(VersionCompare.isCompatible(current: "2.1.0-alpha", required: "2.0.0"))
         #expect(!VersionCompare.isCompatible(current: "2.1.0-alpha", required: "2.2.0"))
     }
 
     @Test("VersionCompare.isCompatible with pre-release required version")
-    func semverPreReleaseRequired() {
+    func versionComparePreReleaseRequired() {
         #expect(VersionCompare.isCompatible(current: "2.1.0", required: "2.1.0-beta"))
     }
 }

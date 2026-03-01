@@ -99,7 +99,7 @@ struct ConfigurationDiscovery: Sendable {
         discoverMCPServers(scope: scope, into: &config)
 
         // 2. Discover settings (hooks, plugins, remaining keys)
-        let hookCommands = discoverSettings(at: settingsPath, hooksDir: hooksDir, into: &config)
+        let hookCommands = discoverSettings(at: settingsPath, into: &config)
 
         // 3. Discover files in .claude/ subdirectories
         discoverFiles(in: hooksDir, hookCommands: hookCommands, into: &config)
@@ -189,7 +189,7 @@ struct ConfigurationDiscovery: Sendable {
 
     /// Discovers settings and returns hook command → event mappings for file correlation.
     @discardableResult
-    private func discoverSettings(at settingsPath: URL, hooksDir: URL, into config: inout DiscoveredConfiguration) -> [String: String]? {
+    private func discoverSettings(at settingsPath: URL, into config: inout DiscoveredConfiguration) -> [String: String]? {
         let settings: Settings
         do {
             settings = try Settings.load(from: settingsPath)

@@ -3,8 +3,9 @@
 This guide covers common issues and how to resolve them. Start by running `mcs doctor` to get a diagnostic report -- most problems will show up there.
 
 ```bash
-mcs doctor           # Diagnose
+mcs doctor           # Diagnose (project + global packs)
 mcs doctor --fix     # Diagnose and auto-fix what's possible
+mcs doctor --global  # Check globally-configured packs only
 ```
 
 ## Dependencies

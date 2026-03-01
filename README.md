@@ -287,6 +287,7 @@ mcs pack update [name]           # Update pack(s) to latest version (skips local
 mcs doctor                       # Diagnose installation health
 mcs doctor --fix                 # Diagnose and auto-fix issues
 mcs doctor --pack <name>         # Check a specific pack only
+mcs doctor --global              # Check globally-configured packs only
 ```
 
 ### Maintenance

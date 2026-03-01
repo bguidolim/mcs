@@ -370,6 +370,7 @@ struct ExportCommand: ParsableCommand {
         config: ConfigurationDiscovery.DiscoveredConfiguration,
         output: CLIOutput
     ) {
+        let resolvedPath = URL(fileURLWithPath: outputDir).standardizedFileURL.path
         var hints: [String] = []
 
         // Check for MCP servers that might need brew (dynamic symlink resolution)
@@ -407,7 +408,7 @@ struct ExportCommand: ParsableCommand {
         output.plain("")
         output.info("Next steps:")
         output.plain("  1. Review the generated techpack.yaml")
-        output.plain("  2. Test with: mcs pack add \(outputDir)")
+        output.plain("  2. Test with: mcs pack add \(resolvedPath)")
         output.plain("  3. Share via git: push to a repository and use mcs pack add <url>")
     }
 

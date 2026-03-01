@@ -186,9 +186,48 @@ struct Settings: Codable, Sendable {
             return Settings()
         }
         let data = try Data(contentsOf: url)
-        var settings = try JSONDecoder().decode(Settings.self, from: data)
+        return try decode(from: data)
+    }
 
-        // Second pass: capture all non-typed top-level keys
+    /// Load settings from a JSON file, applying placeholder substitution before parsing.
+    /// Reads the file as text, replaces `__KEY__` tokens using `TemplateEngine.substitute`,
+    /// then parses the substituted text as JSON.
+    static func load(from url: URL, substituting values: [String: String]) throws -> Settings {
+        guard !values.isEmpty else { return try load(from: url) }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else {
+            return Settings()
+        }
+        // JSON-escape substitution values so embedded quotes, backslashes, or newlines
+        // don't produce invalid JSON when placed inside string literals.
+        let escaped = try jsonEscapeValues(values)
+        let rawText = try String(contentsOf: url, encoding: .utf8)
+        let substituted = TemplateEngine.substitute(template: rawText, values: escaped, emitWarnings: false)
+        return try decode(from: Data(substituted.utf8))
+    }
+
+    /// JSON-escape each value so it's safe to splice into a JSON string literal.
+    /// Encodes each value as a JSON string, then strips the surrounding quotes.
+    private static func jsonEscapeValues(_ values: [String: String]) throws -> [String: String] {
+        let encoder = JSONEncoder()
+        var escaped: [String: String] = [:]
+        escaped.reserveCapacity(values.count)
+        for (key, value) in values {
+            let data = try encoder.encode(value)
+            guard let jsonString = String(data: data, encoding: .utf8),
+                  jsonString.count >= 2 else {
+                escaped[key] = value
+                continue
+            }
+            // Strip surrounding quotes: "hello \"world\"" → hello \"world\"
+            escaped[key] = String(jsonString.dropFirst().dropLast())
+        }
+        return escaped
+    }
+
+    /// Decode settings from JSON data, capturing unknown top-level keys into `extraJSON`.
+    private static func decode(from data: Data) throws -> Settings {
+        var settings = try JSONDecoder().decode(Settings.self, from: data)
         if let rawJSON = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
             for (key, value) in rawJSON where !knownTopLevelKeys.contains(key) {
                 settings.extraJSON[key] = try JSONSerialization.data(
@@ -196,7 +235,6 @@ struct Settings: Codable, Sendable {
                 )
             }
         }
-
         return settings
     }
 

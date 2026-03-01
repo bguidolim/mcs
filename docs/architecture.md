@@ -161,15 +161,21 @@ Verbose form is also supported — see [Tech Pack Schema](../docs/techpack-schem
 
 1. **Multi-select**: shows all registered packs, pre-selects previously configured packs
 2. **Compute diff**: `removals = previous - selected`, `additions = selected - previous`
-3. **Unconfigure removed packs**: remove MCP servers (via CLI), delete project files, using stored `PackArtifactRecord`
-4. **Auto-install global deps**: brew packages and plugins for all selected packs
-5. **Install per-project artifacts**: copy skills/hooks/commands to `<project>/.claude/`, register MCP servers with `local` scope
-6. **Compose `settings.local.json`**: build from all selected packs' hook entries
-7. **Compose `CLAUDE.local.md`**: gather template sections from all selected packs
-8. **Run pack configure hooks**: pack-specific setup (e.g., generate config files)
-9. **Ensure gitignore entries**: add `.claude/` entries to global gitignore
-10. **Save project state**: write `.mcs-project` with artifact records for each pack
-11. **Write lockfile**: save `mcs.lock.yaml` with current pack versions
+3. **Resolve template values** (multi-step):
+   - **3a.** Resolve built-in values (`__REPO_NAME__`, `__PROJECT_DIR_NAME__`)
+   - **3b–3c.** Collect all prompt definitions from packs via `declaredPrompts()`, group shared keys (same key from 2+ packs, `input`/`select` types only)
+   - **3d.** Execute shared prompts once via `CrossPackPromptResolver` with combined display
+   - **3e.** Execute remaining per-pack prompts (skip already-resolved keys)
+4. **Scan for undeclared placeholders**: warn about `__KEY__` tokens in copyPackFile sources, settings files, and MCP configs that have no matching prompt
+5. **Unconfigure removed packs**: remove MCP servers (via CLI), delete project files, using stored `PackArtifactRecord`
+6. **Auto-install global deps**: brew packages and plugins for all selected packs
+7. **Install per-project artifacts**: copy skills/hooks/commands to `<project>/.claude/`, register MCP servers with `local` scope (with placeholder substitution in env/command/args)
+8. **Compose `settings.local.json`**: build from all selected packs' hook entries and settings files (with placeholder substitution)
+9. **Compose `CLAUDE.local.md`**: gather template sections from all selected packs
+10. **Run pack configure hooks**: pack-specific setup (e.g., generate config files)
+11. **Ensure gitignore entries**: add `.claude/` entries to global gitignore
+12. **Save project state**: write `.mcs-project` with artifact records for each pack
+13. **Write lockfile**: save `mcs.lock.yaml` with current pack versions
 
 The `--pack` flag bypasses multi-select for CI use: `mcs sync --pack ios --pack web`.
 
@@ -230,6 +236,7 @@ protocol TechPack: Sendable {
     var gitignoreEntries: [String] { get }
     var supplementaryDoctorChecks: [any DoctorCheck] { get }
     func templateValues(context: ProjectConfigContext) -> [String: String]
+    func declaredPrompts(context: ProjectConfigContext) -> [ExternalPromptDefinition]
     func configureProject(at path: URL, context: ProjectConfigContext) throws
 }
 ```
@@ -240,6 +247,7 @@ Packs provide:
 - **Gitignore entries**: patterns to add to the global gitignore
 - **Supplementary doctor checks**: pack-level diagnostics not derivable from components
 - **Template values**: resolved via prompts or scripts during sync
+- **Declared prompts**: prompt definitions for cross-pack deduplication (without executing them)
 - **Project configuration**: pack-specific setup (e.g., generate config files)
 
 ## Doctor System
@@ -283,7 +291,13 @@ When determining which packs to check, doctor uses a priority chain:
 
 ### TemplateEngine
 
-Simple `__PLACEHOLDER__` substitution. Values are passed as `[String: String]` dictionaries. Packs can resolve values via prompts (interactive) or scripts (automated) during sync.
+`__PLACEHOLDER__` substitution across multiple artifact types. Values are passed as `[String: String]` dictionaries. Packs can resolve values via prompts (interactive) or scripts (automated) during sync.
+
+Substitution applies to:
+- **Templates**: CLAUDE.local.md sections (Phase 7)
+- **copyPackFile artifacts**: hooks, commands, skills, generic files (Phase 5)
+- **Settings files**: `.settingsMerge` JSON — text-level substitution before JSON parsing via `Settings.load(from:substituting:)`
+- **MCP server configs**: `env` values, `command`, and `args` via `MCPServerConfig.substituting(_:)` (name is preserved as artifact tracking key)
 
 ### TemplateComposer
 

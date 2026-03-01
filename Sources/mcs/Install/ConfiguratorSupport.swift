@@ -256,6 +256,7 @@ enum ConfiguratorSupport {
         excludedComponents: [String: Set<String>],
         settings: inout Settings,
         hookCommandPrefix: String,
+        resolvedValues: [String: String],
         output: CLIOutput
     ) -> (hasContent: Bool, contributedKeys: [String: [String]]) {
         var hasContent = false
@@ -288,7 +289,7 @@ enum ConfiguratorSupport {
 
                 if case .settingsMerge(let source) = component.installAction, let source {
                     do {
-                        let packSettings = try Settings.load(from: source)
+                        let packSettings = try Settings.load(from: source, substituting: resolvedValues)
                         if !packSettings.extraJSON.isEmpty {
                             contributedKeys[pack.identifier, default: []].append(contentsOf: packSettings.extraJSON.keys)
                         }
@@ -390,27 +391,43 @@ enum ConfiguratorSupport {
         var undeclared = Set<String>()
         let resolvedKeys = Set(resolvedValues.keys)
 
+        let collectUndeclared = { (placeholder: String) in
+            let key = stripPlaceholderDelimiters(placeholder)
+            if !resolvedKeys.contains(key) {
+                undeclared.insert(key)
+            }
+        }
+
         for pack in packs {
             for component in pack.components {
-                if case .copyPackFile(let source, _, _) = component.installAction {
-                    for placeholder in findPlaceholdersInSource(source) {
-                        let key = stripPlaceholderDelimiters(placeholder)
-                        if !resolvedKeys.contains(key) {
-                            undeclared.insert(key)
-                        }
+                switch component.installAction {
+                case .copyPackFile(let source, _, _):
+                    findPlaceholdersInSource(source).forEach(collectUndeclared)
+
+                case .settingsMerge(let source):
+                    if let source {
+                        findPlaceholdersInSource(source).forEach(collectUndeclared)
                     }
+
+                case .mcpServer(let config):
+                    for text in config.env.values {
+                        TemplateEngine.findUnreplacedPlaceholders(in: text).forEach(collectUndeclared)
+                    }
+                    TemplateEngine.findUnreplacedPlaceholders(in: config.command).forEach(collectUndeclared)
+                    for text in config.args {
+                        TemplateEngine.findUnreplacedPlaceholders(in: text).forEach(collectUndeclared)
+                    }
+
+                default:
+                    break
                 }
             }
 
             if includeTemplates {
                 do {
                     for template in try pack.templates {
-                        for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
-                            let key = stripPlaceholderDelimiters(placeholder)
-                            if !resolvedKeys.contains(key) {
-                                undeclared.insert(key)
-                            }
-                        }
+                        TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent)
+                            .forEach(collectUndeclared)
                     }
                 } catch {
                     onWarning?("Could not scan templates for \(pack.displayName): \(error.localizedDescription)")

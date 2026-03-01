@@ -112,7 +112,7 @@ Register MCP servers with the Claude CLI:
       command: npx
       args: ["-y", "my-server@latest"]
       env:
-        API_KEY: "some-value"
+        API_KEY: "__MY_API_KEY__"    # Resolved from prompts
 
   # HTTP transport — just provide a url
   - id: remote-server
@@ -120,6 +120,8 @@ Register MCP servers with the Claude CLI:
     mcp:
       url: https://example.com/mcp
 ```
+
+`__KEY__` placeholders in `env` values, `command`, and `args` are substituted with resolved prompt values during `mcs sync`. The server `name` is never substituted.
 
 The server name defaults to the component id. If the server uses a different name (e.g. mixed case), override it:
 
@@ -206,10 +208,13 @@ Your `config/settings.json` might look like:
   },
   "alwaysThinkingEnabled": true,
   "env": {
-    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+    "MY_API_KEY": "__MY_API_KEY__"
   }
 }
 ```
+
+`__KEY__` placeholders in JSON values are substituted with resolved prompt values before the file is parsed and merged. This lets pack authors use user-provided values in settings (e.g., API keys, paths).
 
 ### Gitignore Entries
 
@@ -326,11 +331,15 @@ Users can add their own content outside these markers — `mcs` only manages the
 - `__PROJECT_DIR_NAME__` — always available (project directory name)
 - Custom placeholders are resolved from `prompts` (see below)
 
+Placeholder substitution works in **templates**, **settings files** (`settingsFile:`), **MCP server configs** (`env`, `command`, `args`), and **copyPackFile** artifacts (hooks, commands, skills).
+
 ---
 
 ## Prompts
 
-Prompts gather values from the user during `mcs sync`. These values are available as `__KEY__` placeholders in templates and as `MCS_RESOLVED_KEY` environment variables in scripts.
+Prompts gather values from the user during `mcs sync`. These values are available as `__KEY__` placeholders in templates, settings files, MCP server configs, and copyPackFile artifacts — and as `MCS_RESOLVED_KEY` environment variables in scripts.
+
+When multiple packs declare prompts with the same `key` (e.g., both a core pack and an iOS pack want `BRANCH_PREFIX`), the user is asked **once** with a combined display. Only `input` and `select` types are deduplicated — `fileDetect` and `script` always run per-pack.
 
 ```yaml
 prompts:

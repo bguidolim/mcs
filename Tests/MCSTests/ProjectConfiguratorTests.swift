@@ -5,7 +5,7 @@ import Testing
 
 // MARK: - Dry Run Tests
 
-@Suite("ProjectConfigurator — dryRun")
+@Suite("Configurator — dryRun (project scope)")
 struct DryRunTests {
     private let output = CLIOutput(colorsEnabled: false)
 
@@ -16,12 +16,13 @@ struct DryRunTests {
         return dir
     }
 
-    private func makeConfigurator(home: URL? = nil) -> ProjectConfigurator {
+    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return ProjectConfigurator(
+        return Configurator(
             environment: env,
             output: output,
-            shell: ShellRunner(environment: env)
+            shell: ShellRunner(environment: env),
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
     }
 
@@ -40,8 +41,8 @@ struct DryRunTests {
             )]
         )
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.dryRun(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.dryRun(packs: [pack])
 
         // No CLAUDE.local.md should be created
         let claudeLocal = tmpDir.appendingPathComponent("CLAUDE.local.md")
@@ -74,8 +75,8 @@ struct DryRunTests {
 
         // Run dry-run with a different pack
         let pack = MockTechPack(identifier: "new-pack", displayName: "New Pack")
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.dryRun(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.dryRun(packs: [pack])
 
         // State file should be unchanged
         let stateAfter = try Data(contentsOf: stateFile)
@@ -128,10 +129,10 @@ struct DryRunTests {
             )]
         )
 
-        let configurator = makeConfigurator(home: tmpDir)
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
 
         // Capture that it doesn't throw and doesn't modify state
-        try configurator.dryRun(at: tmpDir, packs: [packB])
+        try configurator.dryRun(packs: [packB])
 
         // Verify state file is unchanged (pack-a still configured)
         let updatedState = try ProjectState(projectRoot: tmpDir)
@@ -144,8 +145,8 @@ struct DryRunTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.dryRun(at: tmpDir, packs: [])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.dryRun(packs: [])
 
         // Should not create any files
         let claudeDir = tmpDir.appendingPathComponent(".claude")
@@ -155,7 +156,7 @@ struct DryRunTests {
 
 // MARK: - Settings Merge Tests
 
-@Suite("ProjectConfigurator — packSettingsMerge")
+@Suite("Configurator — packSettingsMerge (project scope)")
 struct PackSettingsMergeTests {
     private let output = CLIOutput(colorsEnabled: false)
 
@@ -166,12 +167,13 @@ struct PackSettingsMergeTests {
         return dir
     }
 
-    private func makeConfigurator(home: URL? = nil) -> ProjectConfigurator {
+    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return ProjectConfigurator(
+        return Configurator(
             environment: env,
             output: output,
-            shell: ShellRunner(environment: env)
+            shell: ShellRunner(environment: env),
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
     }
 
@@ -217,18 +219,14 @@ struct PackSettingsMergeTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        // Use the internal compose method by triggering configure path
-        // Directly test composeProjectSettings by checking the output file
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
 
-        // Simulate what configure does: compose settings
-        // We need to call the private method indirectly — use a full configure
         var state = try ProjectState(projectRoot: tmpDir)
         state.recordPack("test-pack")
         try state.save()
 
-        try configurator.configure(at: tmpDir, packs: [pack])
+        try configurator.configure(packs: [pack])
 
         // Check settings.local.json was created with merged settings
         let result = try Settings.load(from: settingsPath)
@@ -293,8 +291,8 @@ struct PackSettingsMergeTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [packA, packB])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [packA, packB])
 
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let result = try Settings.load(from: settingsPath)
@@ -336,8 +334,8 @@ struct PackSettingsMergeTests {
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
         // First configure with the pack
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [pack])
 
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let afterAdd = try Settings.load(from: settingsPath)
@@ -349,7 +347,7 @@ struct PackSettingsMergeTests {
         }
 
         // Re-configure with no packs (simulate removal)
-        try configurator.configure(at: tmpDir, packs: [], confirmRemovals: false)
+        try configurator.configure(packs: [], confirmRemovals: false)
 
         // settings.local.json should either not exist or not have the pack's key
         if FileManager.default.fileExists(atPath: settingsPath.path) {
@@ -385,8 +383,8 @@ struct PackSettingsMergeTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [pack])
 
         // No settings.local.json should be created for a nil-source settingsMerge
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
@@ -548,7 +546,7 @@ struct InstallProjectFileSubstitutionTests {
 
 // MARK: - Auto-Derived Hook & Plugin Tests
 
-@Suite("ProjectConfigurator — auto-derived hooks and plugins")
+@Suite("Configurator — auto-derived hooks and plugins (project scope)")
 struct AutoDerivedSettingsTests {
     private let output = CLIOutput(colorsEnabled: false)
 
@@ -559,12 +557,13 @@ struct AutoDerivedSettingsTests {
         return dir
     }
 
-    private func makeConfigurator(home: URL? = nil) -> ProjectConfigurator {
+    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return ProjectConfigurator(
+        return Configurator(
             environment: env,
             output: output,
-            shell: ShellRunner(environment: env)
+            shell: ShellRunner(environment: env),
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
     }
 
@@ -627,8 +626,8 @@ struct AutoDerivedSettingsTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [pack])
 
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let result = try Settings.load(from: settingsPath)
@@ -652,8 +651,8 @@ struct AutoDerivedSettingsTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [pack])
 
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let result = try Settings.load(from: settingsPath)
@@ -695,8 +694,8 @@ struct AutoDerivedSettingsTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [pack])
 
         // No settings.local.json should be created (no derivable entries)
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
@@ -765,8 +764,8 @@ struct AutoDerivedSettingsTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [pack])
 
         let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
         let result = try Settings.load(from: settingsPath)
@@ -789,8 +788,8 @@ struct AutoDerivedSettingsTests {
         let claudeDir = tmpDir.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
-        let configurator = makeConfigurator(home: tmpDir)
-        try configurator.configure(at: tmpDir, packs: [pack])
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        try configurator.configure(packs: [pack])
 
         // Read project state and check hookCommands
         let state = try ProjectState(projectRoot: tmpDir)
@@ -802,8 +801,8 @@ struct AutoDerivedSettingsTests {
 
 // MARK: - Excluded Components
 
-@Suite("ProjectConfigurator — excludedComponents")
-struct ProjectConfiguratorExcludedComponentsTests {
+@Suite("Configurator — excludedComponents (project scope)")
+struct ConfiguratorExcludedComponentsTests {
 
     private func makeTmpDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -812,12 +811,13 @@ struct ProjectConfiguratorExcludedComponentsTests {
         return dir
     }
 
-    private func makeConfigurator(home: URL? = nil) -> ProjectConfigurator {
+    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return ProjectConfigurator(
+        return Configurator(
             environment: env,
             output: CLIOutput(),
-            shell: ShellRunner(environment: env)
+            shell: ShellRunner(environment: env),
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
     }
 
@@ -857,11 +857,10 @@ struct ProjectConfiguratorExcludedComponentsTests {
             ]
         )
 
-        let configurator = makeConfigurator(home: tmpDir)
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
 
         // Exclude plugin-b
         try configurator.configure(
-            at: tmpDir,
             packs: [pack],
             confirmRemovals: false,
             excludedComponents: ["test-pack": ["test-pack.plugin-b"]]
@@ -909,7 +908,7 @@ struct ProjectConfiguratorExcludedComponentsTests {
 
 // MARK: - Corrupt State Abort Tests
 
-@Suite("ProjectConfigurator — corrupt state abort")
+@Suite("Configurator — corrupt state abort (project scope)")
 struct CorruptStateAbortTests {
     private let output = CLIOutput(colorsEnabled: false)
 
@@ -920,12 +919,13 @@ struct CorruptStateAbortTests {
         return dir
     }
 
-    private func makeConfigurator(home: URL? = nil) -> ProjectConfigurator {
+    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return ProjectConfigurator(
+        return Configurator(
             environment: env,
             output: output,
-            shell: ShellRunner(environment: env)
+            shell: ShellRunner(environment: env),
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
     }
 
@@ -940,11 +940,11 @@ struct CorruptStateAbortTests {
         let stateFile = claudeDir.appendingPathComponent(".mcs-project")
         try Data("{ not valid json !!!".utf8).write(to: stateFile)
 
-        let configurator = makeConfigurator(home: tmpDir)
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
         let pack = MockTechPack(identifier: "test-pack", displayName: "Test")
 
         #expect(throws: (any Error).self) {
-            try configurator.configure(at: tmpDir, packs: [pack])
+            try configurator.configure(packs: [pack])
         }
     }
 
@@ -953,15 +953,15 @@ struct CorruptStateAbortTests {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let configurator = makeConfigurator(home: tmpDir)
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
         let pack = MockTechPack(identifier: "test-pack", displayName: "Test")
 
         // Should not throw — missing file is a fresh project, not corruption
-        try configurator.configure(at: tmpDir, packs: [pack])
+        try configurator.configure(packs: [pack])
     }
 }
 
-/// Minimal TechPack implementation for dry-run tests.
+/// Minimal TechPack implementation for tests.
 private struct MockTechPack: TechPack {
     let identifier: String
     let displayName: String
@@ -992,70 +992,70 @@ private struct MockTechPack: TechPack {
 
 // MARK: - parseRepoName Tests
 
-@Suite("ProjectConfigurator — parseRepoName")
+@Suite("ConfiguratorSupport — parseRepoName")
 struct ParseRepoNameTests {
     @Test("HTTPS URL with .git suffix")
     func httpsWithGit() {
-        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/user/awesome-app.git") == "awesome-app")
+        #expect(ConfiguratorSupport.parseRepoName(from: "https://github.com/user/awesome-app.git") == "awesome-app")
     }
 
     @Test("HTTPS URL without .git suffix")
     func httpsWithoutGit() {
-        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/user/repo") == "repo")
+        #expect(ConfiguratorSupport.parseRepoName(from: "https://github.com/user/repo") == "repo")
     }
 
     @Test("SCP-style SSH URL")
     func sshScp() {
-        #expect(ProjectConfigurator.parseRepoName(from: "git@github.com:user/awesome-app.git") == "awesome-app")
+        #expect(ConfiguratorSupport.parseRepoName(from: "git@github.com:user/awesome-app.git") == "awesome-app")
     }
 
     @Test("ssh:// protocol URL")
     func sshProtocol() {
-        #expect(ProjectConfigurator.parseRepoName(from: "ssh://git@github.com/user/repo.git") == "repo")
+        #expect(ConfiguratorSupport.parseRepoName(from: "ssh://git@github.com/user/repo.git") == "repo")
     }
 
     @Test("GitLab HTTPS URL")
     func gitlabHttps() {
-        #expect(ProjectConfigurator.parseRepoName(from: "https://gitlab.com/org/my-project.git") == "my-project")
+        #expect(ConfiguratorSupport.parseRepoName(from: "https://gitlab.com/org/my-project.git") == "my-project")
     }
 
     @Test("GitLab SSH URL")
     func gitlabSsh() {
-        #expect(ProjectConfigurator.parseRepoName(from: "git@gitlab.com:org/my-project.git") == "my-project")
+        #expect(ConfiguratorSupport.parseRepoName(from: "git@gitlab.com:org/my-project.git") == "my-project")
     }
 
     @Test("GitLab subgroup HTTPS URL")
     func gitlabSubgroup() {
-        #expect(ProjectConfigurator.parseRepoName(from: "https://gitlab.com/org/subgroup/repo.git") == "repo")
+        #expect(ConfiguratorSupport.parseRepoName(from: "https://gitlab.com/org/subgroup/repo.git") == "repo")
     }
 
     @Test("GitLab subgroup SSH URL")
     func gitlabSubgroupSsh() {
-        #expect(ProjectConfigurator.parseRepoName(from: "git@gitlab.com:org/subgroup/repo.git") == "repo")
+        #expect(ConfiguratorSupport.parseRepoName(from: "git@gitlab.com:org/subgroup/repo.git") == "repo")
     }
 
     @Test("Empty string returns nil")
     func emptyString() {
-        #expect(ProjectConfigurator.parseRepoName(from: "") == nil)
+        #expect(ConfiguratorSupport.parseRepoName(from: "") == nil)
     }
 
     @Test("Whitespace-only returns nil")
     func whitespaceOnly() {
-        #expect(ProjectConfigurator.parseRepoName(from: "   \n") == nil)
+        #expect(ConfiguratorSupport.parseRepoName(from: "   \n") == nil)
     }
 
     @Test("URL ending in just .git returns nil")
     func onlyDotGit() {
-        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/.git") == nil)
+        #expect(ConfiguratorSupport.parseRepoName(from: "https://github.com/.git") == nil)
     }
 
     @Test("Trailing newline is trimmed")
     func trailingNewline() {
-        #expect(ProjectConfigurator.parseRepoName(from: "https://github.com/user/repo.git\n") == "repo")
+        #expect(ConfiguratorSupport.parseRepoName(from: "https://github.com/user/repo.git\n") == "repo")
     }
 
     @Test("file:// protocol URL")
     func fileProtocol() {
-        #expect(ProjectConfigurator.parseRepoName(from: "file:///Users/dev/repos/my-repo.git") == "my-repo")
+        #expect(ConfiguratorSupport.parseRepoName(from: "file:///Users/dev/repos/my-repo.git") == "my-repo")
     }
 }

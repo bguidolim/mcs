@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shared utilities for `ProjectConfigurator` and `GlobalConfigurator`.
+/// Shared utilities for the `Configurator` and `SyncStrategy` implementations.
 ///
 /// Eliminates duplication of common methods that both configurators need.
 enum ConfiguratorSupport {
@@ -187,16 +187,13 @@ enum ConfiguratorSupport {
 
             let previousExcluded = previousState.excludedComponents(for: pack.identifier)
 
-            var number = 1
-            var items: [SelectableItem] = []
-            for component in components {
-                items.append(SelectableItem(
-                    number: number,
+            let items = components.enumerated().map { index, component in
+                SelectableItem(
+                    number: index + 1,
                     name: component.displayName,
                     description: component.description,
                     isSelected: !previousExcluded.contains(component.id)
-                ))
-                number += 1
+                )
             }
 
             let requiredItems = components
@@ -224,6 +221,123 @@ enum ConfiguratorSupport {
         }
 
         return exclusions
+    }
+
+    // MARK: - Template Contribution Gathering
+
+    /// Collect template contributions from preloaded templates, warning about packs
+    /// whose templates failed to load.
+    static func gatherTemplateContributions(
+        packs: [any TechPack],
+        preloadedTemplates: [String: [TemplateContribution]],
+        output: CLIOutput
+    ) -> [TemplateContribution] {
+        var all: [TemplateContribution] = []
+        for pack in packs {
+            if let templates = preloadedTemplates[pack.identifier] {
+                all.append(contentsOf: templates)
+            } else if !pack.templateSectionIdentifiers.isEmpty {
+                output.warn("Skipping templates for \(pack.displayName) (failed to load earlier)")
+            }
+        }
+        return all
+    }
+
+    // MARK: - Settings Composition Helpers
+
+    /// Merge hook entries, plugin enablements, and settings files from pack components into settings.
+    ///
+    /// Shared by both project and global `composeSettings` — the inner loop is identical.
+    /// The hook command prefix is parameterized via `hookCommandPrefix`.
+    ///
+    /// - Returns: Whether any content was added and the per-pack contributed settings keys.
+    static func mergePackComponentsIntoSettings(
+        packs: [any TechPack],
+        excludedComponents: [String: Set<String>],
+        settings: inout Settings,
+        hookCommandPrefix: String,
+        output: CLIOutput
+    ) -> (hasContent: Bool, contributedKeys: [String: [String]]) {
+        var hasContent = false
+        var contributedKeys: [String: [String]] = [:]
+
+        for pack in packs {
+            let excluded = excludedComponents[pack.identifier] ?? []
+            for component in pack.components {
+                guard !excluded.contains(component.id) else { continue }
+
+                if component.type == .hookFile,
+                   let hookEvent = component.hookEvent,
+                   case .copyPackFile(_, let destination, .hook) = component.installAction {
+                    let command = "\(hookCommandPrefix)\(destination)"
+                    if settings.addHookEntry(event: hookEvent, command: command) {
+                        hasContent = true
+                    }
+                }
+
+                if case .plugin(let name) = component.installAction {
+                    let ref = PluginRef(name)
+                    var plugins = settings.enabledPlugins ?? [:]
+                    if plugins[ref.bareName] == nil {
+                        plugins[ref.bareName] = true
+                    }
+                    settings.enabledPlugins = plugins
+                    hasContent = true
+                    contributedKeys[pack.identifier, default: []].append("enabledPlugins.\(ref.bareName)")
+                }
+
+                if case .settingsMerge(let source) = component.installAction, let source {
+                    do {
+                        let packSettings = try Settings.load(from: source)
+                        if !packSettings.extraJSON.isEmpty {
+                            contributedKeys[pack.identifier, default: []].append(contentsOf: packSettings.extraJSON.keys)
+                        }
+                        settings.merge(with: packSettings)
+                        hasContent = true
+                    } catch {
+                        output.warn("Could not load settings from \(pack.displayName)/\(source.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+
+        return (hasContent, contributedKeys)
+    }
+
+    // MARK: - Repo Name Parsing
+
+    /// Parse the repository name from a git remote URL.
+    ///
+    /// Handles any URL with a scheme (`://`) and SCP-style SSH formats:
+    /// - `https://github.com/user/repo.git` → `repo`
+    /// - `git@github.com:user/repo.git` → `repo`
+    /// - `ssh://git@github.com/user/repo.git` → `repo`
+    /// - `file:///Users/dev/repos/my-repo.git` → `my-repo`
+    /// - `https://github.com/user/repo` (no `.git`) → `repo`
+    ///
+    /// Returns `nil` if the URL cannot be parsed.
+    static func parseRepoName(from remoteURL: String) -> String? {
+        let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let lastComponent: String
+
+        if trimmed.contains("://") {
+            guard let url = URL(string: trimmed) else { return nil }
+            lastComponent = url.lastPathComponent
+        } else if let colonIndex = trimmed.firstIndex(of: ":") {
+            // SCP-style: git@host:user/repo.git
+            let afterColon = trimmed[trimmed.index(after: colonIndex)...]
+            guard let last = afterColon.split(separator: "/").last else { return nil }
+            lastComponent = String(last)
+        } else {
+            return nil
+        }
+
+        guard !lastComponent.isEmpty, lastComponent != "/" else { return nil }
+
+        let name = lastComponent.strippingGitSuffix
+        return name.isEmpty ? nil : name
     }
 
     // MARK: - Placeholder Scanning

@@ -370,7 +370,7 @@ struct SettingsMergeTests {
         // Load pack settings (source)
         let packSettings = try Settings.load(from: sourceFile)
 
-        // Merge into empty settings (simulating ProjectConfigurator)
+        // Merge into empty settings (simulating project-scope Configurator)
         var settings = Settings()
         settings.merge(with: packSettings)
 

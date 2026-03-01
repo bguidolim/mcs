@@ -97,8 +97,11 @@ mcs cleanup --force              # Delete backups without confirmation
 - `PackCommand.swift` — `mcs pack add/remove/list/update` subcommands; uses `PackSourceResolver` for 3-tier input detection (URL schemes → filesystem paths → GitHub shorthand)
 
 ### Install (`Sources/mcs/Install/`)
-- `ProjectConfigurator.swift` — per-project multi-pack convergence engine (artifact tracking, settings composition, CLAUDE.local.md writing, gitignore)
-- `GlobalConfigurator.swift` — global-scope sync engine (brew packages, plugins, MCP servers to ~/.claude/)
+- `Configurator.swift` — unified multi-pack convergence engine parameterized by `SyncStrategy` (artifact tracking, settings composition, CLAUDE file writing, gitignore)
+- `SyncScope.swift` — pure data struct capturing path-level differences between project and global scopes
+- `SyncStrategy.swift` — protocol isolating scope-specific behavior (artifact installation, settings/CLAUDE composition, file removal)
+- `ProjectSyncStrategy.swift` — project-scope strategy (settings.local.json, CLAUDE.local.md, repo name resolution)
+- `GlobalSyncStrategy.swift` — global-scope strategy (settings.json preservation, brew/plugin ownership, MCP scope override to "user")
 - `ComponentExecutor.swift` — dispatches install actions (brew, MCP servers, plugins, gitignore, project-scoped file copy/removal)
 - `PackInstaller.swift` — auto-installs missing pack components
 - `PackUninstaller.swift` — removes pack components (MCP servers, plugins, brew packages, settings keys) with reference-counted removal for shared resources

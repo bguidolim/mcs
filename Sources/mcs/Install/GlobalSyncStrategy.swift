@@ -1,0 +1,333 @@
+import Foundation
+
+/// Global-scoped sync strategy.
+///
+/// Targets `~/.claude/` for file installation, overrides MCP scope to `"user"`,
+/// loads existing `settings.json` preserving user content, and composes
+/// `~/.claude/CLAUDE.md` with a three-way placeholder prompt.
+struct GlobalSyncStrategy: SyncStrategy {
+    let scope: SyncScope
+    let environment: Environment
+
+    init(environment: Environment) {
+        self.scope = .global(environment: environment)
+        self.environment = environment
+    }
+
+    // MARK: - Template Values
+
+    func resolveBuiltInValues(shell: ShellRunner, output: CLIOutput) -> [String: String] {
+        [:]
+    }
+
+    func makeConfigContext(output: CLIOutput, resolvedValues: [String: String]) -> ProjectConfigContext {
+        ProjectConfigContext(
+            projectPath: environment.homeDirectory,
+            repoName: "",
+            output: output,
+            resolvedValues: resolvedValues,
+            isGlobalScope: true
+        )
+    }
+
+    // MARK: - Artifact Installation
+
+    func installArtifacts(
+        _ pack: any TechPack,
+        previousArtifacts: PackArtifactRecord?,
+        excludedIDs: Set<String>,
+        resolvedValues: [String: String],
+        preloadedTemplates: [TemplateContribution]?,
+        executor: inout ComponentExecutor,
+        shell: ShellRunner,
+        output: CLIOutput
+    ) -> PackArtifactRecord {
+        var artifacts = PackArtifactRecord()
+        // Carry forward ownership records from previous sync
+        artifacts.brewPackages = previousArtifacts?.brewPackages ?? []
+        artifacts.plugins = previousArtifacts?.plugins ?? []
+
+        for component in pack.components {
+            if excludedIDs.contains(component.id) {
+                output.dimmed("  \(component.displayName) excluded, skipping")
+                continue
+            }
+
+            if ComponentExecutor.isAlreadyInstalled(component) {
+                output.dimmed("  \(component.displayName) already installed, skipping")
+                continue
+            }
+
+            switch component.installAction {
+            case .brewInstall(let package):
+                output.dimmed("  Installing \(component.displayName)...")
+                if executor.installBrewPackage(package) {
+                    artifacts.recordBrewPackage(package)
+                    output.success("  \(component.displayName) installed")
+                } else {
+                    output.warn("  \(component.displayName) failed to install")
+                }
+
+            case .mcpServer(let config):
+                let globalConfig = MCPServerConfig(
+                    name: config.name,
+                    command: config.command,
+                    args: config.args,
+                    env: config.env,
+                    scope: "user"
+                )
+                if executor.installMCPServer(globalConfig) {
+                    artifacts.mcpServers.append(MCPServerRef(
+                        name: config.name,
+                        scope: "user"
+                    ))
+                    output.success("  \(component.displayName) registered (scope: user)")
+                }
+
+            case .plugin(let name):
+                output.dimmed("  Installing plugin \(component.displayName)...")
+                if executor.installPlugin(name) {
+                    artifacts.recordPlugin(name)
+                    output.success("  \(component.displayName) installed")
+                } else {
+                    output.warn("  \(component.displayName) failed to install")
+                }
+
+            case .copyPackFile(let source, let destination, let fileType):
+                if executor.installCopyPackFile(
+                    source: source,
+                    destination: destination,
+                    fileType: fileType,
+                    resolvedValues: resolvedValues
+                ) {
+                    let baseDir = fileType.baseDirectory(in: environment)
+                    let destURL = baseDir.appendingPathComponent(destination)
+                    let relativePath = PathContainment.relativePath(
+                        of: destURL.path,
+                        within: environment.claudeDirectory.path
+                    )
+                    artifacts.files.append(relativePath)
+                    if component.type == .hookFile,
+                       component.hookEvent != nil,
+                       fileType == .hook {
+                        artifacts.hookCommands.append("\(scope.hookCommandPrefix)\(destination)")
+                    }
+                    output.success("  \(component.displayName) installed")
+                }
+
+            case .gitignoreEntries(let entries):
+                _ = executor.addGitignoreEntries(entries)
+
+            case .shellCommand(let command):
+                output.dimmed("  Running \(component.displayName)...")
+                let result = shell.shell(command)
+                if result.succeeded {
+                    output.success("  \(component.displayName) installed")
+                } else {
+                    output.warn("  \(component.displayName) requires manual installation:")
+                    output.plain("    \(command)")
+                    if !result.stderr.isEmpty {
+                        output.dimmed("  Error: \(String(result.stderr.prefix(200)))")
+                    }
+                    output.dimmed("  Run the command above in your terminal, then re-run '\(scope.syncHint)'.")
+                }
+
+            case .settingsMerge:
+                break
+            }
+        }
+
+        // Track template sections from pre-loaded cache only — if loading failed earlier,
+        // we must not record sections that were never written (unlike project scope, which
+        // falls back to pack.templateSectionIdentifiers as a best-effort record).
+        if let templates = preloadedTemplates {
+            artifacts.templateSections = templates.map(\.sectionIdentifier)
+        }
+
+        return artifacts
+    }
+
+    // MARK: - Settings Composition
+
+    func composeSettings(
+        packs: [any TechPack],
+        excludedComponents: [String: Set<String>],
+        output: CLIOutput
+    ) throws -> [String: [String]] {
+        var settings: Settings
+        do {
+            settings = try Settings.load(from: scope.settingsPath)
+        } catch {
+            output.error("Could not parse \(scope.settingsPath.path): \(error.localizedDescription)")
+            output.error("Fix the JSON syntax or rename the file, then re-run '\(scope.syncHint)'.")
+            throw MCSError.fileOperationFailed(
+                path: scope.settingsPath.path,
+                reason: "Invalid JSON: \(error.localizedDescription)"
+            )
+        }
+
+        // Strip mcs-managed hook entries before re-composing
+        if var hooks = settings.hooks {
+            for (event, groups) in hooks {
+                hooks[event] = groups.filter { group in
+                    guard let cmd = group.hooks?.first?.command else { return true }
+                    return !cmd.hasPrefix(scope.hookCommandPrefix)
+                }
+            }
+            hooks = hooks.filter { !$0.value.isEmpty }
+            settings.hooks = hooks.isEmpty ? nil : hooks
+        }
+
+        let (hasContent, contributedKeys) = ConfiguratorSupport.mergePackComponentsIntoSettings(
+            packs: packs,
+            excludedComponents: excludedComponents,
+            settings: &settings,
+            hookCommandPrefix: scope.hookCommandPrefix,
+            output: output
+        )
+
+        if hasContent {
+            do {
+                try settings.save(to: scope.settingsPath)
+                output.success("Composed settings.json (global)")
+            } catch {
+                output.error("Could not write settings.json: \(error.localizedDescription)")
+                output.error("Hooks and plugins will not be active. Re-run '\(scope.syncHint)' after fixing the issue.")
+                throw MCSError.fileOperationFailed(
+                    path: scope.settingsPath.path,
+                    reason: error.localizedDescription
+                )
+            }
+        }
+
+        return contributedKeys
+    }
+
+    // MARK: - CLAUDE.md Composition
+
+    @discardableResult
+    func composeClaude(
+        packs: [any TechPack],
+        preloadedTemplates: [String: [TemplateContribution]],
+        values: [String: String],
+        output: CLIOutput
+    ) throws -> Set<String>? {
+        var allContributions = ConfiguratorSupport.gatherTemplateContributions(
+            packs: packs, preloadedTemplates: preloadedTemplates, output: output
+        )
+
+        guard !allContributions.isEmpty else { return nil }
+
+        // Check for unreplaced placeholders before writing
+        var placeholdersBySectionID: [String: [String]] = [:]
+        for contribution in allContributions {
+            let rendered = TemplateEngine.substitute(
+                template: contribution.templateContent,
+                values: values,
+                emitWarnings: false
+            )
+            let unreplaced = TemplateEngine.findUnreplacedPlaceholders(in: rendered)
+            if !unreplaced.isEmpty {
+                placeholdersBySectionID[contribution.sectionIdentifier] = unreplaced
+            }
+        }
+
+        if !placeholdersBySectionID.isEmpty {
+            output.warn("Global templates contain placeholders that cannot be resolved:")
+            for (sectionID, placeholders) in placeholdersBySectionID.sorted(by: { $0.key < $1.key }) {
+                output.warn("  \(placeholders.joined(separator: ", ")) in: \(sectionID)")
+            }
+            output.plain("")
+
+            let choice = promptPlaceholderAction(output: output)
+            switch choice {
+            case .proceed:
+                break
+            case .skip:
+                allContributions.removeAll { placeholdersBySectionID.keys.contains($0.sectionIdentifier) }
+                if allContributions.isEmpty {
+                    output.info("All template sections contained unresolved placeholders — skipping CLAUDE.md composition.")
+                    return Set()
+                }
+            case .stop:
+                throw MCSError.configurationFailed(
+                    reason: "Aborted: templates contain unresolved placeholders. "
+                        + "Remove project-scoped placeholders from global templates or provide values via pack prompts."
+                )
+            }
+        }
+
+        let fm = FileManager.default
+        let existingContent: String? = fm.fileExists(atPath: scope.claudeFilePath.path)
+            ? try String(contentsOf: scope.claudeFilePath, encoding: .utf8)
+            : nil
+
+        let result = TemplateComposer.composeOrUpdate(
+            existingContent: existingContent,
+            contributions: allContributions,
+            values: values,
+            emitWarnings: false
+        )
+
+        for warning in result.warnings {
+            output.warn(warning)
+        }
+
+        if fm.fileExists(atPath: scope.claudeFilePath.path) {
+            var backup = Backup()
+            try backup.backupFile(at: scope.claudeFilePath)
+        }
+        try result.content.write(to: scope.claudeFilePath, atomically: true, encoding: .utf8)
+        output.success("Generated \(scope.claudeFilePath.lastPathComponent) (global)")
+
+        return Set(allContributions.map(\.sectionIdentifier))
+    }
+
+    // MARK: - File Removal
+
+    func removeFileArtifact(relativePath: String, output: CLIOutput) -> Bool {
+        let fm = FileManager.default
+        guard let fullPath = PathContainment.safePath(
+            relativePath: relativePath,
+            within: environment.claudeDirectory
+        ) else {
+            output.warn("Path '\(relativePath)' escapes claude directory — clearing from tracking")
+            return true
+        }
+
+        guard fm.fileExists(atPath: fullPath.path) else {
+            return true
+        }
+
+        do {
+            try fm.removeItem(at: fullPath)
+            output.dimmed("  Removed: \(relativePath)")
+            return true
+        } catch {
+            output.warn("  Could not remove \(relativePath): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    // MARK: - Private Helpers
+
+    private enum PlaceholderAction {
+        case proceed, skip, stop
+    }
+
+    private func promptPlaceholderAction(output: CLIOutput) -> PlaceholderAction {
+        output.plain("  [p]roceed — include sections with unresolved placeholders")
+        output.plain("  [s]kip    — omit sections containing unresolved placeholders")
+        output.plain("  s[t]op    — abort global sync")
+        while true {
+            let answer = output.promptInline("Choose", default: "p").lowercased()
+            switch answer.first {
+            case "p": return .proceed
+            case "s": return .skip
+            case "t": return .stop
+            default:
+                output.plain("  Please enter p, s, or t.")
+            }
+        }
+    }
+}

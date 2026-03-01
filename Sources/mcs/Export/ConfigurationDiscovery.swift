@@ -99,10 +99,10 @@ struct ConfigurationDiscovery: Sendable {
         discoverMCPServers(scope: scope, into: &config)
 
         // 2. Discover settings (hooks, plugins, remaining keys)
-        discoverSettings(at: settingsPath, hooksDir: hooksDir, into: &config)
+        let hookCommands = discoverSettings(at: settingsPath, hooksDir: hooksDir, into: &config)
 
         // 3. Discover files in .claude/ subdirectories
-        discoverFiles(in: hooksDir, hookCommands: config.hookFiles.isEmpty ? extractHookCommands(at: settingsPath) : nil, into: &config)
+        discoverFiles(in: hooksDir, hookCommands: hookCommands, into: &config)
         config.skillFiles = listFiles(in: skillsDir)
         config.commandFiles = listFiles(in: commandsDir)
 
@@ -131,8 +131,15 @@ struct ConfigurationDiscovery: Sendable {
             return
         }
 
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            output.warn("Could not parse \(claudeJSONPath.lastPathComponent) as JSON — file may be corrupt")
+        let json: [String: Any]
+        do {
+            guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                output.warn("Could not parse \(claudeJSONPath.lastPathComponent) as JSON — unexpected format")
+                return
+            }
+            json = parsed
+        } catch {
+            output.warn("Could not parse \(claudeJSONPath.lastPathComponent): \(error.localizedDescription)")
             return
         }
 
@@ -180,13 +187,15 @@ struct ConfigurationDiscovery: Sendable {
 
     // MARK: - Settings Discovery
 
-    private func discoverSettings(at settingsPath: URL, hooksDir: URL, into config: inout DiscoveredConfiguration) {
+    /// Discovers settings and returns hook command → event mappings for file correlation.
+    @discardableResult
+    private func discoverSettings(at settingsPath: URL, hooksDir: URL, into config: inout DiscoveredConfiguration) -> [String: String]? {
         let settings: Settings
         do {
             settings = try Settings.load(from: settingsPath)
         } catch {
             output.warn("Could not parse \(settingsPath.lastPathComponent): \(error.localizedDescription)")
-            return
+            return nil
         }
 
         // Extract plugins
@@ -213,22 +222,9 @@ struct ConfigurationDiscovery: Sendable {
                 output.warn("Could not serialize remaining settings: \(error.localizedDescription)")
             }
         }
-    }
 
-    /// Extract hook command → event mappings from settings, used to correlate
-    /// discovered hook files with their Claude Code events.
-    private func extractHookCommands(at settingsPath: URL) -> [String: String] {
-        let settings: Settings
-        do {
-            settings = try Settings.load(from: settingsPath)
-        } catch {
-            output.warn("Could not parse \(settingsPath.lastPathComponent): \(error.localizedDescription)")
-            return [:]
-        }
-
-        guard let hooks = settings.hooks else {
-            return [:]
-        }
+        // Extract hook command → event mappings for file correlation
+        guard let hooks = settings.hooks else { return nil }
 
         var commandToEvent: [String: String] = [:]
         for (event, groups) in hooks {
@@ -240,7 +236,7 @@ struct ConfigurationDiscovery: Sendable {
                 }
             }
         }
-        return commandToEvent
+        return commandToEvent.isEmpty ? nil : commandToEvent
     }
 
     // MARK: - File Discovery

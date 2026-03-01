@@ -315,4 +315,120 @@ struct ManifestBuilderTests {
         #expect(prompts.count == 1)
         #expect(prompts[0].key == "TOKEN")
     }
+
+    // MARK: - YAML quoting edge cases
+
+    private func buildAndLoadRoundTrip(
+        config: ConfigurationDiscovery.DiscoveredConfiguration = .init(),
+        metadata: ManifestBuilder.Metadata,
+        selectedMCPServers: Set<String> = []
+    ) throws -> (result: ManifestBuilder.BuildResult, loaded: ExternalPackManifest) {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let result = ManifestBuilder().build(
+            from: config, metadata: metadata,
+            selectedMCPServers: selectedMCPServers,
+            selectedHookFiles: [], selectedSkillFiles: [],
+            selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+            includeUserContent: false, includeGitignore: false, includeSettings: false
+        )
+
+        let yamlFile = tmpDir.appendingPathComponent("techpack.yaml")
+        try result.manifestYAML.write(to: yamlFile, atomically: true, encoding: .utf8)
+        let loaded = try ExternalPackManifest.load(from: yamlFile)
+        return (result, loaded)
+    }
+
+    @Test("Special characters in metadata survive YAML round-trip")
+    func specialCharactersInMetadataRoundTrip() throws {
+        let metadata = ManifestBuilder.Metadata(
+            identifier: "special-chars",
+            displayName: "Special Pack",
+            description: "Contains # hash and key: value pair",
+            author: "&anchor-like author"
+        )
+
+        let (result, loaded) = try buildAndLoadRoundTrip(metadata: metadata)
+
+        #expect(result.manifestYAML.contains("description: \"Contains # hash and key: value pair\""))
+        #expect(result.manifestYAML.contains("author: \"&anchor-like author\""))
+        #expect(loaded.description == "Contains # hash and key: value pair")
+        #expect(loaded.author == "&anchor-like author")
+    }
+
+    @Test("Newlines and tabs in description are properly escaped")
+    func newlinesAndTabsRoundTrip() throws {
+        let metadata = ManifestBuilder.Metadata(
+            identifier: "newline-pack",
+            displayName: "Newline Pack",
+            description: "Line one\nLine two\tTabbed",
+            author: nil
+        )
+
+        let (result, loaded) = try buildAndLoadRoundTrip(metadata: metadata)
+
+        #expect(result.manifestYAML.contains(#"description: "Line one\nLine two\tTabbed""#))
+        #expect(loaded.description == "Line one\nLine two\tTabbed")
+    }
+
+    @Test("HTTP MCP server URL with fragment survives round-trip")
+    func httpURLWithFragmentRoundTrip() throws {
+        var config = ConfigurationDiscovery.DiscoveredConfiguration()
+        config.mcpServers = [
+            ConfigurationDiscovery.DiscoveredMCPServer(
+                name: "fragmented", command: nil, args: [],
+                env: [:],
+                url: "https://example.com/mcp#section", scope: "local"
+            ),
+        ]
+
+        let metadata = ManifestBuilder.Metadata(
+            identifier: "url-test",
+            displayName: "URL Test",
+            description: "Tests URL quoting",
+            author: nil
+        )
+
+        let (_, loaded) = try buildAndLoadRoundTrip(
+            config: config, metadata: metadata, selectedMCPServers: ["fragmented"]
+        )
+        let normalized = try loaded.normalized()
+
+        let mcpComp = try #require(normalized.components?.first { $0.type == .mcpServer })
+        guard case .mcpServer(let mcpConfig) = mcpComp.installAction else {
+            Issue.record("Expected mcpServer install action")
+            return
+        }
+        #expect(mcpConfig.url == "https://example.com/mcp#section")
+    }
+
+    @Test("Component description with special characters survives round-trip")
+    func componentDescriptionSpecialCharsRoundTrip() throws {
+        var config = ConfigurationDiscovery.DiscoveredConfiguration()
+        config.mcpServers = [
+            ConfigurationDiscovery.DiscoveredMCPServer(
+                name: "server#v2", command: "npx", args: ["test"],
+                env: [:],
+                url: nil, scope: "local"
+            ),
+        ]
+
+        let metadata = ManifestBuilder.Metadata(
+            identifier: "desc-test",
+            displayName: "Desc Test",
+            description: "Tests component descriptions",
+            author: nil
+        )
+
+        let (_, loaded) = try buildAndLoadRoundTrip(
+            config: config, metadata: metadata, selectedMCPServers: ["server#v2"]
+        )
+        let normalized = try loaded.normalized()
+
+        let mcpComp = try #require(normalized.components?.first { $0.type == .mcpServer })
+        #expect(mcpComp.description.contains("server#v2"))
+        #expect(mcpComp.id.contains("mcp-serverv2"))
+        #expect(!mcpComp.id.contains("#"))
+    }
 }

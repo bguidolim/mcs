@@ -120,7 +120,7 @@ struct ManifestBuilder {
 
         // ── MCP Servers ───────────────────────────────────────────────────────
         for server in config.mcpServers where options.selectedMCPServers.contains(server.name) {
-            let id = "mcp-\(server.name)"
+            let id = "mcp-\(sanitizeID(server.name))"
 
             // Detect brew dependency hint via Homebrew symlink resolution
             if let command = server.command, let formula = Homebrew.detectFormula(for: command) {
@@ -332,9 +332,9 @@ struct ManifestBuilder {
         yaml.keyValue("schemaVersion", manifest.schemaVersion)
         yaml.keyValue("identifier", manifest.identifier)
         yaml.keyValue("displayName", manifest.displayName, quoted: true)
-        yaml.keyValue("description", manifest.description)
+        yaml.keyValue("description", manifest.description, quoted: true)
         if let author = manifest.author {
-            yaml.keyValue("author", author)
+            yaml.keyValue("author", author, quoted: true)
         }
 
         // ── Components ────────────────────────────────────────────────────────
@@ -370,8 +370,8 @@ struct ManifestBuilder {
             yaml.sectionDivider("Templates — CLAUDE.local.md sections")
             yaml.line("templates:")
             for template in templates {
-                yaml.line("  - sectionIdentifier: \(template.sectionIdentifier)")
-                yaml.line("    contentFile: \(template.contentFile)")
+                yaml.line("  - sectionIdentifier: \(yamlQuote(template.sectionIdentifier))")
+                yaml.line("    contentFile: \(yamlQuote(template.contentFile))")
             }
         }
 
@@ -381,7 +381,7 @@ struct ManifestBuilder {
             yaml.sectionDivider("Prompts — resolved interactively during `mcs sync`")
             yaml.line("prompts:")
             for prompt in prompts {
-                yaml.line("  - key: \(prompt.key)")
+                yaml.line("  - key: \(yamlQuote(prompt.key))")
                 yaml.line("    type: \(prompt.type.rawValue)")
                 if let label = prompt.label {
                     yaml.line("    label: \(yamlQuote(label))")
@@ -441,7 +441,7 @@ struct ManifestBuilder {
         }
 
         yaml.line("  - id: \(comp.id)")
-        yaml.line("    description: \(comp.description)")
+        yaml.line("    description: \(yamlQuote(comp.description))")
 
         // isRequired
         if comp.isRequired == true {
@@ -450,7 +450,7 @@ struct ManifestBuilder {
 
         // hookEvent
         if let hookEvent = comp.hookEvent {
-            yaml.line("    hookEvent: \(hookEvent)")
+            yaml.line("    hookEvent: \(yamlQuote(hookEvent))")
         } else if comp.type == .hookFile {
             yaml.comment("    TODO: Add hookEvent (e.g. SessionStart, PreToolUse, Stop)", indent: 4)
         }
@@ -460,10 +460,10 @@ struct ManifestBuilder {
         case .mcpServer(let config):
             yaml.line("    mcp:")
             if config.transport == .http, let url = config.url {
-                yaml.line("      url: \(url)")
+                yaml.line("      url: \(yamlQuote(url))")
             } else {
                 if let command = config.command {
-                    yaml.line("      command: \(command)")
+                    yaml.line("      command: \(yamlQuote(command))")
                 }
                 if let args = config.args, !args.isEmpty {
                     yaml.line("      args:")
@@ -498,11 +498,11 @@ struct ManifestBuilder {
                 preconditionFailure("Export does not produce .generic file components")
             }
             yaml.line("    \(key):")
-            yaml.line("      source: \(config.source)")
-            yaml.line("      destination: \(config.destination)")
+            yaml.line("      source: \(yamlQuote(config.source))")
+            yaml.line("      destination: \(yamlQuote(config.destination))")
 
         case .settingsFile(let source):
-            yaml.line("    settingsFile: \(source)")
+            yaml.line("    settingsFile: \(yamlQuote(source))")
 
         case .gitignoreEntries(let entries):
             yaml.line("    gitignore:")
@@ -568,11 +568,15 @@ private func yamlQuote(_ value: String) -> String {
         || value.contains("#")
         || value.contains("\"")
         || value.contains("'")
+        || value.contains("\n")
+        || value.contains("\t")
         || ["true", "false", "yes", "no", "null", "~"].contains(value.lowercased())
 
     if needsQuoting {
         let escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\t", with: "\\t")
         return "\"\(escaped)\""
     }
     return value

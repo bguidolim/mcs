@@ -316,6 +316,72 @@ struct ManifestBuilderTests {
         #expect(prompts[0].key == "TOKEN")
     }
 
+    // MARK: - Duplicate prompt key deduplication (#183)
+
+    @Test("Shared env var name across MCP servers produces unique prompt keys")
+    func duplicatePromptKeysGetSuffix() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        var config = ConfigurationDiscovery.DiscoveredConfiguration()
+        config.mcpServers = [
+            ConfigurationDiscovery.DiscoveredMCPServer(
+                name: "figma", command: "npx", args: ["figma-mcp"],
+                env: ["API_KEY": "figma-secret"],
+                url: nil, scope: "local"
+            ),
+            ConfigurationDiscovery.DiscoveredMCPServer(
+                name: "atlassian", command: "npx", args: ["atlassian-mcp"],
+                env: ["API_KEY": "atlassian-secret"],
+                url: nil, scope: "local"
+            ),
+        ]
+
+        let metadata = ManifestBuilder.Metadata(
+            identifier: "dedup-test",
+            displayName: "Dedup Test",
+            description: "Tests duplicate prompt key handling",
+            author: nil
+        )
+
+        let result = ManifestBuilder().build(
+            from: config, metadata: metadata,
+            selectedMCPServers: Set(config.mcpServers.map(\.name)),
+            selectedHookFiles: [], selectedSkillFiles: [],
+            selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+            includeUserContent: false, includeGitignore: false, includeSettings: false
+        )
+
+        // Two unique prompt keys: API_KEY and API_KEY_2
+        let prompts = try #require(result.manifest.prompts)
+        #expect(prompts.count == 2)
+        let keys = Set(prompts.map(\.key))
+        #expect(keys == ["API_KEY", "API_KEY_2"])
+
+        // Each server's env uses the correct placeholder
+        let components = try #require(result.manifest.components)
+        let figmaComp = try #require(components.first { $0.id.contains("figma") })
+        guard case .mcpServer(let figmaConfig) = figmaComp.installAction else {
+            Issue.record("Expected mcpServer install action for figma")
+            return
+        }
+        #expect(figmaConfig.env?["API_KEY"] == "__API_KEY__")
+
+        let atlassianComp = try #require(components.first { $0.id.contains("atlassian") })
+        guard case .mcpServer(let atlassianConfig) = atlassianComp.installAction else {
+            Issue.record("Expected mcpServer install action for atlassian")
+            return
+        }
+        #expect(atlassianConfig.env?["API_KEY"] == "__API_KEY_2__")
+
+        // Round-trip: YAML → load → validate passes
+        let yamlFile = tmpDir.appendingPathComponent("techpack.yaml")
+        try result.manifestYAML.write(to: yamlFile, atomically: true, encoding: .utf8)
+        let loaded = try ExternalPackManifest.load(from: yamlFile)
+        let normalized = try loaded.normalized()
+        try normalized.validate()
+    }
+
     // MARK: - YAML quoting edge cases
 
     private func buildAndLoadRoundTrip(

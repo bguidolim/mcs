@@ -148,7 +148,7 @@ Packs are modular — mix and match what you need instead of one monolith:
 | Pack | Description | Highlights |
 |------|-------------|------------|
 | [**mcs-core-pack**](https://github.com/bguidolim/mcs-core-pack) | Foundational settings, plugins, git workflows, and code navigation | Serena (LSP), plan mode, `/commit`, PR review agents, session-start git status |
-| [**mcs-continuous-learning**](https://github.com/bguidolim/mcs-continuous-learning) | Persistent memory and knowledge management across sessions | Ollama embeddings, semantic search via docs-mcp-server, auto-extracted learnings |
+| [**mcs-continuous-learning**](https://github.com/bguidolim/mcs-continuous-learning) | Persistent memory and knowledge management across sessions | Ollama embeddings, semantic search via `docs-mcp-server`, auto-extracted learnings |
 | [**mcs-ios-pack**](https://github.com/bguidolim/mcs-ios-pack) | Xcode integration, simulator management, and Apple documentation | XcodeBuildMCP, Sosumi docs, auto-detected project config, simulator hooks |
 
 > 💡 Use these as a starting point — fork one to build your own, or combine all three with `mcs pack add` for a complete setup.

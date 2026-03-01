@@ -9,10 +9,8 @@ struct ExternalPackManifest: Codable, Sendable {
     let identifier: String
     let displayName: String
     let description: String
-    let version: String
     let author: String?
     let minMCSVersion: String?
-    let peerDependencies: [PeerDependency]?
     let components: [ExternalComponentDefinition]?
     let templates: [ExternalTemplateDefinition]?
     let gitignoreEntries: [String]?
@@ -205,10 +203,8 @@ extension ExternalPackManifest {
             identifier: identifier,
             displayName: displayName,
             description: description,
-            version: version,
             author: author,
             minMCSVersion: minMCSVersion,
-            peerDependencies: peerDependencies,
             components: normalizedComponents,
             templates: normalizedTemplates,
             gitignoreEntries: gitignoreEntries,
@@ -261,13 +257,6 @@ enum ManifestError: Error, Equatable, Sendable, LocalizedError {
             return "Component '\(componentID)' has unknown hookEvent '\(hookEvent)'"
         }
     }
-}
-
-// MARK: - Peer Dependencies
-
-struct PeerDependency: Codable, Sendable, Equatable {
-    let pack: String
-    let minVersion: String
 }
 
 // MARK: - Components

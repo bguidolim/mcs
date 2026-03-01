@@ -194,7 +194,7 @@ struct ConfigurationDiscovery: Sendable {
         do {
             settings = try Settings.load(from: settingsPath)
         } catch {
-            output.warn("Could not parse \(settingsPath.lastPathComponent): \(error.localizedDescription)")
+            output.warn("Could not load \(settingsPath.lastPathComponent): \(error.localizedDescription)")
             return nil
         }
 
@@ -249,7 +249,7 @@ struct ConfigurationDiscovery: Sendable {
         do {
             files = try fm.contentsOfDirectory(at: hooksDir, includingPropertiesForKeys: nil)
         } catch {
-            output.warn("Could not read hooks directory: \(error.localizedDescription)")
+            output.warn("Could not read hooks directory at \(hooksDir.path): \(error.localizedDescription)")
             return
         }
 

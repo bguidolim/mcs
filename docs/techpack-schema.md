@@ -99,11 +99,13 @@ Infers: `type: brewPackage`, `installAction: brewInstall`
 | `name` | `String` | No | Server name (defaults to component id) |
 | `command` | `String` | Stdio only | Command to run (e.g. `npx`, `uvx`) |
 | `args` | `[String]` | No | Command arguments |
-| `env` | `{String: String}` | No | Environment variables |
+| `env` | `{String: String}` | No | Environment variables. Supports `__KEY__` placeholders from prompts |
 | `url` | `String` | HTTP only | Server URL |
 | `scope` | `String` | No | `local` (default), `project`, or `user` |
 
 Transport is inferred: if `url` is present, HTTP; otherwise stdio.
+
+`__KEY__` placeholders in `env` values, `command`, and `args` are substituted with resolved prompt values during `mcs sync`. The server `name` is never substituted (it's used as an artifact tracking key).
 
 Infers: `type: mcpServer`, `installAction: mcpServer`
 
@@ -198,7 +200,7 @@ Infers: `type: skill`, `installAction: copyPackFile(fileType: skill)`
 |-------|------|-------------|
 | `settingsFile` | `String` | Path to settings JSON file in the pack repo |
 
-The settings file is deep-merged into `<project>/.claude/settings.local.json`.
+The settings file is deep-merged into `<project>/.claude/settings.local.json`. `__KEY__` placeholders in JSON values are substituted with resolved prompt values before parsing.
 
 Infers: `type: configuration`, `installAction: settingsFile`
 
@@ -345,6 +347,14 @@ prompts:
 | `input` | Free-text input with optional default value. |
 | `select` | Choose from a predefined list of options. |
 | `script` | Runs a shell command and uses its stdout as the value. |
+
+### Cross-Pack Deduplication
+
+When multiple packs declare prompts with the same `key`, `mcs` detects the overlap and asks the user **once** with a combined display showing each pack's label. The resolved value is shared across all packs.
+
+Only `input` and `select` prompts are eligible for deduplication. `fileDetect` and `script` prompts are too pack-specific and always run per-pack.
+
+For shared `select` prompts, options are merged across packs (deduplicated by value, first occurrence wins). If one pack uses `input` and another uses `select` for the same key, the prompt falls back to `input` with a warning.
 
 ---
 

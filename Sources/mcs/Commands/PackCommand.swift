@@ -498,6 +498,7 @@ struct RemovePack: LockedCommand {
         do {
             indexData = try indexFile.load()
         } catch {
+            output.warn("Could not read project index — per-project cleanup may be incomplete.")
             indexData = ProjectIndex.IndexData()
         }
         let affectedEntries = indexFile.projects(withPack: identifier, in: indexData)
@@ -507,17 +508,18 @@ struct RemovePack: LockedCommand {
             let globalState = try ProjectState(stateFile: env.globalStateFile)
             isGloballyConfigured = globalState.configuredPacks.contains(identifier)
         } catch {
+            output.warn("Could not read global state — global cleanup may be incomplete.")
             isGloballyConfigured = false
         }
 
         var liveProjectPaths: [String] = []
         var staleProjectPaths: [String] = []
-        for entry in affectedEntries {
-            guard entry.path != ProjectIndex.globalSentinel else { continue }
-            if FileManager.default.fileExists(atPath: entry.path) {
-                liveProjectPaths.append(entry.path)
+        for projectEntry in affectedEntries {
+            guard projectEntry.path != ProjectIndex.globalSentinel else { continue }
+            if FileManager.default.fileExists(atPath: projectEntry.path) {
+                liveProjectPaths.append(projectEntry.path)
             } else {
-                staleProjectPaths.append(entry.path)
+                staleProjectPaths.append(projectEntry.path)
             }
         }
 

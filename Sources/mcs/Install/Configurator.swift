@@ -292,11 +292,12 @@ struct Configurator {
         let gitignoreExec = makeExecutor()
         for pack in packs {
             gitignoreExec.addPackGitignoreEntries(from: pack)
-            if !pack.gitignoreEntries.isEmpty {
-                if var artifacts = state.artifacts(for: pack.identifier) {
-                    artifacts.gitignoreEntries = pack.gitignoreEntries
-                    state.setArtifacts(artifacts, for: pack.identifier)
-                }
+            // Merge legacy top-level gitignore entries with any component-recorded ones
+            if !pack.gitignoreEntries.isEmpty, var artifacts = state.artifacts(for: pack.identifier) {
+                let existing = Set(artifacts.gitignoreEntries)
+                let newEntries = pack.gitignoreEntries.filter { !existing.contains($0) }
+                artifacts.gitignoreEntries.append(contentsOf: newEntries)
+                state.setArtifacts(artifacts, for: pack.identifier)
             }
         }
 

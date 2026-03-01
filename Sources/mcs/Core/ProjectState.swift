@@ -29,7 +29,7 @@ struct PackArtifactRecord: Codable, Equatable, Sendable {
     }
 
     // Custom decoder for backward compatibility — existing JSON files may lack
-    // the new brewPackages/plugins keys.
+    // newer keys (brewPackages, plugins, gitignoreEntries).
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         mcpServers = try container.decodeIfPresent([MCPServerRef].self, forKey: .mcpServers) ?? []

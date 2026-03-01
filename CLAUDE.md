@@ -26,6 +26,7 @@ mcs sync --update                # Fetch latest versions and update mcs.lock.yam
 mcs doctor                       # Diagnose installation health
 mcs doctor --fix                 # Diagnose and auto-fix issues
 mcs doctor --pack ios            # Only check a specific pack
+mcs doctor --global              # Check globally-configured packs only
 mcs pack add <source>            # Add a tech pack (git URL, GitHub shorthand, or local path)
 mcs pack add user/repo           # GitHub shorthand → https://github.com/user/repo.git
 mcs pack add /path/to/pack       # Add a local pack (read in-place, no clone)

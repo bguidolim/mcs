@@ -391,36 +391,31 @@ enum ConfiguratorSupport {
         var undeclared = Set<String>()
         let resolvedKeys = Set(resolvedValues.keys)
 
+        let collectUndeclared = { (placeholder: String) in
+            let key = stripPlaceholderDelimiters(placeholder)
+            if !resolvedKeys.contains(key) {
+                undeclared.insert(key)
+            }
+        }
+
         for pack in packs {
             for component in pack.components {
                 switch component.installAction {
                 case .copyPackFile(let source, _, _):
-                    for placeholder in findPlaceholdersInSource(source) {
-                        let key = stripPlaceholderDelimiters(placeholder)
-                        if !resolvedKeys.contains(key) {
-                            undeclared.insert(key)
-                        }
-                    }
+                    findPlaceholdersInSource(source).forEach(collectUndeclared)
 
                 case .settingsMerge(let source):
                     if let source {
-                        for placeholder in findPlaceholdersInSource(source) {
-                            let key = stripPlaceholderDelimiters(placeholder)
-                            if !resolvedKeys.contains(key) {
-                                undeclared.insert(key)
-                            }
-                        }
+                        findPlaceholdersInSource(source).forEach(collectUndeclared)
                     }
 
                 case .mcpServer(let config):
-                    let textsToScan = Array(config.env.values) + [config.command] + config.args
-                    for text in textsToScan {
-                        for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: text) {
-                            let key = stripPlaceholderDelimiters(placeholder)
-                            if !resolvedKeys.contains(key) {
-                                undeclared.insert(key)
-                            }
-                        }
+                    for text in config.env.values {
+                        TemplateEngine.findUnreplacedPlaceholders(in: text).forEach(collectUndeclared)
+                    }
+                    TemplateEngine.findUnreplacedPlaceholders(in: config.command).forEach(collectUndeclared)
+                    for text in config.args {
+                        TemplateEngine.findUnreplacedPlaceholders(in: text).forEach(collectUndeclared)
                     }
 
                 default:
@@ -431,12 +426,8 @@ enum ConfiguratorSupport {
             if includeTemplates {
                 do {
                     for template in try pack.templates {
-                        for placeholder in TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent) {
-                            let key = stripPlaceholderDelimiters(placeholder)
-                            if !resolvedKeys.contains(key) {
-                                undeclared.insert(key)
-                            }
-                        }
+                        TemplateEngine.findUnreplacedPlaceholders(in: template.templateContent)
+                            .forEach(collectUndeclared)
                     }
                 } catch {
                     onWarning?("Could not scan templates for \(pack.displayName): \(error.localizedDescription)")

@@ -186,18 +186,7 @@ struct Settings: Codable, Sendable {
             return Settings()
         }
         let data = try Data(contentsOf: url)
-        var settings = try JSONDecoder().decode(Settings.self, from: data)
-
-        // Second pass: capture all non-typed top-level keys
-        if let rawJSON = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for (key, value) in rawJSON where !knownTopLevelKeys.contains(key) {
-                settings.extraJSON[key] = try JSONSerialization.data(
-                    withJSONObject: value, options: .fragmentsAllowed
-                )
-            }
-        }
-
-        return settings
+        return try decode(from: data)
     }
 
     /// Load settings from a JSON file, applying placeholder substitution before parsing.
@@ -211,9 +200,12 @@ struct Settings: Codable, Sendable {
         }
         let rawText = try String(contentsOf: url, encoding: .utf8)
         let substituted = TemplateEngine.substitute(template: rawText, values: values, emitWarnings: false)
-        let data = Data(substituted.utf8)
-        var settings = try JSONDecoder().decode(Settings.self, from: data)
+        return try decode(from: Data(substituted.utf8))
+    }
 
+    /// Decode settings from JSON data, capturing unknown top-level keys into `extraJSON`.
+    private static func decode(from data: Data) throws -> Settings {
+        var settings = try JSONDecoder().decode(Settings.self, from: data)
         if let rawJSON = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
             for (key, value) in rawJSON where !knownTopLevelKeys.contains(key) {
                 settings.extraJSON[key] = try JSONSerialization.data(
@@ -221,7 +213,6 @@ struct Settings: Codable, Sendable {
                 )
             }
         }
-
         return settings
     }
 

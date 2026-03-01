@@ -10,7 +10,7 @@ struct LockfileOperations {
     /// Checkout exact pack commits from the lockfile.
     /// Aborts if any checkout fails, since `--lock` guarantees reproducibility for git packs.
     /// Local packs are skipped (their content is not commit-pinned).
-    func checkoutLockedVersions(at projectPath: URL) throws {
+    func checkoutLockedCommits(at projectPath: URL) throws {
         guard let lockfile = try Lockfile.load(projectRoot: projectPath) else {
             output.error("No mcs.lock.yaml found. Run 'mcs sync' first to create one.")
             throw ExitCode.failure

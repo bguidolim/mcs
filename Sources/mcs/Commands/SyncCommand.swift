@@ -159,9 +159,9 @@ struct SyncCommand: LockedCommand {
 
         let lockOps = LockfileOperations(environment: env, output: output, shell: shell)
 
-        // Handle --lock: checkout locked versions before loading packs
+        // Handle --lock: checkout locked commits before loading packs
         if lock {
-            try lockOps.checkoutLockedVersions(at: projectPath)
+            try lockOps.checkoutLockedCommits(at: projectPath)
         }
 
         let configurator = Configurator(

@@ -113,21 +113,17 @@ struct DoctorRunner {
         for scope in scopes {
             allPackIDs.formUnion(scope.packIDs)
 
-            let components = availablePacks
-                .filter { scope.packIDs.contains($0.identifier) }
-                .flatMap { $0.components }
+            let scopePacks = availablePacks.filter { scope.packIDs.contains($0.identifier) }
 
-            for component in components {
-                let excluded = scope.excludedComponentIDs.contains(component.id)
-                let checks = component.allDoctorChecks(projectRoot: scope.effectiveProjectRoot)
-                allChecks += checks.map { (check: $0, isExcluded: excluded) }
+            for pack in scopePacks {
+                for component in pack.components {
+                    let excluded = scope.excludedComponentIDs.contains(component.id)
+                    let checks = component.allDoctorChecks(projectRoot: scope.effectiveProjectRoot)
+                    allChecks += checks.map { (check: $0, isExcluded: excluded) }
+                }
+                // Pack-level supplementary checks (cannot be derived from components)
+                allChecks += pack.supplementaryDoctorChecks.map { (check: $0, isExcluded: false) }
             }
-
-            // Pack-level supplementary checks scoped to this pass
-            let supplementary = availablePacks
-                .filter { scope.packIDs.contains($0.identifier) }
-                .flatMap { $0.supplementaryDoctorChecks }
-            allChecks += supplementary.map { (check: $0, isExcluded: false) }
         }
 
         // Layers 3-5: Standalone and project-scoped checks (scope-independent)
@@ -206,17 +202,14 @@ struct DoctorRunner {
         projectRoot: URL?,
         globallyConfiguredPackIDs: Set<String>
     ) -> [CheckScope] {
-        let projectName = projectRoot?.lastPathComponent
-
-        // --pack flag: single scope, use globalOnly to determine project root
+        // --pack flag: single scope, use globalOnly to determine effective root
         if let filter = packFilter {
             let packIDs = Set(filter.components(separatedBy: ","))
-            let root = globalOnly ? nil : projectRoot
             return [CheckScope(
                 packIDs: packIDs,
-                effectiveProjectRoot: root,
+                effectiveProjectRoot: globalOnly ? nil : projectRoot,
                 excludedComponentIDs: [],
-                label: globalOnly ? "--pack flag (global)" : "--pack flag"
+                label: "--pack flag"
             )]
         }
 
@@ -225,69 +218,24 @@ struct DoctorRunner {
             return [globalScope(globallyConfiguredPackIDs)]
         }
 
-        // In a project: resolve project packs, then add global-only packs
+        // In a project: resolve project packs, then append global-only packs
         if let root = projectRoot {
-            var projectState: ProjectState?
-            do {
-                let state = try ProjectState(projectRoot: root)
-                if state.exists, !state.configuredPacks.isEmpty {
-                    projectState = state
-                }
-            } catch {
-                output.warn("Could not read .mcs-project: \(error.localizedDescription) — falling back to section markers")
-            }
-
+            let projectName = root.lastPathComponent
             var scopes: [CheckScope] = []
-            var projectPackIDs: Set<String>?
+            var projectPackIDs: Set<String> = []
 
-            if let state = projectState {
-                // Tier 2: Project .mcs-project file
-                let excludedIDs = Set(state.allExcludedComponents.values.flatMap { $0 })
-                scopes.append(CheckScope(
-                    packIDs: state.configuredPacks,
-                    effectiveProjectRoot: root,
-                    excludedComponentIDs: excludedIDs,
-                    label: "project: \(projectName ?? "unknown")"
-                ))
-                projectPackIDs = state.configuredPacks
-            } else {
-                // Tier 3: Fallback — infer from CLAUDE.local.md section markers
-                let claudeLocal = root.appendingPathComponent(Constants.FileNames.claudeLocalMD)
-                let claudeLocalContent: String?
-                if FileManager.default.fileExists(atPath: claudeLocal.path) {
-                    do {
-                        claudeLocalContent = try String(contentsOf: claudeLocal, encoding: .utf8)
-                    } catch {
-                        output.warn("Could not read \(Constants.FileNames.claudeLocalMD): \(error.localizedDescription)")
-                        claudeLocalContent = nil
-                    }
-                } else {
-                    claudeLocalContent = nil
-                }
-
-                if let content = claudeLocalContent {
-                    let sections = TemplateComposer.parseSections(from: content)
-                    let inferred = Set(sections.map(\.identifier))
-                    if !inferred.isEmpty {
-                        scopes.append(CheckScope(
-                            packIDs: inferred,
-                            effectiveProjectRoot: root,
-                            excludedComponentIDs: [],
-                            label: "project: \(projectName ?? "unknown") (inferred)"
-                        ))
-                        projectPackIDs = inferred
-                    }
-                }
+            if let projectScope = resolveProjectScope(root: root, projectName: projectName) {
+                projectPackIDs = projectScope.packIDs
+                scopes.append(projectScope)
             }
 
-            // Add global-only packs (not already checked via project scope)
-            let alreadyChecked = projectPackIDs ?? []
-            let globalOnlyIDs = globallyConfiguredPackIDs.subtracting(alreadyChecked)
+            // Append packs that are globally configured but not in the project scope
+            let globalOnlyIDs = globallyConfiguredPackIDs.subtracting(projectPackIDs)
             if !globalOnlyIDs.isEmpty {
                 scopes.append(globalScope(globalOnlyIDs))
             }
 
-            // If no project packs found and no global packs, fall back to full global set
+            // If nothing was found at all, fall back to the full global set
             if scopes.isEmpty {
                 scopes.append(globalScope(globallyConfiguredPackIDs))
             }
@@ -295,8 +243,50 @@ struct DoctorRunner {
             return scopes
         }
 
-        // Tier 4: Not in a project — global packs only
+        // Not in a project — global packs only
         return [globalScope(globallyConfiguredPackIDs)]
+    }
+
+    /// Resolves the project-scoped `CheckScope` for the given project root.
+    /// Returns nil if no project packs can be determined.
+    private func resolveProjectScope(root: URL, projectName: String) -> CheckScope? {
+        // Tier 1: Project .mcs-project state file
+        do {
+            let state = try ProjectState(projectRoot: root)
+            if state.exists, !state.configuredPacks.isEmpty {
+                let excludedIDs = Set(state.allExcludedComponents.values.flatMap { $0 })
+                return CheckScope(
+                    packIDs: state.configuredPacks,
+                    effectiveProjectRoot: root,
+                    excludedComponentIDs: excludedIDs,
+                    label: "project: \(projectName)"
+                )
+            }
+        } catch {
+            output.warn("Could not read .mcs-project: \(error.localizedDescription) — falling back to section markers")
+        }
+
+        // Tier 2: Fallback — infer from CLAUDE.local.md section markers
+        let claudeLocal = root.appendingPathComponent(Constants.FileNames.claudeLocalMD)
+        guard FileManager.default.fileExists(atPath: claudeLocal.path) else { return nil }
+
+        let content: String
+        do {
+            content = try String(contentsOf: claudeLocal, encoding: .utf8)
+        } catch {
+            output.warn("Could not read \(Constants.FileNames.claudeLocalMD): \(error.localizedDescription)")
+            return nil
+        }
+
+        let inferred = Set(TemplateComposer.parseSections(from: content).map(\.identifier))
+        guard !inferred.isEmpty else { return nil }
+
+        return CheckScope(
+            packIDs: inferred,
+            effectiveProjectRoot: root,
+            excludedComponentIDs: [],
+            label: "project: \(projectName) (inferred)"
+        )
     }
 
     /// Creates a global-scope `CheckScope` with the given pack IDs.

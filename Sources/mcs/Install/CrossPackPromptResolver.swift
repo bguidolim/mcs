@@ -16,19 +16,21 @@ enum CrossPackPromptResolver {
     /// Prompt types eligible for cross-pack deduplication.
     static let deduplicableTypes: Set<ExternalPromptType> = [.input, .select]
 
-    /// Collect prompts from all packs and group by key.
+    /// Collect prompts from all packs and group by key, skipping already-resolved keys.
     ///
     /// - Returns: A dictionary keyed by prompt key, with each value being the list
-    ///   of packs that declare that key (only for deduplicable types).
+    ///   of packs that declare that key (only for deduplicable types, 2+ packs).
     static func groupSharedPrompts(
         packs: [any TechPack],
         context: ProjectConfigContext
     ) -> [String: [PackPromptInfo]] {
         var byKey: [String: [PackPromptInfo]] = [:]
+        let alreadyResolved = Set(context.resolvedValues.keys)
 
         for pack in packs {
             for prompt in pack.declaredPrompts(context: context) {
                 guard deduplicableTypes.contains(prompt.type) else { continue }
+                guard !alreadyResolved.contains(prompt.key) else { continue }
                 byKey[prompt.key, default: []].append(
                     PackPromptInfo(packName: pack.displayName, prompt: prompt)
                 )
@@ -57,7 +59,7 @@ enum CrossPackPromptResolver {
             output.info("\(key) (shared by \(packNames))")
 
             for info in infos {
-                let label = info.prompt.label ?? "\(info.packName): (no description)"
+                let label = info.prompt.label ?? "(no description)"
                 output.dimmed("  \(info.packName): \"\(label)\"")
             }
 
@@ -65,7 +67,8 @@ enum CrossPackPromptResolver {
             let primaryType = infos[0].prompt.type
             let hasTypeConflict = infos.contains { $0.prompt.type != primaryType }
             if hasTypeConflict {
-                output.warn("  Type conflict across packs — using text input")
+                let typesByPack = infos.map { "\($0.packName): \($0.prompt.type.rawValue)" }.joined(separator: ", ")
+                output.warn("  Type conflict across packs (\(typesByPack)) — falling back to text input")
             }
 
             // Use the first non-nil default value
@@ -83,6 +86,7 @@ enum CrossPackPromptResolver {
                     }
                 }
                 guard !mergedOptions.isEmpty else {
+                    output.warn("  Shared select prompt '\(key)' has no options — using default value")
                     resolved[key] = defaultValue ?? ""
                     continue
                 }

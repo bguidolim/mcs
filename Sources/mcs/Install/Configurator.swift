@@ -173,8 +173,9 @@ struct Configurator {
         var allValues = strategy.resolveBuiltInValues(shell: shell, output: output)
 
         // 3b–3c. Detect shared prompts across packs and resolve them once.
-        // `initialContext` uses partial resolvedValues (built-ins only) — groupSharedPrompts
-        // only reads `isGlobalScope` from the context, not resolvedValues.
+        // `initialContext` uses partial resolvedValues (built-ins only). groupSharedPrompts
+        // filters out already-resolved keys; current TechPack implementations only use
+        // isGlobalScope from the context in declaredPrompts().
         let initialContext = strategy.makeConfigContext(output: output, resolvedValues: allValues)
         let sharedPrompts = CrossPackPromptResolver.groupSharedPrompts(
             packs: packs, context: initialContext

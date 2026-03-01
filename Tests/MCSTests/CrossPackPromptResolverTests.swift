@@ -205,6 +205,36 @@ struct CrossPackPromptResolverTests {
         #expect(shared["DETECT"] == nil)
     }
 
+    @Test("Skips keys that are already in context.resolvedValues")
+    func skipsAlreadyResolvedKeys() {
+        let packA = makeMockPack(name: "pack-a", prompts: [
+            ExternalPromptDefinition(
+                key: "BRANCH_PREFIX", type: .input,
+                label: "Prefix from A", defaultValue: nil,
+                options: nil, detectPatterns: nil, scriptCommand: nil
+            ),
+        ])
+        let packB = makeMockPack(name: "pack-b", prompts: [
+            ExternalPromptDefinition(
+                key: "BRANCH_PREFIX", type: .input,
+                label: "Prefix from B", defaultValue: nil,
+                options: nil, detectPatterns: nil, scriptCommand: nil
+            ),
+        ])
+
+        let context = ProjectConfigContext(
+            projectPath: FileManager.default.temporaryDirectory,
+            repoName: "test-repo",
+            output: CLIOutput(colorsEnabled: false),
+            resolvedValues: ["BRANCH_PREFIX": "feature"],
+            isGlobalScope: false
+        )
+        let shared = CrossPackPromptResolver.groupSharedPrompts(packs: [packA, packB], context: context)
+
+        // BRANCH_PREFIX is already resolved — should NOT appear in shared prompts
+        #expect(shared.isEmpty)
+    }
+
     @Test("Global scope filters out fileDetect from declaredPrompts")
     func globalScopeFiltersFileDetect() {
         let manifest = ExternalPackManifest(
@@ -383,6 +413,31 @@ struct SettingsLoadSubstitutionTests {
         #expect(env["KEY"] == "__PLACEHOLDER__")
     }
 
+    @Test("JSON-escapes values containing quotes and backslashes")
+    func jsonEscapesSpecialCharacters() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let settingsJSON = """
+        {
+            "env": {
+                "PATH_VAR": "__SOME_PATH__"
+            }
+        }
+        """
+        let url = tmpDir.appendingPathComponent("settings.json")
+        try settingsJSON.write(to: url, atomically: true, encoding: .utf8)
+
+        // Value with quotes and backslashes that would break JSON if not escaped
+        let settings = try Settings.load(
+            from: url,
+            substituting: ["SOME_PATH": #"C:\Users\me "quoted""#]
+        )
+
+        let env = try JSONSerialization.jsonObject(with: settings.extraJSON["env"]!) as! [String: String]
+        #expect(env["PATH_VAR"] == #"C:\Users\me "quoted""#)
+    }
+
     @Test("Missing file returns empty settings")
     func missingFileReturnsEmpty() throws {
         let url = FileManager.default.temporaryDirectory
@@ -466,6 +521,35 @@ struct ScannerExtensionTests {
         )
 
         #expect(undeclared.contains("SERVICE_TOKEN"))
+    }
+
+    @Test("Finds placeholders in MCP server command")
+    func findsMCPCommandPlaceholders() {
+        let pack = PromptMockPack(
+            identifier: "test-pack",
+            displayName: "Test",
+            components: [ComponentDefinition(
+                id: "test-pack.mcp",
+                displayName: "MCP Server",
+                description: "Test",
+                type: .mcpServer,
+                packIdentifier: "test-pack",
+                dependencies: [],
+                isRequired: true,
+                installAction: .mcpServer(MCPServerConfig(
+                    name: "test",
+                    command: "__MY_CMD__",
+                    args: [],
+                    env: [:]
+                ))
+            )]
+        )
+
+        let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(
+            packs: [pack], resolvedValues: [:]
+        )
+
+        #expect(undeclared.contains("MY_CMD"))
     }
 
     @Test("Finds placeholders in MCP server args")

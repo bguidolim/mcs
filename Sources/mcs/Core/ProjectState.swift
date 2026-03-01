@@ -17,12 +17,15 @@ struct PackArtifactRecord: Codable, Equatable, Sendable {
     var brewPackages: [String] = []
     /// Plugins installed by MCS for this pack (ownership tracking).
     var plugins: [String] = []
+    /// Global gitignore entries added by this pack.
+    var gitignoreEntries: [String] = []
 
     /// Whether all artifact lists are empty (cleanup is complete).
     var isEmpty: Bool {
         mcpServers.isEmpty && files.isEmpty && templateSections.isEmpty
             && hookCommands.isEmpty && settingsKeys.isEmpty
             && brewPackages.isEmpty && plugins.isEmpty
+            && gitignoreEntries.isEmpty
     }
 
     // Custom decoder for backward compatibility — existing JSON files may lack
@@ -36,6 +39,7 @@ struct PackArtifactRecord: Codable, Equatable, Sendable {
         settingsKeys = try container.decodeIfPresent([String].self, forKey: .settingsKeys) ?? []
         brewPackages = try container.decodeIfPresent([String].self, forKey: .brewPackages) ?? []
         plugins = try container.decodeIfPresent([String].self, forKey: .plugins) ?? []
+        gitignoreEntries = try container.decodeIfPresent([String].self, forKey: .gitignoreEntries) ?? []
     }
 
     init(
@@ -45,7 +49,8 @@ struct PackArtifactRecord: Codable, Equatable, Sendable {
         hookCommands: [String] = [],
         settingsKeys: [String] = [],
         brewPackages: [String] = [],
-        plugins: [String] = []
+        plugins: [String] = [],
+        gitignoreEntries: [String] = []
     ) {
         self.mcpServers = mcpServers
         self.files = files
@@ -54,6 +59,7 @@ struct PackArtifactRecord: Codable, Equatable, Sendable {
         self.settingsKeys = settingsKeys
         self.brewPackages = brewPackages
         self.plugins = plugins
+        self.gitignoreEntries = gitignoreEntries
     }
 
     /// Record a brew package as MCS-owned, deduplicating automatically.

@@ -4,6 +4,41 @@ A tech pack is your Claude Code setup — packaged as a Git repo and shareable w
 
 Think of it like a dotfiles repo, but specifically for Claude Code.
 
+## Quick Start with `mcs export`
+
+Already have Claude Code configured the way you like it? Export your setup as a tech pack instead of writing one from scratch:
+
+```bash
+# Export your global setup (~/.claude/)
+mcs export ./my-pack --global
+
+# Export a project-specific setup
+cd ~/Developer/my-project
+mcs export ./my-pack
+
+# Preview without writing
+mcs export ./my-pack --global --dry-run
+```
+
+The export wizard discovers your MCP servers, hooks, skills, commands, plugins, CLAUDE.md sections, gitignore entries (global export only), and settings — then generates a complete pack directory with `techpack.yaml` and all supporting files.
+
+**What it handles automatically:**
+- Sensitive env vars (API keys, tokens) are replaced with `__PLACEHOLDER__` tokens and corresponding `prompts:` entries are generated
+- Hook files are matched to their Claude Code events via settings cross-reference
+- CLAUDE.md managed sections are extracted as template files
+- Brew dependency hints are added as TODO comments for MCP server commands
+
+**What you should review after export:**
+- Add `dependencies:` between components (e.g., MCP server depends on brew package)
+- Add `brew:` components for runtime dependencies (node, uv, python3)
+- Add `displayName:` where the auto-generated ID isn't descriptive enough
+- Add `supplementaryDoctorChecks:` for health verification
+- Move the `prompts:` section before `components:` for readability
+
+The generated YAML includes a TODO checklist at the bottom to guide your review.
+
+---
+
 ## Your First Tech Pack
 
 Let's build a working tech pack in under 5 minutes.
@@ -546,41 +581,6 @@ mcs sync                  # Local packs pick up changes automatically
 **Use `isRequired: true`** for components that should always be installed (settings, gitignore). Required components can't be deselected during `mcs sync --customize`.
 
 **Add `fixCommand`** to doctor checks when auto-repair is possible. Users love `mcs doctor --fix`.
-
----
-
-## Quick Start with `mcs export`
-
-Already have Claude Code configured the way you like it? Export your setup as a tech pack instead of writing one from scratch:
-
-```bash
-# Export your global setup (~/.claude/)
-mcs export ./my-pack --global
-
-# Export a project-specific setup
-cd ~/Developer/my-project
-mcs export ./my-pack
-
-# Preview without writing
-mcs export ./my-pack --global --dry-run
-```
-
-The export wizard discovers your MCP servers, hooks, skills, commands, plugins, CLAUDE.md sections, gitignore entries, and settings — then generates a complete pack directory with `techpack.yaml` and all supporting files.
-
-**What it handles automatically:**
-- Sensitive env vars (API keys, tokens) are replaced with `__PLACEHOLDER__` tokens and corresponding `prompts:` entries are generated
-- Hook files are matched to their Claude Code events via settings cross-reference
-- CLAUDE.md managed sections are extracted as template files
-- Brew dependency hints are added as TODO comments for MCP server commands
-
-**What you should review after export:**
-- Add `dependencies:` between components (e.g., MCP server depends on brew package)
-- Add `brew:` components for runtime dependencies (node, uv, python3)
-- Add `displayName:` where the auto-generated ID isn't descriptive enough
-- Add `supplementaryDoctorChecks:` for health verification
-- Move the `prompts:` section before `components:` for readability
-
-The generated YAML includes a TODO checklist at the bottom to guide your review.
 
 ---
 

@@ -38,6 +38,11 @@ mcs pack list                    # List registered external packs
 mcs pack update [name]           # Update pack(s) to latest version (skips local packs)
 mcs cleanup                      # Find and delete backup files
 mcs cleanup --force              # Delete backups without confirmation
+mcs export <dir>                 # Export current config as a tech pack
+mcs export <dir> --global        # Export global scope (~/.claude/)
+mcs export <dir> --identifier id # Set pack identifier (prompted if omitted)
+mcs export <dir> --non-interactive  # Include everything without prompts
+mcs export <dir> --dry-run       # Preview what would be exported
 ```
 
 ## Architecture
@@ -96,6 +101,12 @@ mcs cleanup --force              # Delete backups without confirmation
 - `DoctorCommand.swift` — health checks with optional --fix and --pack filter
 - `CleanupCommand.swift` — backup file management with --force flag
 - `PackCommand.swift` — `mcs pack add/remove/list/update` subcommands; uses `PackSourceResolver` for 3-tier input detection (URL schemes → filesystem paths → GitHub shorthand)
+- `ExportCommand.swift` — export wizard: reads live configuration and generates a reusable tech pack directory; supports `--global`, `--identifier`, `--non-interactive`, `--dry-run`
+
+### Export (`Sources/mcs/Export/`)
+- `ConfigurationDiscovery.swift` — reads live config sources (settings, MCP servers, hooks, skills, CLAUDE.md, gitignore), produces `DiscoveredConfiguration` model
+- `ManifestBuilder.swift` — converts selected artifacts into YAML using custom renderer (ordered metadata, section comments, proper quoting)
+- `PackWriter.swift` — writes output directory with symlink resolution for copied files
 
 ### Install (`Sources/mcs/Install/`)
 - `Configurator.swift` — unified multi-pack convergence engine parameterized by `SyncStrategy` (artifact tracking, settings composition, CLAUDE file writing, gitignore). `unconfigurePack()` handles removal for both `mcs sync` (deselection) and `mcs pack remove` (federated across all affected scopes)

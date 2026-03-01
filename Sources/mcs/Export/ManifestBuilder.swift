@@ -435,6 +435,12 @@ struct ManifestBuilder {
         brewHints: [String: String],
         to yaml: inout YAMLRenderer
     ) {
+        // Skip .generic file components — no YAML shorthand key exists for this type
+        if case .copyPackFile(let config) = comp.installAction,
+           config.fileType == .generic || config.fileType == nil {
+            return
+        }
+
         // Brew hint comment (presentational only)
         if let brewPackage = brewHints[comp.id] {
             yaml.comment("  TODO: Consider adding a `brew: \(brewPackage)` dependency component", indent: 2)

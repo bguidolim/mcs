@@ -83,12 +83,12 @@ struct PackWriter {
 
 // MARK: - Export Errors
 
-enum ExportError: Error, CustomStringConvertible {
+enum ExportError: Error, LocalizedError {
     case outputDirectoryExists(String)
     case noConfigurationFound
     case noProjectFound
 
-    var description: String {
+    var errorDescription: String? {
         switch self {
         case .outputDirectoryExists(let path):
             return "Output directory already exists: \(path). Remove it first or choose a different path."

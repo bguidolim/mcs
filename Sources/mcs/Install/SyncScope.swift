@@ -25,9 +25,9 @@ struct SyncScope: Sendable {
     /// Project: `<project>/CLAUDE.local.md`; Global: `~/.claude/CLAUDE.md`.
     let claudeFilePath: URL
 
-    /// Sentinel value for the project index entry.
+    /// Identifier for this scope in cross-cutting concerns (project index, ref counting).
     /// Project: the project path string; Global: `"__global__"`.
-    let indexSentinel: String
+    let scopeIdentifier: String
 
     /// MCP scope override applied to all MCP server registrations.
     /// `nil` = use the pack's declared scope (project default); `"user"` = global scope.
@@ -46,9 +46,8 @@ struct SyncScope: Sendable {
     /// The sync hint shown in error/recovery messages (e.g. `"mcs sync"` or `"mcs sync --global"`).
     let syncHint: String
 
-    /// The ref-counting exclusion scope used by `ResourceRefCounter`.
-    /// Same as `indexSentinel` for global; project path string for project.
-    let refCountScope: String
+    /// Suffix for output messages: `" (global)"` when in global scope, empty otherwise.
+    let labelSuffix: String
 
     /// Prefix for hook commands in settings (e.g. `"bash .claude/hooks/"` or `"bash ~/.claude/hooks/"`).
     let hookCommandPrefix: String
@@ -69,13 +68,13 @@ extension SyncScope {
             stateFile: claudeDir.appendingPathComponent(".mcs-project"),
             settingsPath: claudeDir.appendingPathComponent("settings.local.json"),
             claudeFilePath: projectPath.appendingPathComponent(Constants.FileNames.claudeLocalMD),
-            indexSentinel: projectPath.path,
+            scopeIdentifier: projectPath.path,
             mcpScopeOverride: nil,
             includeTemplatesInScan: true,
             runConfigureProjectHooks: true,
             isGlobalScope: false,
             syncHint: "mcs sync",
-            refCountScope: projectPath.path,
+            labelSuffix: "",
             hookCommandPrefix: "bash .claude/hooks/",
             fileDisplayPrefix: ".claude/"
         )
@@ -89,13 +88,13 @@ extension SyncScope {
             stateFile: environment.globalStateFile,
             settingsPath: environment.claudeSettings,
             claudeFilePath: environment.globalClaudeMD,
-            indexSentinel: ProjectIndex.globalSentinel,
+            scopeIdentifier: ProjectIndex.globalSentinel,
             mcpScopeOverride: "user",
             includeTemplatesInScan: false,
             runConfigureProjectHooks: false,
             isGlobalScope: true,
             syncHint: "mcs sync --global",
-            refCountScope: ProjectIndex.globalSentinel,
+            labelSuffix: " (global)",
             hookCommandPrefix: "bash ~/.claude/hooks/",
             fileDisplayPrefix: "~/.claude/"
         )

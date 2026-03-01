@@ -187,16 +187,13 @@ enum ConfiguratorSupport {
 
             let previousExcluded = previousState.excludedComponents(for: pack.identifier)
 
-            var number = 1
-            var items: [SelectableItem] = []
-            for component in components {
-                items.append(SelectableItem(
-                    number: number,
+            let items = components.enumerated().map { index, component in
+                SelectableItem(
+                    number: index + 1,
                     name: component.displayName,
                     description: component.description,
                     isSelected: !previousExcluded.contains(component.id)
-                ))
-                number += 1
+                )
             }
 
             let requiredItems = components
@@ -298,7 +295,7 @@ enum ConfiguratorSupport {
                         settings.merge(with: packSettings)
                         hasContent = true
                     } catch {
-                        output.warn("Could not load settings from \(source.lastPathComponent): \(error.localizedDescription)")
+                        output.warn("Could not load settings from \(pack.displayName)/\(source.lastPathComponent): \(error.localizedDescription)")
                     }
                 }
             }

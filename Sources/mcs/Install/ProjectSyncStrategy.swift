@@ -8,14 +8,10 @@ import Foundation
 struct ProjectSyncStrategy: SyncStrategy {
     let scope: SyncScope
     let environment: Environment
-
-    /// The project root directory.
-    private var projectPath: URL {
-        // scope.targetPath is <project>/.claude/ — go up one level
-        scope.targetPath.deletingLastPathComponent()
-    }
+    let projectPath: URL
 
     init(projectPath: URL, environment: Environment) {
+        self.projectPath = projectPath
         self.scope = .project(at: projectPath, environment: environment)
         self.environment = environment
     }
@@ -206,17 +202,25 @@ struct ProjectSyncStrategy: SyncStrategy {
     // MARK: - File Removal
 
     func removeFileArtifact(relativePath: String, output: CLIOutput) -> Bool {
-        let exec = ConfiguratorSupport.makeExecutor(
-            environment: environment, output: output,
-            shell: ShellRunner(environment: environment)
-        )
-        let existed = PathContainment.safePath(relativePath: relativePath, within: projectPath)
-            .map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-        if exec.removeProjectFile(relativePath: relativePath, projectPath: projectPath) {
-            if existed { output.dimmed("  Removed: \(relativePath)") }
+        let fm = FileManager.default
+        guard let fullPath = PathContainment.safePath(
+            relativePath: relativePath,
+            within: projectPath
+        ) else {
+            output.warn("Path '\(relativePath)' escapes project directory — clearing from tracking")
             return true
         }
-        return false
+
+        guard fm.fileExists(atPath: fullPath.path) else { return true }
+
+        do {
+            try fm.removeItem(at: fullPath)
+            output.dimmed("  Removed: \(relativePath)")
+            return true
+        } catch {
+            output.warn("  Could not remove \(relativePath): \(error.localizedDescription)")
+            return false
+        }
     }
 
     // MARK: - Private Helpers

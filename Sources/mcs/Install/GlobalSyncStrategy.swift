@@ -137,6 +137,9 @@ struct GlobalSyncStrategy: SyncStrategy {
             }
         }
 
+        // Track template sections from pre-loaded cache only — if loading failed earlier,
+        // we must not record sections that were never written (unlike project scope, which
+        // falls back to pack.templateSectionIdentifiers as a best-effort record).
         if let templates = preloadedTemplates {
             artifacts.templateSections = templates.map(\.sectionIdentifier)
         }
@@ -189,6 +192,7 @@ struct GlobalSyncStrategy: SyncStrategy {
                 output.success("Composed settings.json (global)")
             } catch {
                 output.error("Could not write settings.json: \(error.localizedDescription)")
+                output.error("Hooks and plugins will not be active. Re-run '\(scope.syncHint)' after fixing the issue.")
                 throw MCSError.fileOperationFailed(
                     path: scope.settingsPath.path,
                     reason: error.localizedDescription
@@ -253,7 +257,10 @@ struct GlobalSyncStrategy: SyncStrategy {
             }
         }
 
-        let existingContent = try? String(contentsOf: scope.claudeFilePath, encoding: .utf8)
+        let fm = FileManager.default
+        let existingContent: String? = fm.fileExists(atPath: scope.claudeFilePath.path)
+            ? try String(contentsOf: scope.claudeFilePath, encoding: .utf8)
+            : nil
 
         let result = TemplateComposer.composeOrUpdate(
             existingContent: existingContent,
@@ -266,7 +273,7 @@ struct GlobalSyncStrategy: SyncStrategy {
             output.warn(warning)
         }
 
-        if existingContent != nil {
+        if fm.fileExists(atPath: scope.claudeFilePath.path) {
             var backup = Backup()
             try backup.backupFile(at: scope.claudeFilePath)
         }

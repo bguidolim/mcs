@@ -37,16 +37,13 @@ struct Configurator {
         let previousState = try ProjectState(stateFile: scope.stateFile)
         let previousPacks = previousState.configuredPacks
 
-        var number = 1
-        var items: [SelectableItem] = []
-        for pack in packs {
-            items.append(SelectableItem(
-                number: number,
+        let items = packs.enumerated().map { index, pack in
+            SelectableItem(
+                number: index + 1,
                 name: pack.displayName,
                 description: pack.description,
                 isSelected: previousPacks.contains(pack.identifier)
-            ))
-            number += 1
+            )
         }
 
         let groupTitle = scope.isGlobalScope ? "Tech Packs (Global)" : "Tech Packs"
@@ -144,7 +141,7 @@ struct Configurator {
         // 1. Confirm and unconfigure removed packs
         if confirmRemovals && !removals.isEmpty {
             output.plain("")
-            let suffix = scope.isGlobalScope ? " (global)" : ""
+            let suffix = scope.labelSuffix
             output.warn("The following packs will be removed\(suffix):")
             for packID in removals.sorted() {
                 output.plain("  - \(packID)")
@@ -208,7 +205,7 @@ struct Configurator {
             let excluded = excludedComponents[pack.identifier] ?? []
             let isNew = additions.contains(pack.identifier)
             let label = isNew ? "Configuring" : "Updating"
-            let suffix = scope.isGlobalScope ? " (global)" : ""
+            let suffix = scope.labelSuffix
             output.info("\(label) \(pack.displayName)\(suffix)...")
             let previousArtifacts = state.artifacts(for: pack.identifier)
             var exec = makeExecutor()
@@ -273,9 +270,9 @@ struct Configurator {
 
         // 9. Ensure gitignore entries
         try ConfiguratorSupport.ensureGitignoreEntries(shell: shell)
+        let gitignoreExec = makeExecutor()
         for pack in packs {
-            let exec = makeExecutor()
-            exec.addPackGitignoreEntries(from: pack)
+            gitignoreExec.addPackGitignoreEntries(from: pack)
         }
 
         // 10. Final state save
@@ -296,7 +293,7 @@ struct Configurator {
             let indexFile = ProjectIndex(path: environment.projectsIndexFile)
             var indexData = try indexFile.load()
             indexFile.upsert(
-                projectPath: scope.indexSentinel,
+                projectPath: scope.scopeIdentifier,
                 packIDs: packs.map(\.identifier),
                 in: &indexData
             )
@@ -314,7 +311,7 @@ struct Configurator {
         _ packID: String,
         state: inout ProjectState
     ) {
-        let suffix = scope.isGlobalScope ? " (global)" : ""
+        let suffix = scope.labelSuffix
         output.info("Removing \(packID)\(suffix)...")
         let exec = makeExecutor()
 
@@ -336,7 +333,7 @@ struct Configurator {
         for package in artifacts.brewPackages {
             if refCounter.isStillNeeded(
                 .brewPackage(package),
-                excludingScope: scope.refCountScope,
+                excludingScope: scope.scopeIdentifier,
                 excludingPack: packID
             ) {
                 output.dimmed("  Keeping brew package '\(package)' — still needed by another scope")
@@ -351,7 +348,7 @@ struct Configurator {
         for pluginName in artifacts.plugins {
             if refCounter.isStillNeeded(
                 .plugin(pluginName),
-                excludingScope: scope.refCountScope,
+                excludingScope: scope.scopeIdentifier,
                 excludingPack: packID
             ) {
                 output.dimmed("  Keeping plugin '\(PluginRef(pluginName).bareName)' — still needed by another scope")

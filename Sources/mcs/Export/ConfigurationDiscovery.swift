@@ -121,9 +121,18 @@ struct ConfigurationDiscovery: Sendable {
 
     private func discoverMCPServers(scope: Scope, into config: inout DiscoveredConfiguration) {
         let claudeJSONPath = environment.claudeJSON
-        guard FileManager.default.fileExists(atPath: claudeJSONPath.path),
-              let data = try? Data(contentsOf: claudeJSONPath),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard FileManager.default.fileExists(atPath: claudeJSONPath.path) else { return }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: claudeJSONPath)
+        } catch {
+            output.warn("Could not read \(claudeJSONPath.lastPathComponent): \(error.localizedDescription)")
+            return
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            output.warn("Could not parse \(claudeJSONPath.lastPathComponent) as JSON — file may be corrupt")
             return
         }
 
@@ -172,7 +181,13 @@ struct ConfigurationDiscovery: Sendable {
     // MARK: - Settings Discovery
 
     private func discoverSettings(at settingsPath: URL, hooksDir: URL, into config: inout DiscoveredConfiguration) {
-        guard let settings = try? Settings.load(from: settingsPath) else { return }
+        let settings: Settings
+        do {
+            settings = try Settings.load(from: settingsPath)
+        } catch {
+            output.warn("Could not parse \(settingsPath.lastPathComponent): \(error.localizedDescription)")
+            return
+        }
 
         // Extract plugins
         if let plugins = settings.enabledPlugins {
@@ -183,21 +198,35 @@ struct ConfigurationDiscovery: Sendable {
         // auto-derive from components). Serialize as JSON Data for Sendable safety.
         var remaining: [String: Any] = [:]
         for (key, data) in settings.extraJSON {
-            if let value = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) {
+            do {
+                let value = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
                 remaining[key] = value
+            } catch {
+                output.warn("Could not deserialize settings key '\(key)': \(error.localizedDescription)")
             }
         }
-        if !remaining.isEmpty,
-           let data = try? JSONSerialization.data(withJSONObject: remaining, options: [.prettyPrinted, .sortedKeys]) {
-            config.remainingSettingsData = data
+        if !remaining.isEmpty {
+            do {
+                let data = try JSONSerialization.data(withJSONObject: remaining, options: [.prettyPrinted, .sortedKeys])
+                config.remainingSettingsData = data
+            } catch {
+                output.warn("Could not serialize remaining settings: \(error.localizedDescription)")
+            }
         }
     }
 
     /// Extract hook command → event mappings from settings, used to correlate
     /// discovered hook files with their Claude Code events.
     private func extractHookCommands(at settingsPath: URL) -> [String: String] {
-        guard let settings = try? Settings.load(from: settingsPath),
-              let hooks = settings.hooks else {
+        let settings: Settings
+        do {
+            settings = try Settings.load(from: settingsPath)
+        } catch {
+            output.warn("Could not parse \(settingsPath.lastPathComponent): \(error.localizedDescription)")
+            return [:]
+        }
+
+        guard let hooks = settings.hooks else {
             return [:]
         }
 
@@ -218,8 +247,13 @@ struct ConfigurationDiscovery: Sendable {
 
     private func discoverFiles(in hooksDir: URL, hookCommands: [String: String]?, into config: inout DiscoveredConfiguration) {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: hooksDir.path),
-              let files = try? fm.contentsOfDirectory(at: hooksDir, includingPropertiesForKeys: nil) else {
+        guard fm.fileExists(atPath: hooksDir.path) else { return }
+
+        let files: [URL]
+        do {
+            files = try fm.contentsOfDirectory(at: hooksDir, includingPropertiesForKeys: nil)
+        } catch {
+            output.warn("Could not read hooks directory: \(error.localizedDescription)")
             return
         }
 
@@ -248,8 +282,13 @@ struct ConfigurationDiscovery: Sendable {
 
     private func listFiles(in directory: URL) -> [DiscoveredFile] {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: directory.path),
-              let files = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey]) else {
+        guard fm.fileExists(atPath: directory.path) else { return [] }
+
+        let files: [URL]
+        do {
+            files = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey])
+        } catch {
+            output.warn("Could not read directory \(directory.lastPathComponent): \(error.localizedDescription)")
             return []
         }
 
@@ -275,8 +314,17 @@ struct ConfigurationDiscovery: Sendable {
     // MARK: - CLAUDE.md Discovery
 
     private func discoverClaudeContent(at path: URL, into config: inout DiscoveredConfiguration) {
-        guard let content = try? String(contentsOf: path, encoding: .utf8),
-              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard FileManager.default.fileExists(atPath: path.path) else { return }
+
+        let content: String
+        do {
+            content = try String(contentsOf: path, encoding: .utf8)
+        } catch {
+            output.warn("Could not read \(path.lastPathComponent): \(error.localizedDescription)")
+            return
+        }
+
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
 
@@ -303,7 +351,15 @@ struct ConfigurationDiscovery: Sendable {
         let gitignoreManager = GitignoreManager(shell: ShellRunner(environment: environment))
         let gitignoreURL = gitignoreManager.resolveGlobalGitignorePath()
 
-        guard let content = try? String(contentsOf: gitignoreURL, encoding: String.Encoding.utf8) else { return }
+        guard FileManager.default.fileExists(atPath: gitignoreURL.path) else { return }
+
+        let content: String
+        do {
+            content = try String(contentsOf: gitignoreURL, encoding: .utf8)
+        } catch {
+            output.warn("Could not read global gitignore: \(error.localizedDescription)")
+            return
+        }
 
         // Filter out mcs core entries (those are auto-managed)
         let coreEntries = Set(GitignoreManager.coreEntries)

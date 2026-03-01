@@ -119,6 +119,7 @@ struct ManifestBuilder {
         var brewHints: [String: String] = [:]
 
         // ── MCP Servers ───────────────────────────────────────────────────────
+        var seenPromptKeys: [String: Int] = [:]
         for server in config.mcpServers where options.selectedMCPServers.contains(server.name) {
             let id = "mcp-\(sanitizeID(server.name))"
 
@@ -133,9 +134,12 @@ struct ManifestBuilder {
             for key in server.env.keys.sorted() {
                 let value = server.env[key]!
                 if sensitiveNames.contains(key) {
-                    processedEnv[key] = "__\(key)__"
+                    let count = seenPromptKeys[key, default: 0] + 1
+                    seenPromptKeys[key] = count
+                    let promptKey = count == 1 ? key : "\(key)_\(count)"
+                    processedEnv[key] = "__\(promptKey)__"
                     prompts.append(ExternalPromptDefinition(
-                        key: key,
+                        key: promptKey,
                         type: .input,
                         label: "Enter value for \(key) (used by \(server.name) MCP server)",
                         defaultValue: nil,

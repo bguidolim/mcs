@@ -151,7 +151,7 @@ struct ListPacksStatusTests {
         let packDir = env.packsDirectory.appendingPathComponent("test-pack")
         try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
         try "identifier: test-pack".write(
-            to: packDir.appendingPathComponent("techpack.yaml"),
+            to: packDir.appendingPathComponent(Constants.ExternalPacks.manifestFilename),
             atomically: true, encoding: .utf8
         )
 

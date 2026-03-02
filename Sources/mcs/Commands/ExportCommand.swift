@@ -79,9 +79,7 @@ struct ExportCommand: ParsableCommand {
 
         // 5. Build manifest
         let builder = ManifestBuilder()
-        let result = builder.build(
-            from: config,
-            metadata: metadata,
+        let options = ManifestBuilder.BuildOptions(
             selectedMCPServers: selection.mcpServers,
             selectedHookFiles: selection.hookFiles,
             selectedSkillFiles: selection.skillFiles,
@@ -92,6 +90,7 @@ struct ExportCommand: ParsableCommand {
             includeGitignore: selection.includeGitignore,
             includeSettings: selection.includeSettings
         )
+        let result = builder.build(from: config, metadata: metadata, options: options)
 
         let outputURL = URL(fileURLWithPath: outputDir).standardizedFileURL
 
@@ -173,128 +172,80 @@ struct ExportCommand: ParsableCommand {
         )
     }
 
+    private enum ItemCategory { case mcp, hooks, skills, commands, plugins, sections }
+    private enum SentinelKey { case userContent, gitignore, settings }
+
     private func interactiveSelect(
         config: ConfigurationDiscovery.DiscoveredConfiguration,
         output: CLIOutput
     ) -> Selection {
         var groups: [SelectableGroup] = []
-        var itemCounter = 0
+        var counter = 0
+        var mappings: [ItemCategory: [Int: String]] = [:]
+        var sentinels: [SentinelKey: Int] = [:]
 
-        // Track which items map to which artifact names
-        var mcpMapping: [Int: String] = [:]
-        var hookMapping: [Int: String] = [:]
-        var skillMapping: [Int: String] = [:]
-        var commandMapping: [Int: String] = [:]
-        var pluginMapping: [Int: String] = [:]
-        var sectionMapping: [Int: String] = [:]
-        var userContentItem: Int?
-        var gitignoreItem: Int?
-        var settingsItem: Int?
+        // Helper: append a group of named items, tracking index→name mappings by category
+        func appendItems(
+            _ items: [(name: String, description: String)],
+            category: ItemCategory
+        ) -> [SelectableItem] {
+            items.map { item in
+                counter += 1
+                mappings[category, default: [:]][counter] = item.name
+                return SelectableItem(number: counter, name: item.name, description: item.description, isSelected: true)
+            }
+        }
+
+        // Helper: create a single toggle item, tracked as a sentinel
+        func appendSentinel(name: String, description: String, key: SentinelKey) -> SelectableItem {
+            counter += 1
+            sentinels[key] = counter
+            return SelectableItem(number: counter, name: name, description: description, isSelected: true)
+        }
 
         // MCP Servers
         if !config.mcpServers.isEmpty {
-            var items: [SelectableItem] = []
-            for server in config.mcpServers {
-                itemCounter += 1
-                let sensitiveWarning = server.sensitiveEnvVarNames.isEmpty
-                    ? "" : " (contains sensitive env vars)"
-                items.append(SelectableItem(
-                    number: itemCounter,
-                    name: server.name,
-                    description: server.isHTTP ? "HTTP MCP server\(sensitiveWarning)" : (server.command ?? "MCP server") + sensitiveWarning,
-                    isSelected: true
-                ))
-                mcpMapping[itemCounter] = server.name
-            }
+            let items = appendItems(config.mcpServers.map { server in
+                let warn = server.sensitiveEnvVarNames.isEmpty ? "" : " (contains sensitive env vars)"
+                return (name: server.name, description: server.isHTTP ? "HTTP MCP server\(warn)" : (server.command ?? "MCP server") + warn)
+            }, category: .mcp)
             groups.append(SelectableGroup(title: "MCP Servers", items: items, requiredItems: []))
         }
 
         // Hook files
         if !config.hookFiles.isEmpty {
-            var items: [SelectableItem] = []
-            for hook in config.hookFiles {
-                itemCounter += 1
+            let items = appendItems(config.hookFiles.map { hook in
                 let eventInfo = hook.hookEvent.map { " → \($0)" } ?? " (unknown event)"
-                items.append(SelectableItem(
-                    number: itemCounter,
-                    name: hook.filename,
-                    description: "Hook script\(eventInfo)",
-                    isSelected: true
-                ))
-                hookMapping[itemCounter] = hook.filename
-            }
+                return (name: hook.filename, description: "Hook script\(eventInfo)")
+            }, category: .hooks)
             groups.append(SelectableGroup(title: "Hooks", items: items, requiredItems: []))
         }
 
         // Skills
         if !config.skillFiles.isEmpty {
-            var items: [SelectableItem] = []
-            for skill in config.skillFiles {
-                itemCounter += 1
-                items.append(SelectableItem(
-                    number: itemCounter,
-                    name: skill.filename,
-                    description: "Skill file",
-                    isSelected: true
-                ))
-                skillMapping[itemCounter] = skill.filename
-            }
+            let items = appendItems(config.skillFiles.map { (name: $0.filename, description: "Skill file") }, category: .skills)
             groups.append(SelectableGroup(title: "Skills", items: items, requiredItems: []))
         }
 
         // Commands
         if !config.commandFiles.isEmpty {
-            var items: [SelectableItem] = []
-            for cmd in config.commandFiles {
-                itemCounter += 1
-                items.append(SelectableItem(
-                    number: itemCounter,
-                    name: cmd.filename,
-                    description: "Slash command",
-                    isSelected: true
-                ))
-                commandMapping[itemCounter] = cmd.filename
-            }
+            let items = appendItems(config.commandFiles.map { (name: $0.filename, description: "Slash command") }, category: .commands)
             groups.append(SelectableGroup(title: "Commands", items: items, requiredItems: []))
         }
 
         // Plugins
         if !config.plugins.isEmpty {
-            var items: [SelectableItem] = []
-            for plugin in config.plugins {
-                itemCounter += 1
-                items.append(SelectableItem(
-                    number: itemCounter,
-                    name: plugin,
-                    description: "Plugin",
-                    isSelected: true
-                ))
-                pluginMapping[itemCounter] = plugin
-            }
+            let items = appendItems(config.plugins.map { (name: $0, description: "Plugin") }, category: .plugins)
             groups.append(SelectableGroup(title: "Plugins", items: items, requiredItems: []))
         }
 
-        // CLAUDE.md sections + extras
+        // CLAUDE.md sections + user content
         var claudeItems: [SelectableItem] = []
-        for section in config.claudeSections {
-            itemCounter += 1
-            claudeItems.append(SelectableItem(
-                number: itemCounter,
-                name: section.sectionIdentifier,
-                description: "Managed section",
-                isSelected: true
-            ))
-            sectionMapping[itemCounter] = section.sectionIdentifier
+        if !config.claudeSections.isEmpty {
+            claudeItems += appendItems(config.claudeSections.map { (name: $0.sectionIdentifier, description: "Managed section") }, category: .sections)
         }
         if config.claudeUserContent != nil {
-            itemCounter += 1
-            claudeItems.append(SelectableItem(
-                number: itemCounter,
-                name: "User content",
-                description: "Content outside managed sections",
-                isSelected: true
-            ))
-            userContentItem = itemCounter
+            claudeItems.append(appendSentinel(name: "User content", description: "Content outside managed sections", key: .userContent))
         }
         if !claudeItems.isEmpty {
             groups.append(SelectableGroup(title: "CLAUDE.md Content", items: claudeItems, requiredItems: []))
@@ -303,24 +254,10 @@ struct ExportCommand: ParsableCommand {
         // Gitignore + Settings
         var extraItems: [SelectableItem] = []
         if !config.gitignoreEntries.isEmpty {
-            itemCounter += 1
-            extraItems.append(SelectableItem(
-                number: itemCounter,
-                name: "Gitignore entries",
-                description: "\(config.gitignoreEntries.count) entries",
-                isSelected: true
-            ))
-            gitignoreItem = itemCounter
+            extraItems.append(appendSentinel(name: "Gitignore entries", description: "\(config.gitignoreEntries.count) entries", key: .gitignore))
         }
         if config.remainingSettingsData != nil {
-            itemCounter += 1
-            extraItems.append(SelectableItem(
-                number: itemCounter,
-                name: "Additional settings",
-                description: "env vars, permissions, etc.",
-                isSelected: true
-            ))
-            settingsItem = itemCounter
+            extraItems.append(appendSentinel(name: "Additional settings", description: "env vars, permissions, etc.", key: .settings))
         }
         if !extraItems.isEmpty {
             groups.append(SelectableGroup(title: "Other", items: extraItems, requiredItems: []))
@@ -329,16 +266,21 @@ struct ExportCommand: ParsableCommand {
         // Run multi-select
         let selected = output.multiSelect(groups: &groups)
 
+        func selectedNames(_ category: ItemCategory) -> Set<String> {
+            guard let mapping = mappings[category] else { return [] }
+            return Set(mapping.filter { selected.contains($0.key) }.values)
+        }
+
         return Selection(
-            mcpServers: Set(mcpMapping.filter { selected.contains($0.key) }.values),
-            hookFiles: Set(hookMapping.filter { selected.contains($0.key) }.values),
-            skillFiles: Set(skillMapping.filter { selected.contains($0.key) }.values),
-            commandFiles: Set(commandMapping.filter { selected.contains($0.key) }.values),
-            plugins: Set(pluginMapping.filter { selected.contains($0.key) }.values),
-            sections: Set(sectionMapping.filter { selected.contains($0.key) }.values),
-            includeUserContent: userContentItem.map { selected.contains($0) } ?? false,
-            includeGitignore: gitignoreItem.map { selected.contains($0) } ?? false,
-            includeSettings: settingsItem.map { selected.contains($0) } ?? false
+            mcpServers: selectedNames(.mcp),
+            hookFiles: selectedNames(.hooks),
+            skillFiles: selectedNames(.skills),
+            commandFiles: selectedNames(.commands),
+            plugins: selectedNames(.plugins),
+            sections: selectedNames(.sections),
+            includeUserContent: sentinels[.userContent].map { selected.contains($0) } ?? false,
+            includeGitignore: sentinels[.gitignore].map { selected.contains($0) } ?? false,
+            includeSettings: sentinels[.settings].map { selected.contains($0) } ?? false
         )
     }
 

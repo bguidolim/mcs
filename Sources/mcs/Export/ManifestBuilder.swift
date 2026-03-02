@@ -67,28 +67,8 @@ struct ManifestBuilder {
     func build(
         from config: Config,
         metadata: Metadata,
-        selectedMCPServers: Set<String>,
-        selectedHookFiles: Set<String>,
-        selectedSkillFiles: Set<String>,
-        selectedCommandFiles: Set<String>,
-        selectedPlugins: Set<String>,
-        selectedSections: Set<String>,
-        includeUserContent: Bool,
-        includeGitignore: Bool,
-        includeSettings: Bool
+        options: BuildOptions
     ) -> BuildResult {
-        let options = BuildOptions(
-            selectedMCPServers: selectedMCPServers,
-            selectedHookFiles: selectedHookFiles,
-            selectedSkillFiles: selectedSkillFiles,
-            selectedCommandFiles: selectedCommandFiles,
-            selectedPlugins: selectedPlugins,
-            selectedSections: selectedSections,
-            includeUserContent: includeUserContent,
-            includeGitignore: includeGitignore,
-            includeSettings: includeSettings
-        )
-
         // Phase 1: Build typed model
         let output = buildManifest(from: config, metadata: metadata, options: options)
 
@@ -621,11 +601,11 @@ struct YAMLRenderer {
         lines.append("# ---------------------------------------------------------------------------")
     }
 
-    mutating func keyValue(_ key: String, _ value: Any, quoted: Bool = false) {
-        if let str = value as? String {
-            lines.append("\(key): \(quoted ? yamlQuote(str) : str)")
-        } else {
-            lines.append("\(key): \(value)")
-        }
+    mutating func keyValue(_ key: String, _ value: String, quoted: Bool = false) {
+        lines.append("\(key): \(quoted ? yamlQuote(value) : value)")
+    }
+
+    mutating func keyValue(_ key: String, _ value: Int) {
+        lines.append("\(key): \(value)")
     }
 }

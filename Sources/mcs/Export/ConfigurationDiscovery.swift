@@ -258,8 +258,14 @@ struct ConfigurationDiscovery: Sendable {
         for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let filename = file.lastPathComponent
             guard !filename.hasPrefix(".") else { continue }
-            // Hooks must be regular files (executable scripts)
-            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            // Hooks must be regular files
+            do {
+                let vals = try file.resourceValues(forKeys: [.isRegularFileKey])
+                guard vals.isRegularFile == true else { continue }
+            } catch {
+                output.warn("  Could not read file type for \(filename) — skipping")
+                continue
+            }
 
             // Try to match this file to a hook event via settings commands
             var matchedEvent: String?
@@ -295,7 +301,8 @@ struct ConfigurationDiscovery: Sendable {
                 let name = url.lastPathComponent
                 guard !name.hasPrefix(".") else { return false }
                 guard let vals = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey]) else {
-                    return true
+                    output.warn("  Skipping entry with unreadable attributes: \(name)")
+                    return false
                 }
                 // Skip broken symlinks — they can't be copied to the output pack
                 if vals.isSymbolicLink == true {

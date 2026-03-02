@@ -15,6 +15,7 @@ struct ConfigurationDiscovery: Sendable {
         var hookFiles: [DiscoveredFile] = []
         var skillFiles: [DiscoveredFile] = []
         var commandFiles: [DiscoveredFile] = []
+        var agentFiles: [DiscoveredFile] = []
         var plugins: [String] = []
         var claudeSections: [DiscoveredClaudeSection] = []
         var claudeUserContent: String?
@@ -25,7 +26,7 @@ struct ConfigurationDiscovery: Sendable {
 
         var isEmpty: Bool {
             mcpServers.isEmpty && hookFiles.isEmpty && skillFiles.isEmpty
-            && commandFiles.isEmpty && plugins.isEmpty && claudeSections.isEmpty
+            && commandFiles.isEmpty && agentFiles.isEmpty && plugins.isEmpty && claudeSections.isEmpty
             && claudeUserContent == nil && gitignoreEntries.isEmpty
             && remainingSettingsData == nil
         }
@@ -78,6 +79,7 @@ struct ConfigurationDiscovery: Sendable {
         let hooksDir: URL
         let skillsDir: URL
         let commandsDir: URL
+        let agentsDir: URL
 
         switch scope {
         case .global:
@@ -86,6 +88,7 @@ struct ConfigurationDiscovery: Sendable {
             hooksDir = environment.hooksDirectory
             skillsDir = environment.skillsDirectory
             commandsDir = environment.commandsDirectory
+            agentsDir = environment.agentsDirectory
         case .project(let projectRoot):
             let claudeDir = projectRoot.appendingPathComponent(Constants.FileNames.claudeDirectory)
             settingsPath = claudeDir.appendingPathComponent("settings.local.json")
@@ -93,6 +96,7 @@ struct ConfigurationDiscovery: Sendable {
             hooksDir = claudeDir.appendingPathComponent("hooks")
             skillsDir = claudeDir.appendingPathComponent("skills")
             commandsDir = claudeDir.appendingPathComponent("commands")
+            agentsDir = claudeDir.appendingPathComponent("agents")
         }
 
         // 1. Discover MCP servers from ~/.claude.json
@@ -105,6 +109,7 @@ struct ConfigurationDiscovery: Sendable {
         discoverFiles(in: hooksDir, hookCommands: hookCommands, into: &config)
         config.skillFiles = listFiles(in: skillsDir)
         config.commandFiles = listFiles(in: commandsDir)
+        config.agentFiles = listFiles(in: agentsDir)
 
         // 4. Discover CLAUDE.md content
         discoverClaudeContent(at: claudeFilePath, into: &config)

@@ -115,4 +115,35 @@ struct ComponentExecutorTests {
         #expect(!content.contains("__PROJECT_DIR_NAME__"))
         #expect(!content.contains("__REPO_NAME__"))
     }
+
+    @Test("installProjectFile with agent fileType installs to .claude/agents/")
+    func installProjectFileAgentType() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let projectPath = tmpDir.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: projectPath, withIntermediateDirectories: true)
+
+        let agentFile = tmpDir.appendingPathComponent("code-reviewer.md")
+        try "---\nname: Code Reviewer\n---\nReview code".write(
+            to: agentFile,
+            atomically: true, encoding: .utf8
+        )
+
+        var exec = makeExecutor()
+        let paths = exec.installProjectFile(
+            source: agentFile,
+            destination: "code-reviewer.md",
+            fileType: .agent,
+            projectPath: projectPath,
+            resolvedValues: [:]
+        )
+
+        #expect(!paths.isEmpty)
+
+        let installed = projectPath.appendingPathComponent(".claude/agents/code-reviewer.md")
+        #expect(FileManager.default.fileExists(atPath: installed.path))
+        let content = try String(contentsOf: installed, encoding: .utf8)
+        #expect(content.contains("Code Reviewer"))
+    }
 }

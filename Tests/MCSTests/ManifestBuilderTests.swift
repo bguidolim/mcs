@@ -68,6 +68,15 @@ struct ManifestBuilderTests {
             ),
         ]
 
+        let agentURL = tmpDir.appendingPathComponent("code-reviewer.md")
+        try "---\nname: Code Reviewer\n---\nReview code".write(to: agentURL, atomically: true, encoding: .utf8)
+        config.agentFiles = [
+            ConfigurationDiscovery.DiscoveredFile(
+                filename: "code-reviewer.md",
+                absolutePath: agentURL
+            ),
+        ]
+
         config.plugins = ["pr-review-toolkit@claude-plugins-official"]
 
         config.gitignoreEntries = [".env", "*.log"]
@@ -101,6 +110,7 @@ struct ManifestBuilderTests {
                 selectedHookFiles: Set(config.hookFiles.map(\.filename)),
                 selectedSkillFiles: Set(config.skillFiles.map(\.filename)),
                 selectedCommandFiles: Set(config.commandFiles.map(\.filename)),
+                selectedAgentFiles: Set(config.agentFiles.map(\.filename)),
                 selectedPlugins: Set(config.plugins),
                 selectedSections: Set(config.claudeSections.map(\.sectionIdentifier)),
                 includeUserContent: true,
@@ -124,9 +134,9 @@ struct ManifestBuilderTests {
         let normalized = try loaded.normalized()
         try normalized.validate()
 
-        // 3. Verify component counts — 2 MCP + 1 hook + 1 skill + 1 cmd + 1 plugin + 1 settings + 1 gitignore = 8
+        // 3. Verify component counts — 2 MCP + 1 hook + 1 skill + 1 cmd + 1 agent + 1 plugin + 1 settings + 1 gitignore = 9
         let components = try #require(normalized.components)
-        #expect(components.count == 8)
+        #expect(components.count == 9)
 
         // 4. Verify MCP servers
         let mcpComps = components.filter { $0.type == .mcpServer }
@@ -179,7 +189,16 @@ struct ManifestBuilderTests {
         }
         #expect(cmdFile.fileType == .command)
 
-        // 8. Verify plugin
+        // 8. Verify agent
+        let agentComp = try #require(components.first { $0.type == .agent })
+        guard case .copyPackFile(let agentFile) = agentComp.installAction else {
+            Issue.record("Expected copyPackFile for agent")
+            return
+        }
+        #expect(agentFile.fileType == .agent)
+        #expect(agentFile.destination == "code-reviewer.md")
+
+        // 9. Verify plugin
         let pluginComp = try #require(components.first { $0.type == .plugin })
         guard case .plugin(let pluginName) = pluginComp.installAction else {
             Issue.record("Expected plugin install action")
@@ -187,7 +206,7 @@ struct ManifestBuilderTests {
         }
         #expect(pluginName == "pr-review-toolkit@claude-plugins-official")
 
-        // 9. Verify settings and gitignore (both .configuration type)
+        // 10. Verify settings and gitignore (both .configuration type)
         let configComps = components.filter { $0.type == .configuration }
         #expect(configComps.count == 2)
         let settingsComp = configComps.first { $0.id.contains("settings") }
@@ -201,18 +220,18 @@ struct ManifestBuilderTests {
         #expect(entries.contains(".env"))
         #expect(entries.contains("*.log"))
 
-        // 10. Verify templates (section + user content = 2)
+        // 11. Verify templates (section + user content = 2)
         let templates = try #require(normalized.templates)
         #expect(templates.count == 2)
 
-        // 11. Verify prompts (auto-generated for API_KEY)
+        // 12. Verify prompts (auto-generated for API_KEY)
         let prompts = try #require(normalized.prompts)
         #expect(prompts.count == 1)
         #expect(prompts[0].key == "API_KEY")
         #expect(prompts[0].type == .input)
 
-        // 12. Verify side-channel outputs
-        #expect(result.filesToCopy.count == 3) // hook + skill + command
+        // 13. Verify side-channel outputs
+        #expect(result.filesToCopy.count == 4) // hook + skill + command + agent
         #expect(result.settingsToWrite != nil)
         #expect(result.templateFiles.count == 2)
     }
@@ -236,7 +255,7 @@ struct ManifestBuilderTests {
             from: config, metadata: metadata,
             options: ManifestBuilder.BuildOptions(
                 selectedMCPServers: [], selectedHookFiles: [], selectedSkillFiles: [],
-                selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+                selectedCommandFiles: [], selectedAgentFiles: [], selectedPlugins: [], selectedSections: [],
                 includeUserContent: false, includeGitignore: false, includeSettings: false
             )
         )
@@ -285,7 +304,7 @@ struct ManifestBuilderTests {
             options: ManifestBuilder.BuildOptions(
                 selectedMCPServers: Set(config.mcpServers.map(\.name)),
                 selectedHookFiles: [], selectedSkillFiles: [],
-                selectedCommandFiles: [],
+                selectedCommandFiles: [], selectedAgentFiles: [],
                 selectedPlugins: Set(config.plugins),
                 selectedSections: [],
                 includeUserContent: false, includeGitignore: false, includeSettings: false
@@ -355,7 +374,7 @@ struct ManifestBuilderTests {
             options: ManifestBuilder.BuildOptions(
                 selectedMCPServers: Set(config.mcpServers.map(\.name)),
                 selectedHookFiles: [], selectedSkillFiles: [],
-                selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+                selectedCommandFiles: [], selectedAgentFiles: [], selectedPlugins: [], selectedSections: [],
                 includeUserContent: false, includeGitignore: false, includeSettings: false
             )
         )
@@ -405,7 +424,7 @@ struct ManifestBuilderTests {
             options: ManifestBuilder.BuildOptions(
                 selectedMCPServers: selectedMCPServers,
                 selectedHookFiles: [], selectedSkillFiles: [],
-                selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+                selectedCommandFiles: [], selectedAgentFiles: [], selectedPlugins: [], selectedSections: [],
                 includeUserContent: false, includeGitignore: false, includeSettings: false
             )
         )

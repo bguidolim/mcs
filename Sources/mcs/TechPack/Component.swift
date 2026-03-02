@@ -7,6 +7,7 @@ enum ComponentType: String, Sendable, CaseIterable {
     case skill = "Skills"
     case hookFile = "Hooks"
     case command = "Commands"
+    case agent = "Agents"
     case brewPackage = "Dependencies"
     case configuration = "Configurations"
 }
@@ -75,6 +76,7 @@ enum CopyFileType: String, Sendable {
     case skill
     case hook
     case command
+    case agent
     case generic
 }
 
@@ -86,6 +88,7 @@ extension CopyFileType {
         case .skill: return "skills/"
         case .hook: return "hooks/"
         case .command: return "commands/"
+        case .agent: return "agents/"
         case .generic: return ""
         }
     }
@@ -95,6 +98,7 @@ extension CopyFileType {
         case .skill: return environment.skillsDirectory
         case .hook: return environment.hooksDirectory
         case .command: return environment.commandsDirectory
+        case .agent: return environment.agentsDirectory
         case .generic: return environment.claudeDirectory
         }
     }
@@ -110,6 +114,7 @@ extension CopyFileType {
         case .skill: return claudeDir.appendingPathComponent("skills")
         case .hook: return claudeDir.appendingPathComponent("hooks")
         case .command: return claudeDir.appendingPathComponent("commands")
+        case .agent: return claudeDir.appendingPathComponent("agents")
         case .generic: return claudeDir
         }
     }

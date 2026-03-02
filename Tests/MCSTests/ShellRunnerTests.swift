@@ -64,7 +64,7 @@ struct ShellRunnerTests {
     @Test("additionalEnvironment is passed to subprocess")
     func additionalEnvironment() {
         let result = shell.run(
-            "/bin/bash",
+            Constants.CLI.bash,
             arguments: ["-c", "echo $MCS_TEST_VAR"],
             additionalEnvironment: ["MCS_TEST_VAR": "test_value"]
         )

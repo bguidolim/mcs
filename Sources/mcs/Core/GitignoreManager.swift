@@ -17,7 +17,7 @@ struct GitignoreManager: Sendable {
     /// Checks `git config core.excludesFile`, falls back to `~/.config/git/ignore`.
     func resolveGlobalGitignorePath() -> URL {
         let result = shell.run(
-            "/usr/bin/git",
+            shell.environment.gitPath,
             arguments: ["config", "--global", "core.excludesFile"]
         )
         if result.succeeded, !result.stdout.isEmpty {

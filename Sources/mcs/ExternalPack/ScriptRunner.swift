@@ -98,7 +98,7 @@ struct ScriptRunner: Sendable {
     ) -> ScriptResult {
         do {
             return try executeWithTimeout(
-                executable: "/bin/bash",
+                executable: Constants.CLI.bash,
                 arguments: ["-c", command],
                 workingDirectory: nil,
                 additionalEnvironment: ["MCS_VERSION": MCSVersion.current],

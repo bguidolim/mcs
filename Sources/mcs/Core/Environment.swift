@@ -17,11 +17,16 @@ struct Environment: Sendable {
     let architecture: Architecture
     let brewPrefix: String
     let brewPath: String
+    let gitPath: String
 
     enum Architecture: String, Sendable {
         case arm64
         case x86_64
     }
+
+    // Resolved once per process via dispatch-once semantics of `static let`.
+    private static let resolvedGitPath: String = resolveCommand("git") ?? "/usr/bin/git"
+    private static let resolvedBrewPath: String? = resolveCommand("brew")
 
     init(home: URL? = nil) {
         let home = home ?? URL(fileURLWithPath: NSHomeDirectory())
@@ -29,7 +34,7 @@ struct Environment: Sendable {
 
         let claudeDir = home.appendingPathComponent(Constants.FileNames.claudeDirectory)
         self.claudeDirectory = claudeDir
-        self.claudeJSON = home.appendingPathComponent(".claude.json")
+        self.claudeJSON = home.appendingPathComponent(Constants.FileNames.claudeJSON)
         self.claudeSettings = claudeDir.appendingPathComponent("settings.json")
         self.hooksDirectory = claudeDir.appendingPathComponent("hooks")
         self.skillsDirectory = claudeDir.appendingPathComponent("skills")
@@ -39,12 +44,25 @@ struct Environment: Sendable {
 
         #if arch(arm64)
         self.architecture = .arm64
-        self.brewPrefix = "/opt/homebrew"
         #else
         self.architecture = .x86_64
-        self.brewPrefix = "/usr/local"
         #endif
-        self.brewPath = "\(self.brewPrefix)/bin/brew"
+
+        if let resolvedBrew = Self.resolvedBrewPath {
+            self.brewPath = resolvedBrew
+            self.brewPrefix = URL(fileURLWithPath: resolvedBrew)
+                .resolvingSymlinksInPath()
+                .deletingLastPathComponent().deletingLastPathComponent().path
+        } else {
+            #if arch(arm64)
+            self.brewPrefix = "/opt/homebrew"
+            #else
+            self.brewPrefix = "/usr/local"
+            #endif
+            self.brewPath = "\(self.brewPrefix)/bin/brew"
+        }
+
+        self.gitPath = Self.resolvedGitPath
     }
 
     /// Directory where external tech pack checkouts live (`~/.mcs/packs/`).
@@ -59,7 +77,7 @@ struct Environment: Sendable {
 
     /// Global state file tracking globally-installed packs and artifacts (`~/.mcs/global-state.json`).
     var globalStateFile: URL {
-        mcsDirectory.appendingPathComponent("global-state.json")
+        mcsDirectory.appendingPathComponent(Constants.FileNames.globalState)
     }
 
     /// Global Claude instructions file (`~/.claude/CLAUDE.md`).
@@ -85,5 +103,34 @@ struct Environment: Sendable {
             return currentPath
         }
         return "\(brewBin):\(currentPath)"
+    }
+
+    /// Resolves a command name to its absolute path using `/usr/bin/which`.
+    /// Uses `Process` directly to avoid a circular dependency on `ShellRunner`.
+    private static func resolveCommand(_ name: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: Constants.CLI.which)
+        process.arguments = [name]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        // Read pipe data before waitUntilExit to avoid deadlock when buffer fills.
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else { return nil }
+        guard let path = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else { return nil }
+        return path
     }
 }

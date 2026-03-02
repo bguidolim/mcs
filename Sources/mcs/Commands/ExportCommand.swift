@@ -71,10 +71,10 @@ struct ExportCommand: ParsableCommand {
                 identifier: identifier ?? "exported-pack",
                 displayName: identifier?.replacingOccurrences(of: "-", with: " ").capitalized ?? "Exported Pack",
                 description: "Exported Claude Code configuration",
-                author: gitAuthorName()
+                author: gitAuthorName(environment: env)
             )
         } else {
-            metadata = gatherMetadata(output: output)
+            metadata = gatherMetadata(environment: env, output: output)
         }
 
         // 5. Build manifest
@@ -286,14 +286,14 @@ struct ExportCommand: ParsableCommand {
 
     // MARK: - Metadata
 
-    private func gatherMetadata(output: CLIOutput) -> ManifestBuilder.Metadata {
+    private func gatherMetadata(environment env: Environment, output: CLIOutput) -> ManifestBuilder.Metadata {
         output.sectionHeader("Pack metadata:")
 
         let defaultID = identifier ?? "my-pack"
         let id = output.promptInline("Pack identifier", default: defaultID)
         let name = output.promptInline("Display name", default: id.replacingOccurrences(of: "-", with: " ").capitalized)
         let desc = output.promptInline("Description", default: "Exported Claude Code configuration")
-        let defaultAuthor = gitAuthorName()
+        let defaultAuthor = gitAuthorName(environment: env)
         let author = output.promptInline("Author", default: defaultAuthor)
 
         output.plain("")
@@ -356,8 +356,8 @@ struct ExportCommand: ParsableCommand {
 
     // MARK: - Helpers
 
-    private func gitAuthorName() -> String? {
-        let result = ShellRunner(environment: Environment()).run("/usr/bin/git", arguments: ["config", "user.name"])
-        return result.succeeded ? result.stdout.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) : nil
+    private func gitAuthorName(environment: Environment) -> String? {
+        let result = ShellRunner(environment: environment).run(environment.gitPath, arguments: ["config", "user.name"])
+        return result.succeeded ? result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : nil
     }
 }

@@ -49,7 +49,7 @@ struct LockfileOperations {
             }
 
             let result = shell.run(
-                "/usr/bin/git",
+                environment.gitPath,
                 arguments: ["-C", packPath.path, "checkout", locked.commitSHA]
             )
             if result.succeeded {
@@ -57,11 +57,11 @@ struct LockfileOperations {
             } else {
                 // Shallow-fetch latest, then retry checkout
                 _ = shell.run(
-                    "/usr/bin/git",
+                    environment.gitPath,
                     arguments: ["-C", packPath.path, "fetch", "--depth", "1", "origin"]
                 )
                 let retry = shell.run(
-                    "/usr/bin/git",
+                    environment.gitPath,
                     arguments: ["-C", packPath.path, "checkout", locked.commitSHA]
                 )
                 if retry.succeeded {

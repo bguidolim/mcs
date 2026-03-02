@@ -98,10 +98,14 @@ struct PackCommandParsingTests {
 
     // MARK: - PackCommand subcommands
 
-    @Test("PackCommand has 4 subcommands")
-    func subcommandCount() {
-        let config = PackCommand.configuration
-        #expect(config.subcommands.count == 4)
+    @Test("PackCommand registers expected subcommands")
+    func subcommandTypes() {
+        let subcommands = PackCommand.configuration.subcommands
+        #expect(subcommands.contains { $0 == AddPack.self })
+        #expect(subcommands.contains { $0 == RemovePack.self })
+        #expect(subcommands.contains { $0 == UpdatePack.self })
+        #expect(subcommands.contains { $0 == ListPacks.self })
+        #expect(subcommands.count == 4)
     }
 }
 
@@ -129,7 +133,7 @@ struct ListPacksStatusTests {
             author: nil,
             sourceURL: sourceURL,
             ref: nil,
-            commitSHA: isLocal == true ? "local" : "abc123",
+            commitSHA: isLocal == true ? Constants.ExternalPacks.localCommitSentinel : "abc123",
             localPath: localPath,
             addedAt: "2026-01-01T00:00:00Z",
             trustedScriptHashes: [:],
@@ -211,7 +215,7 @@ struct ListPacksStatusTests {
 
         let entry = makeEntry(localPath: "../../etc")
         let status = ListPacks().packStatus(entry: entry, env: env)
-        #expect(status.contains("invalid path"))
+        #expect(status == "(invalid path — escapes packs directory)")
     }
 
     @Test("Returns invalid local path for local pack with empty localPath")
@@ -222,7 +226,7 @@ struct ListPacksStatusTests {
 
         let entry = makeEntry(localPath: "", isLocal: true)
         let status = ListPacks().packStatus(entry: entry, env: env)
-        #expect(status.contains("invalid local path"))
+        #expect(status == "(invalid local path: )")
     }
 
     @Test("Returns invalid when manifest file is missing")
@@ -237,7 +241,6 @@ struct ListPacksStatusTests {
 
         let entry = makeEntry()
         let status = ListPacks().packStatus(entry: entry, env: env)
-        #expect(status.contains("invalid"))
-        #expect(status.contains("techpack.yaml"))
+        #expect(status == "(invalid — no \(Constants.ExternalPacks.manifestFilename))")
     }
 }

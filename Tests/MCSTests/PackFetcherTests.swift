@@ -3,19 +3,18 @@ import Testing
 
 @testable import mcs
 
+private func makeFetcher() -> PackFetcher {
+    let tmpDir = FileManager.default.temporaryDirectory
+    let env = Environment(home: tmpDir)
+    return PackFetcher(
+        shell: ShellRunner(environment: env),
+        output: CLIOutput(colorsEnabled: false),
+        packsDirectory: tmpDir
+    )
+}
+
 @Suite("PackFetcher ref validation")
 struct PackFetcherRefValidationTests {
-
-    private func makeFetcher() -> PackFetcher {
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mcs-fetcher-test-\(UUID().uuidString)")
-        let env = Environment(home: tmpDir)
-        return PackFetcher(
-            shell: ShellRunner(environment: env),
-            output: CLIOutput(colorsEnabled: false),
-            packsDirectory: tmpDir
-        )
-    }
 
     // MARK: - Valid refs
 
@@ -103,17 +102,6 @@ struct PackFetcherRefValidationTests {
 
 @Suite("PackFetcher identifier validation")
 struct PackFetcherIdentifierValidationTests {
-
-    private func makeFetcher() -> PackFetcher {
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mcs-fetcher-test-\(UUID().uuidString)")
-        let env = Environment(home: tmpDir)
-        return PackFetcher(
-            shell: ShellRunner(environment: env),
-            output: CLIOutput(colorsEnabled: false),
-            packsDirectory: tmpDir
-        )
-    }
 
     // MARK: - Valid identifiers
 

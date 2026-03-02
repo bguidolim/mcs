@@ -739,7 +739,7 @@ struct ListPacks: ParsableCommand {
         output.plain("")
     }
 
-    private func packStatus(entry: PackRegistryFile.PackEntry, env: Environment) -> String {
+    func packStatus(entry: PackRegistryFile.PackEntry, env: Environment) -> String {
         let fm = FileManager.default
 
         guard let packPath = entry.resolvedPath(packsDirectory: env.packsDirectory) else {

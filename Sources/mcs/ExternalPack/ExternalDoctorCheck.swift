@@ -46,7 +46,7 @@ struct ExternalCommandExistsCheck: DoctorCheck, Sendable {
             }
             resolved = command
         } else {
-            let which = shell.run("/usr/bin/which", arguments: [command])
+            let which = shell.run(Constants.CLI.which, arguments: [command])
             guard which.succeeded, !which.stdout.isEmpty else {
                 // Command not on PATH at all.
                 return .fail("not found")

@@ -20,6 +20,12 @@ enum Constants {
         /// The Claude Code configuration directory name.
         static let claudeDirectory = ".claude"
 
+        /// The Claude Code JSON configuration file.
+        static let claudeJSON = ".claude.json"
+
+        /// The global state file tracking globally-installed packs and artifacts.
+        static let globalState = "global-state.json"
+
         /// The process lock file preventing concurrent mcs execution.
         static let mcsLock = "lock"
     }
@@ -29,6 +35,12 @@ enum Constants {
     enum CLI {
         /// The `/usr/bin/env` path used to resolve commands from PATH.
         static let env = "/usr/bin/env"
+
+        /// The `/usr/bin/which` path for command resolution (POSIX bootstrap).
+        static let which = "/usr/bin/which"
+
+        /// The `/bin/bash` path for shell command execution.
+        static let bash = "/bin/bash"
 
         /// The Claude Code CLI binary name.
         static let claudeCommand = "claude"

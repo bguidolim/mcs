@@ -232,7 +232,7 @@ struct ProjectSyncStrategy: SyncStrategy {
 
     private func resolveRepoName(shell: ShellRunner, output: CLIOutput) -> String {
         let remoteResult = shell.run(
-            "/usr/bin/git",
+            shell.environment.gitPath,
             arguments: ["-C", projectPath.path, "remote", "get-url", "origin"]
         )
         if remoteResult.succeeded, !remoteResult.stdout.isEmpty {
@@ -249,7 +249,7 @@ struct ProjectSyncStrategy: SyncStrategy {
 
     private func resolveProjectDirName(shell: ShellRunner) -> String {
         let gitResult = shell.run(
-            "/usr/bin/git",
+            shell.environment.gitPath,
             arguments: ["-C", projectPath.path, "rev-parse", "--show-toplevel"]
         )
         if gitResult.succeeded, !gitResult.stdout.isEmpty {

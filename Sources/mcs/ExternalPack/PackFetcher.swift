@@ -43,7 +43,7 @@ struct PackFetcher: Sendable {
         }
         args += [url, packPath.path]
 
-        let result = shell.run("/usr/bin/git", arguments: args)
+        let result = shell.run(shell.environment.gitPath, arguments: args)
         guard result.succeeded else {
             throw PackFetchError.cloneFailed(url: url, stderr: result.stderr)
         }
@@ -70,7 +70,7 @@ struct PackFetcher: Sendable {
 
         // Fetch latest from remote
         let fetchResult = shell.run(
-            "/usr/bin/git", arguments: ["fetch", "--depth", "1", "origin"],
+            shell.environment.gitPath, arguments: ["fetch", "--depth", "1", "origin"],
             workingDirectory: workDir
         )
         guard fetchResult.succeeded else {
@@ -80,20 +80,20 @@ struct PackFetcher: Sendable {
         if let ref {
             // Check out the specific ref
             let checkoutResult = shell.run(
-                "/usr/bin/git", arguments: ["checkout", ref],
+                shell.environment.gitPath, arguments: ["checkout", ref],
                 workingDirectory: workDir
             )
             if !checkoutResult.succeeded {
                 // Try fetching the ref explicitly (e.g. a new tag)
                 let fetchTagResult = shell.run(
-                    "/usr/bin/git", arguments: ["fetch", "--depth", "1", "origin", "tag", ref],
+                    shell.environment.gitPath, arguments: ["fetch", "--depth", "1", "origin", "tag", ref],
                     workingDirectory: workDir
                 )
                 guard fetchTagResult.succeeded else {
                     throw PackFetchError.refNotFound(ref: ref, stderr: checkoutResult.stderr)
                 }
                 let retryCheckout = shell.run(
-                    "/usr/bin/git", arguments: ["checkout", ref],
+                    shell.environment.gitPath, arguments: ["checkout", ref],
                     workingDirectory: workDir
                 )
                 guard retryCheckout.succeeded else {
@@ -103,7 +103,7 @@ struct PackFetcher: Sendable {
         } else {
             // Tracking default branch — reset to remote HEAD
             let resetResult = shell.run(
-                "/usr/bin/git", arguments: ["reset", "--hard", "origin/HEAD"],
+                shell.environment.gitPath, arguments: ["reset", "--hard", "origin/HEAD"],
                 workingDirectory: workDir
             )
             guard resetResult.succeeded else {
@@ -129,7 +129,7 @@ struct PackFetcher: Sendable {
     /// Get the current commit SHA of a pack checkout.
     func currentCommit(at path: URL) throws -> String {
         let result = shell.run(
-            "/usr/bin/git", arguments: ["rev-parse", "HEAD"],
+            shell.environment.gitPath, arguments: ["rev-parse", "HEAD"],
             workingDirectory: path.path
         )
         guard result.succeeded, !result.stdout.isEmpty else {

@@ -46,6 +46,7 @@ Per-project paths (created by `mcs sync`):
 - `<project>/.claude/skills/` — per-project skills
 - `<project>/.claude/hooks/` — per-project hook scripts
 - `<project>/.claude/commands/` — per-project slash commands
+- `<project>/.claude/agents/` — per-project subagents
 - `<project>/.claude/.mcs-project` — per-project state (JSON)
 - `<project>/CLAUDE.local.md` — per-project instructions with section markers
 - `<project>/mcs.lock.yaml` — lockfile pinning pack commits
@@ -196,7 +197,7 @@ The `--pack` flag bypasses multi-select for CI use: `mcs sync --pack ios --pack 
 Each installable unit is a `ComponentDefinition` with:
 
 - **id**: unique identifier (e.g., `ios.xcodebuildmcp`)
-- **type**: `mcpServer`, `plugin`, `skill`, `hookFile`, `command`, `brewPackage`, `configuration`
+- **type**: `mcpServer`, `plugin`, `skill`, `hookFile`, `command`, `agent`, `brewPackage`, `configuration`
 - **packIdentifier**: pack ID for the owning pack
 - **dependencies**: IDs of components this depends on
 - **isRequired**: if true, always installed with its pack

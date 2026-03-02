@@ -78,7 +78,7 @@ mcs export <dir> --dry-run       # Preview what would be exported
 - `DependencyResolver.swift` — topological sort of component dependencies with cycle detection
 
 ### External Pack System (`Sources/mcs/ExternalPack/`)
-- `ExternalPackManifest.swift` — YAML `techpack.yaml` schema (Codable models for components, templates, hooks, doctor checks, prompts, configure scripts). Supports **shorthand syntax** (`brew:`, `mcp:`, `plugin:`, `hook:`, `command:`, `skill:`, `settingsFile:`, `gitignore:`, `shell:`) that infers `type` + `installAction` from a single key
+- `ExternalPackManifest.swift` — YAML `techpack.yaml` schema (Codable models for components, templates, hooks, doctor checks, prompts, configure scripts). Supports **shorthand syntax** (`brew:`, `mcp:`, `plugin:`, `hook:`, `command:`, `skill:`, `agent:`, `settingsFile:`, `gitignore:`, `shell:`) that infers `type` + `installAction` from a single key
 - `ExternalPackAdapter.swift` — bridges `ExternalPackManifest` to the `TechPack` protocol
 - `ExternalPackLoader.swift` — discovers and loads packs from `~/.mcs/packs/` (git) or absolute paths (local)
 - `PackFetcher.swift` — Git clone/pull for pack repositories

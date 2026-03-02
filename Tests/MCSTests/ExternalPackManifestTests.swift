@@ -906,6 +906,42 @@ struct ExternalPackManifestTests {
         #expect(config.fileType == .hook)
     }
 
+    @Test("Deserialize copyPackFile install action with agent fileType")
+    func copyPackFileAgentAction() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: test
+            displayName: Test
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: test.agent
+                displayName: Code Reviewer
+                description: A subagent file
+                type: agent
+                installAction:
+                  type: copyPackFile
+                  source: agents/code-reviewer.md
+                  destination: code-reviewer.md
+                  fileType: agent
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        guard case .copyPackFile(let config) = manifest.components?[0].installAction else {
+            Issue.record("Expected copyPackFile install action")
+            return
+        }
+        #expect(config.source == "agents/code-reviewer.md")
+        #expect(config.destination == "code-reviewer.md")
+        #expect(config.fileType == .agent)
+    }
+
     // MARK: - Doctor check types
 
     @Test("Deserialize all doctor check types")
@@ -1129,6 +1165,7 @@ struct ExternalPackManifestTests {
         #expect(ExternalComponentType.skill.componentType == .skill)
         #expect(ExternalComponentType.hookFile.componentType == .hookFile)
         #expect(ExternalComponentType.command.componentType == .command)
+        #expect(ExternalComponentType.agent.componentType == .agent)
         #expect(ExternalComponentType.brewPackage.componentType == .brewPackage)
         #expect(ExternalComponentType.configuration.componentType == .configuration)
     }
@@ -2139,6 +2176,41 @@ struct ExternalPackManifestTests {
         }
         #expect(config.source == "skills/continuous-learning")
         #expect(config.fileType == .skill)
+    }
+
+    // MARK: - Shorthand: agent
+
+    @Test("Shorthand agent: infers agent type and copyPackFile action")
+    func shorthandAgent() throws {
+        let yaml = """
+            schemaVersion: 1
+            identifier: my-pack
+            displayName: My Pack
+            description: Test
+            version: "1.0.0"
+            components:
+              - id: my-pack.code-reviewer
+                description: Expert code reviewer subagent
+                agent:
+                  source: agents/code-reviewer.md
+                  destination: code-reviewer.md
+            """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        let comp = try #require(manifest.components?.first)
+
+        #expect(comp.type == .agent)
+        guard case .copyPackFile(let config) = comp.installAction else {
+            Issue.record("Expected copyPackFile"); return
+        }
+        #expect(config.source == "agents/code-reviewer.md")
+        #expect(config.fileType == .agent)
     }
 
     // MARK: - Shorthand: settingsFile

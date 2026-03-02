@@ -172,6 +172,25 @@ Infers: `type: skill`, `installAction: copyPackFile(fileType: skill)`
 
 ---
 
+#### `agent:` — Subagent
+
+```yaml
+- id: code-reviewer
+  description: Code review subagent
+  agent:
+    source: agents/code-reviewer.md
+    destination: code-reviewer.md
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `source` | `String` | Yes | Path to agent Markdown file in the pack repo |
+| `destination` | `String` | Yes | Filename in `<project>/.claude/agents/` |
+
+Infers: `type: agent`, `installAction: copyPackFile(fileType: agent)`
+
+---
+
 #### `settingsFile:` — Settings
 
 ```yaml
@@ -256,7 +275,7 @@ The explicit form with `type` + `installAction` is always supported:
 | `settingsFile` | `source` | Merge settings from file |
 | `copyPackFile` | `source`, `destination`, `fileType` | Copy file from pack |
 
-`fileType` values: `skill`, `hook`, `command`, `generic`
+`fileType` values: `skill`, `hook`, `command`, `agent`, `generic`
 
 ---
 
@@ -398,6 +417,7 @@ Most components get free doctor checks from their install action — no need to 
 | `hook: {source, dest}` | File exists at destination |
 | `skill: {source, dest}` | Directory exists at destination |
 | `command: {source, dest}` | File exists at destination |
+| `agent: {source, dest}` | File exists at destination |
 | `settingsFile: path` | Always re-applied (convergent) |
 | `gitignore: [...]` | Always re-applied (convergent) |
 | `shell: "..."` | **None** — add `doctorChecks` manually |

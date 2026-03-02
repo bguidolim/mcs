@@ -152,6 +152,7 @@ struct DerivedDoctorCheckTests {
             (.skill, "/tmp/proj/.claude/skills/test.md"),
             (.hook, "/tmp/proj/.claude/hooks/test.md"),
             (.command, "/tmp/proj/.claude/commands/test.md"),
+            (.agent, "/tmp/proj/.claude/agents/test.md"),
             (.generic, "/tmp/proj/.claude/test.md"),
         ]
         for (fileType, expectedPath) in cases {

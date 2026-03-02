@@ -9,6 +9,7 @@ struct Environment: Sendable {
     let hooksDirectory: URL
     let skillsDirectory: URL
     let commandsDirectory: URL
+    let agentsDirectory: URL
 
     /// mcs-internal state directory (`~/.mcs/`).
     /// Stores pack checkouts, registry, global state, and lock file.
@@ -39,6 +40,7 @@ struct Environment: Sendable {
         self.hooksDirectory = claudeDir.appendingPathComponent("hooks")
         self.skillsDirectory = claudeDir.appendingPathComponent("skills")
         self.commandsDirectory = claudeDir.appendingPathComponent("commands")
+        self.agentsDirectory = claudeDir.appendingPathComponent("agents")
 
         self.mcsDirectory = home.appendingPathComponent(".mcs")
 

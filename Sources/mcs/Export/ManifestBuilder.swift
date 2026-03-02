@@ -45,6 +45,7 @@ struct ManifestBuilder {
         let selectedHookFiles: Set<String>
         let selectedSkillFiles: Set<String>
         let selectedCommandFiles: Set<String>
+        let selectedAgentFiles: Set<String>
         let selectedPlugins: Set<String>
         let selectedSections: Set<String>
         let includeUserContent: Bool
@@ -182,6 +183,8 @@ struct ManifestBuilder {
              { "\($0.filename) skill" }),
             (config.commandFiles, options.selectedCommandFiles, "cmd", .command, .command,
              { "/\($0.filename.hasSuffix(".md") ? String($0.filename.dropLast(3)) : $0.filename) command" }),
+            (config.agentFiles, options.selectedAgentFiles, "agent", .agent, .agent,
+             { "\($0.filename) subagent" }),
         ]
 
         for spec in copyFileSpecs {
@@ -332,6 +335,7 @@ struct ManifestBuilder {
                 ("Hooks", { $0.type == .hookFile }),
                 ("Skills", { $0.type == .skill }),
                 ("Commands", { $0.type == .command }),
+                ("Agents", { $0.type == .agent }),
                 ("Plugins", { $0.type == .plugin }),
                 ("Configuration", { $0.type == .configuration }),
             ]
@@ -383,6 +387,7 @@ struct ManifestBuilder {
         yaml.comment("  hook:       → checks if hook file exists")
         yaml.comment("  skill:      → checks if skill directory exists")
         yaml.comment("  command:    → checks if command file exists")
+        yaml.comment("  agent:      → checks if agent file exists")
         yaml.comment("  shell:      → NO auto-check (add doctorChecks: manually)")
         yaml.comment("")
         yaml.comment("Add pack-level checks for prerequisites not tied to a component:")
@@ -484,6 +489,7 @@ struct ManifestBuilder {
             case .hook: key = "hook"
             case .skill: key = "skill"
             case .command: key = "command"
+            case .agent: key = "agent"
             case .generic, .none:
                 preconditionFailure("Export does not produce .generic file components")
             }

@@ -84,6 +84,7 @@ struct ExportCommand: ParsableCommand {
             selectedHookFiles: selection.hookFiles,
             selectedSkillFiles: selection.skillFiles,
             selectedCommandFiles: selection.commandFiles,
+            selectedAgentFiles: selection.agentFiles,
             selectedPlugins: selection.plugins,
             selectedSections: selection.sections,
             includeUserContent: selection.includeUserContent,
@@ -126,6 +127,9 @@ struct ExportCommand: ParsableCommand {
         if !config.commandFiles.isEmpty {
             output.plain("  Commands:      \(config.commandFiles.map(\.filename).joined(separator: ", "))")
         }
+        if !config.agentFiles.isEmpty {
+            output.plain("  Agents:        \(config.agentFiles.map(\.filename).joined(separator: ", "))")
+        }
         if !config.plugins.isEmpty {
             output.plain("  Plugins:       \(config.plugins.joined(separator: ", "))")
         }
@@ -151,6 +155,7 @@ struct ExportCommand: ParsableCommand {
         var hookFiles: Set<String>
         var skillFiles: Set<String>
         var commandFiles: Set<String>
+        var agentFiles: Set<String>
         var plugins: Set<String>
         var sections: Set<String>
         var includeUserContent: Bool
@@ -164,6 +169,7 @@ struct ExportCommand: ParsableCommand {
             hookFiles: Set(config.hookFiles.map(\.filename)),
             skillFiles: Set(config.skillFiles.map(\.filename)),
             commandFiles: Set(config.commandFiles.map(\.filename)),
+            agentFiles: Set(config.agentFiles.map(\.filename)),
             plugins: Set(config.plugins),
             sections: Set(config.claudeSections.map(\.sectionIdentifier)),
             includeUserContent: config.claudeUserContent != nil,
@@ -172,7 +178,7 @@ struct ExportCommand: ParsableCommand {
         )
     }
 
-    private enum ItemCategory { case mcp, hooks, skills, commands, plugins, sections }
+    private enum ItemCategory { case mcp, hooks, skills, commands, agents, plugins, sections }
     private enum SentinelKey { case userContent, gitignore, settings }
 
     private func interactiveSelect(
@@ -233,6 +239,12 @@ struct ExportCommand: ParsableCommand {
             groups.append(SelectableGroup(title: "Commands", items: items, requiredItems: []))
         }
 
+        // Agents
+        if !config.agentFiles.isEmpty {
+            let items = appendItems(config.agentFiles.map { (name: $0.filename, description: "Subagent") }, category: .agents)
+            groups.append(SelectableGroup(title: "Agents", items: items, requiredItems: []))
+        }
+
         // Plugins
         if !config.plugins.isEmpty {
             let items = appendItems(config.plugins.map { (name: $0, description: "Plugin") }, category: .plugins)
@@ -276,6 +288,7 @@ struct ExportCommand: ParsableCommand {
             hookFiles: selectedNames(.hooks),
             skillFiles: selectedNames(.skills),
             commandFiles: selectedNames(.commands),
+            agentFiles: selectedNames(.agents),
             plugins: selectedNames(.plugins),
             sections: selectedNames(.sections),
             includeUserContent: sentinels[.userContent].map { selected.contains($0) } ?? false,

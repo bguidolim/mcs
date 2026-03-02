@@ -313,6 +313,7 @@ struct ExternalComponentDefinition: Codable, Sendable {
         case hook          // Map — CopyFileShorthand (fileType: .hook)
         case command       // Map — CopyFileShorthand (fileType: .command)
         case skill         // Map — CopyFileShorthand (fileType: .skill)
+        case agent         // Map — CopyFileShorthand (fileType: .agent)
         case settingsFile  // String — source path
         case gitignore     // [String] — gitignore entries
     }
@@ -420,6 +421,10 @@ struct ExternalComponentDefinition: Codable, Sendable {
             let config = try shorthand.decode(CopyFileShorthand.self, forKey: .skill)
             return ResolvedShorthand(type: .skill, action: .copyPackFile(config.toExternalConfig(fileType: .skill)))
         }
+        if shorthand.contains(.agent) {
+            let config = try shorthand.decode(CopyFileShorthand.self, forKey: .agent)
+            return ResolvedShorthand(type: .agent, action: .copyPackFile(config.toExternalConfig(fileType: .agent)))
+        }
         if shorthand.contains(.settingsFile) {
             let source = try shorthand.decode(String.self, forKey: .settingsFile)
             return ResolvedShorthand(type: .configuration, action: .settingsFile(source: source))
@@ -478,6 +483,7 @@ enum ExternalComponentType: String, Codable, Sendable {
     case skill
     case hookFile
     case command
+    case agent
     case brewPackage
     case configuration
 
@@ -489,6 +495,7 @@ enum ExternalComponentType: String, Codable, Sendable {
         case .skill: return .skill
         case .hookFile: return .hookFile
         case .command: return .command
+        case .agent: return .agent
         case .brewPackage: return .brewPackage
         case .configuration: return .configuration
         }
@@ -649,6 +656,7 @@ enum ExternalCopyFileType: String, Codable, Sendable {
     case skill
     case hook
     case command
+    case agent
     case generic
 }
 

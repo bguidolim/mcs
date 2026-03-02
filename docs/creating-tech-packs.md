@@ -1,6 +1,6 @@
 # Creating Tech Packs
 
-A tech pack is your Claude Code setup — packaged as a Git repo and shareable with anyone. It bundles MCP servers, plugins, hooks, skills, commands, templates, and settings into a single `techpack.yaml` file that `mcs` knows how to sync and maintain.
+A tech pack is your Claude Code setup — packaged as a Git repo and shareable with anyone. It bundles MCP servers, plugins, hooks, skills, commands, agents, templates, and settings into a single `techpack.yaml` file that `mcs` knows how to sync and maintain.
 
 Think of it like a dotfiles repo, but specifically for Claude Code.
 
@@ -20,7 +20,7 @@ mcs export ./my-pack
 mcs export ./my-pack --global --dry-run
 ```
 
-The export wizard discovers your MCP servers, hooks, skills, commands, plugins, CLAUDE.md sections, gitignore entries (global export only), and settings — then generates a complete pack directory with `techpack.yaml` and all supporting files.
+The export wizard discovers your MCP servers, hooks, skills, commands, agents, plugins, CLAUDE.md sections, gitignore entries (global export only), and settings — then generates a complete pack directory with `techpack.yaml` and all supporting files.
 
 **What it handles automatically:**
 - Sensitive env vars (API keys, tokens) are replaced with `__PLACEHOLDER__` tokens and corresponding `prompts:` entries are generated
@@ -222,6 +222,20 @@ Custom `/command` prompts:
       destination: pr.md
 ```
 
+### Agents
+
+Custom subagents — Markdown files with YAML frontmatter that Claude Code can invoke as specialized agents:
+
+```yaml
+  - id: code-reviewer
+    description: Code review subagent
+    agent:
+      source: agents/code-reviewer.md
+      destination: code-reviewer.md
+```
+
+This copies the agent Markdown file from your pack repo into `<project>/.claude/agents/`. Agent files follow Claude Code's subagent format (Markdown with `---` frontmatter containing the agent name and configuration).
+
 ### Settings
 
 Merge Claude Code settings (plan mode, env vars, etc.):
@@ -422,6 +436,7 @@ prompts:
 | `hook: {source, destination}` | Does the hook file exist? |
 | `skill: {source, destination}` | Does the skill directory exist? |
 | `command: {source, destination}` | Does the command file exist? |
+| `agent: {source, destination}` | Does the agent file exist? |
 
 ### When you need custom checks
 
@@ -534,6 +549,7 @@ This tracking lives in `<project>/.claude/.mcs-project`. You don't need to manag
 | Skills | `<project>/.claude/skills/` |
 | Hooks | `<project>/.claude/hooks/` |
 | Commands | `<project>/.claude/commands/` |
+| Agents | `<project>/.claude/agents/` |
 | Settings | `<project>/.claude/settings.local.json` |
 | Templates | `<project>/CLAUDE.local.md` |
 | Brew packages | Global (`brew install`) |

@@ -171,6 +171,37 @@ struct ExternalPackAdapterTests {
         }
     }
 
+    @Test("Adapter converts copyPackFile component with agent type")
+    func copyPackFileAgentComponent() throws {
+        let manifest = manifestWithComponents([
+            ExternalComponentDefinition(
+                id: "test-pack.agent",
+                displayName: "Code Reviewer",
+                description: "A subagent",
+                type: .agent,
+                dependencies: nil,
+                isRequired: nil,
+                hookEvent: nil,
+                installAction: .copyPackFile(ExternalCopyPackFileConfig(
+                    source: "agents/code-reviewer.md",
+                    destination: "code-reviewer.md",
+                    fileType: .agent
+                )),
+                doctorChecks: nil
+            ),
+        ])
+        let (adapter, packPath) = try makeAdapter(manifest: manifest)
+        let component = adapter.components[0]
+        #expect(component.type == .agent)
+        if case .copyPackFile(let source, let destination, let fileType) = component.installAction {
+            #expect(source == packPath.appendingPathComponent("agents/code-reviewer.md"))
+            #expect(destination == "code-reviewer.md")
+            #expect(fileType == .agent)
+        } else {
+            Issue.record("Expected .copyPackFile action")
+        }
+    }
+
     @Test("Adapter sets packIdentifier on components")
     func packIdentifierSet() throws {
         let manifest = manifestWithComponents([

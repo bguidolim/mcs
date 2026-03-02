@@ -38,7 +38,7 @@ You've spent hours getting Claude Code just right — MCP servers, plugins, hook
 
 ## The Solution
 
-`mcs` is a **configuration engine for Claude Code**. It lets you package everything — MCP servers, plugins, hooks, skills, commands, settings, and templates — into shareable **tech packs** (Git repos with a `techpack.yaml` manifest). Then sync them across any project, any machine, in seconds.
+`mcs` is a **configuration engine for Claude Code**. It lets you package everything — MCP servers, plugins, hooks, skills, commands, agents, settings, and templates — into shareable **tech packs** (Git repos with a `techpack.yaml` manifest). Then sync them across any project, any machine, in seconds.
 
 > Think of it as **Ansible for your Claude Code environment**: declare what you want in a pack, point `mcs` at it, and the engine converges your setup to the desired state — idempotent, composable, and safe to re-run.
 
@@ -96,7 +96,7 @@ mcs sync
 mcs doctor
 ```
 
-That's it. Your MCP servers, plugins, hooks, skills, commands, settings, and templates are all in place.
+That's it. Your MCP servers, plugins, hooks, skills, commands, agents, settings, and templates are all in place.
 
 <details>
 <summary><strong>📋 Prerequisites</strong></summary>
@@ -180,6 +180,7 @@ When you run `mcs sync` in a project directory:
 | Skills | `<project>/.claude/skills/` | Per-project |
 | Hooks | `<project>/.claude/hooks/` | Per-project |
 | Commands | `<project>/.claude/commands/` | Per-project |
+| Agents | `<project>/.claude/agents/` | Per-project |
 | Settings | `<project>/.claude/settings.local.json` | Per-project |
 | Templates | `<project>/CLAUDE.local.md` | Per-project |
 
@@ -203,6 +204,7 @@ A tech pack is a Git repository with a `techpack.yaml` manifest. It can include 
 | ⚡ `hook` | Session lifecycle scripts | `hook: { source: hooks/start.sh }` |
 | 🎓 `skill` | Domain knowledge & workflows | `skill: { source: skills/my-skill }` |
 | 💬 `command` | Custom `/slash` commands | `command: { source: commands/deploy.md }` |
+| 🤖 `agent` | Custom subagents | `agent: { source: agents/code-reviewer.md }` |
 | ⚙️ `settingsFile` | Settings for `settings.local.json` | `settingsFile: config/settings.json` |
 | 📝 `templates` | CLAUDE.local.md instructions | Placeholder substitution with `__VAR__` |
 | 🔍 `doctorChecks` | Health verification & auto-repair | Command existence, settings validation |

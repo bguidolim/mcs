@@ -5,13 +5,23 @@ struct PackWriter {
     let output: CLIOutput
 
     /// Write a complete pack directory from a ManifestBuilder.BuildResult.
+    /// Cleans up the partial directory if any step fails after creation.
     func write(result: ManifestBuilder.BuildResult, to outputDir: URL) throws {
         let fm = FileManager.default
 
-        // Create output directory
         if fm.fileExists(atPath: outputDir.path) {
             throw ExportError.outputDirectoryExists(outputDir.path)
         }
+
+        do {
+            try writeContents(result: result, to: outputDir, fm: fm)
+        } catch {
+            try? fm.removeItem(at: outputDir)
+            throw error
+        }
+    }
+
+    private func writeContents(result: ManifestBuilder.BuildResult, to outputDir: URL, fm: FileManager) throws {
         try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
         // 1. Write techpack.yaml

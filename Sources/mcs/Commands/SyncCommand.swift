@@ -184,8 +184,9 @@ struct SyncCommand: LockedCommand {
         }
 
         let resolvedPacks: [any TechPack] = pack.compactMap { registry.pack(for: $0) }
+        let resolvedIDs = Set(resolvedPacks.map(\.identifier))
 
-        for id in pack where registry.pack(for: id) == nil {
+        for id in pack where !resolvedIDs.contains(id) {
             output.warn("Unknown tech pack: \(id)")
         }
 

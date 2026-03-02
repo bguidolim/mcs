@@ -85,51 +85,17 @@ struct SyncCommand: LockedCommand {
             throw ExitCode.failure
         }
 
-        if all {
-            let allPacks = registry.availablePacks
-            guard !allPacks.isEmpty else {
-                output.error("No packs registered. Run 'mcs pack add <url>' first.")
-                throw ExitCode.failure
-            }
-
-            output.header("Sync Global")
-            output.plain("")
-            output.info("Target: \(env.claudeDirectory.path)")
-            output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
-
-            if dryRun {
-                try configurator.dryRun(packs: allPacks)
-            } else {
-                try configurator.configure(packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
-                output.header("Done")
-                output.info("Run 'mcs doctor' to verify configuration")
-            }
-        } else if !pack.isEmpty {
-            let resolvedPacks: [any TechPack] = pack.compactMap { registry.pack(for: $0) }
-
-            for id in pack where registry.pack(for: id) == nil {
-                output.warn("Unknown tech pack: \(id)")
-            }
-
-            guard !resolvedPacks.isEmpty else {
-                output.error("No valid tech pack specified.")
-                let available = registry.availablePacks.map(\.identifier).joined(separator: ", ")
-                output.plain("  Available packs: \(available)")
-                throw ExitCode.failure
-            }
-
-            output.header("Sync Global")
-            output.plain("")
-            output.info("Target: \(env.claudeDirectory.path)")
-            output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
-
-            if dryRun {
-                try configurator.dryRun(packs: resolvedPacks)
-            } else {
-                try configurator.configure(packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
-                output.header("Done")
-                output.info("Run 'mcs doctor' to verify configuration")
-            }
+        if all || !pack.isEmpty {
+            let packs = try resolvePacks(from: registry, output: output)
+            try runSync(
+                configurator: configurator,
+                packs: packs,
+                scopeLabel: "Global",
+                targetLabel: "Target",
+                targetPath: env.claudeDirectory.path,
+                excludedComponents: persistedExclusions,
+                output: output
+            )
         } else {
             try configurator.interactiveConfigure(dryRun: dryRun, customize: customize)
         }
@@ -172,7 +138,6 @@ struct SyncCommand: LockedCommand {
             strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
 
-        // Load persisted exclusions for non-interactive paths
         let persistedExclusions: [String: Set<String>]
         do {
             persistedExclusions = try ProjectState(projectRoot: projectPath).allExcludedComponents
@@ -182,61 +147,79 @@ struct SyncCommand: LockedCommand {
             throw ExitCode.failure
         }
 
-        if all {
-            // Apply all registered packs (CI-friendly)
-            let allPacks = registry.availablePacks
-            guard !allPacks.isEmpty else {
-                output.error("No packs registered. Run 'mcs pack add <url>' first.")
-                throw ExitCode.failure
-            }
-
-            output.header("Sync Project")
-            output.plain("")
-            output.info("Project: \(projectPath.path)")
-            output.info("Packs: \(allPacks.map(\.displayName).joined(separator: ", "))")
-
-            if dryRun {
-                try configurator.dryRun(packs: allPacks)
-            } else {
-                try configurator.configure(packs: allPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
-                output.header("Done")
-                output.info("Run 'mcs doctor' to verify configuration")
-            }
-        } else if !pack.isEmpty {
-            // Non-interactive --pack flag (CI-friendly)
-            let resolvedPacks: [any TechPack] = pack.compactMap { registry.pack(for: $0) }
-
-            for id in pack where registry.pack(for: id) == nil {
-                output.warn("Unknown tech pack: \(id)")
-            }
-
-            guard !resolvedPacks.isEmpty else {
-                output.error("No valid tech pack specified.")
-                let available = registry.availablePacks.map(\.identifier).joined(separator: ", ")
-                output.plain("  Available packs: \(available)")
-                throw ExitCode.failure
-            }
-
-            output.header("Sync Project")
-            output.plain("")
-            output.info("Project: \(projectPath.path)")
-            output.info("Packs: \(resolvedPacks.map(\.displayName).joined(separator: ", "))")
-
-            if dryRun {
-                try configurator.dryRun(packs: resolvedPacks)
-            } else {
-                try configurator.configure(packs: resolvedPacks, confirmRemovals: false, excludedComponents: persistedExclusions)
-                output.header("Done")
-                output.info("Run 'mcs doctor' to verify configuration")
-            }
+        if all || !pack.isEmpty {
+            let packs = try resolvePacks(from: registry, output: output)
+            try runSync(
+                configurator: configurator,
+                packs: packs,
+                scopeLabel: "Project",
+                targetLabel: "Project",
+                targetPath: projectPath.path,
+                excludedComponents: persistedExclusions,
+                output: output
+            )
         } else {
-            // Interactive flow — multi-select of all registered packs
             try configurator.interactiveConfigure(dryRun: dryRun, customize: customize)
         }
 
         // Write lockfile after successful sync (unless dry-run)
         if !dryRun {
             try lockOps.writeLockfile(at: projectPath)
+        }
+    }
+
+    // MARK: - Shared Helpers
+
+    private func resolvePacks(
+        from registry: TechPackRegistry,
+        output: CLIOutput
+    ) throws -> [any TechPack] {
+        if all {
+            let allPacks = registry.availablePacks
+            guard !allPacks.isEmpty else {
+                output.error("No packs registered. Run 'mcs pack add <url>' first.")
+                throw ExitCode.failure
+            }
+            return allPacks
+        }
+
+        let resolvedPacks: [any TechPack] = pack.compactMap { registry.pack(for: $0) }
+        let resolvedIDs = Set(resolvedPacks.map(\.identifier))
+
+        for id in pack where !resolvedIDs.contains(id) {
+            output.warn("Unknown tech pack: \(id)")
+        }
+
+        guard !resolvedPacks.isEmpty else {
+            output.error("No valid tech pack specified.")
+            let available = registry.availablePacks.map(\.identifier).joined(separator: ", ")
+            output.plain("  Available packs: \(available)")
+            throw ExitCode.failure
+        }
+
+        return resolvedPacks
+    }
+
+    private func runSync(
+        configurator: Configurator,
+        packs: [any TechPack],
+        scopeLabel: String,
+        targetLabel: String,
+        targetPath: String,
+        excludedComponents: [String: Set<String>],
+        output: CLIOutput
+    ) throws {
+        output.header("Sync \(scopeLabel)")
+        output.plain("")
+        output.info("\(targetLabel): \(targetPath)")
+        output.info("Packs: \(packs.map(\.displayName).joined(separator: ", "))")
+
+        if dryRun {
+            try configurator.dryRun(packs: packs)
+        } else {
+            try configurator.configure(packs: packs, confirmRemovals: false, excludedComponents: excludedComponents)
+            output.header("Done")
+            output.info("Run 'mcs doctor' to verify configuration")
         }
     }
 }

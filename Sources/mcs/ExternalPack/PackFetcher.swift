@@ -156,7 +156,7 @@ struct PackFetcher: Sendable {
     // MARK: - Helpers
 
     /// Validate that an identifier is safe for use as a path component.
-    private func validateIdentifier(_ identifier: String) throws {
+    func validateIdentifier(_ identifier: String) throws {
         guard !identifier.isEmpty,
               !identifier.contains(".."),
               !identifier.contains("/"),
@@ -167,7 +167,7 @@ struct PackFetcher: Sendable {
     }
 
     /// Validate that a git ref is safe for use as a command argument.
-    private func validateRef(_ ref: String) throws {
+    func validateRef(_ ref: String) throws {
         guard !ref.hasPrefix("-"),
               !ref.contains(".."),
               ref.range(of: #"^[a-zA-Z0-9._/+-]+$"#, options: .regularExpression) != nil

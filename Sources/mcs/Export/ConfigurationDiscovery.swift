@@ -247,7 +247,7 @@ struct ConfigurationDiscovery: Sendable {
 
         let files: [URL]
         do {
-            files = try fm.contentsOfDirectory(at: hooksDir, includingPropertiesForKeys: nil)
+            files = try fm.contentsOfDirectory(at: hooksDir, includingPropertiesForKeys: [.isRegularFileKey])
         } catch {
             output.warn("Could not read hooks directory at \(hooksDir.path): \(error.localizedDescription)")
             return
@@ -258,6 +258,14 @@ struct ConfigurationDiscovery: Sendable {
         for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let filename = file.lastPathComponent
             guard !filename.hasPrefix(".") else { continue }
+            // Hooks must be regular files
+            do {
+                let vals = try file.resourceValues(forKeys: [.isRegularFileKey])
+                guard vals.isRegularFile == true else { continue }
+            } catch {
+                output.warn("  Could not read file type for \(filename) — skipping")
+                continue
+            }
 
             // Try to match this file to a hook event via settings commands
             var matchedEvent: String?
@@ -282,7 +290,7 @@ struct ConfigurationDiscovery: Sendable {
 
         let files: [URL]
         do {
-            files = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey])
+            files = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey])
         } catch {
             output.warn("Could not read directory \(directory.lastPathComponent): \(error.localizedDescription)")
             return []
@@ -292,14 +300,21 @@ struct ConfigurationDiscovery: Sendable {
             .filter { url in
                 let name = url.lastPathComponent
                 guard !name.hasPrefix(".") else { return false }
+                guard let vals = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey]) else {
+                    output.warn("  Skipping entry with unreadable attributes: \(name)")
+                    return false
+                }
                 // Skip broken symlinks — they can't be copied to the output pack
-                if let vals = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]),
-                   vals.isSymbolicLink == true {
+                if vals.isSymbolicLink == true {
                     let resolved = url.resolvingSymlinksInPath()
                     if !fm.fileExists(atPath: resolved.path) {
                         output.warn("  Skipping broken symlink: \(name)")
                         return false
                     }
+                }
+                // Skip non-file, non-directory entries (sockets, device files, etc.)
+                if vals.isRegularFile != true && vals.isDirectory != true {
+                    return false
                 }
                 return true
             }

@@ -96,15 +96,17 @@ struct ManifestBuilderTests {
         let result = ManifestBuilder().build(
             from: config,
             metadata: metadata,
-            selectedMCPServers: Set(config.mcpServers.map(\.name)),
-            selectedHookFiles: Set(config.hookFiles.map(\.filename)),
-            selectedSkillFiles: Set(config.skillFiles.map(\.filename)),
-            selectedCommandFiles: Set(config.commandFiles.map(\.filename)),
-            selectedPlugins: Set(config.plugins),
-            selectedSections: Set(config.claudeSections.map(\.sectionIdentifier)),
-            includeUserContent: true,
-            includeGitignore: true,
-            includeSettings: true
+            options: ManifestBuilder.BuildOptions(
+                selectedMCPServers: Set(config.mcpServers.map(\.name)),
+                selectedHookFiles: Set(config.hookFiles.map(\.filename)),
+                selectedSkillFiles: Set(config.skillFiles.map(\.filename)),
+                selectedCommandFiles: Set(config.commandFiles.map(\.filename)),
+                selectedPlugins: Set(config.plugins),
+                selectedSections: Set(config.claudeSections.map(\.sectionIdentifier)),
+                includeUserContent: true,
+                includeGitignore: true,
+                includeSettings: true
+            )
         )
 
         // 1. Verify typed manifest metadata
@@ -232,9 +234,11 @@ struct ManifestBuilderTests {
 
         let result = ManifestBuilder().build(
             from: config, metadata: metadata,
-            selectedMCPServers: [], selectedHookFiles: [], selectedSkillFiles: [],
-            selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
-            includeUserContent: false, includeGitignore: false, includeSettings: false
+            options: ManifestBuilder.BuildOptions(
+                selectedMCPServers: [], selectedHookFiles: [], selectedSkillFiles: [],
+                selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+                includeUserContent: false, includeGitignore: false, includeSettings: false
+            )
         )
 
         // Typed manifest should have no components
@@ -278,12 +282,14 @@ struct ManifestBuilderTests {
 
         let result = ManifestBuilder().build(
             from: config, metadata: metadata,
-            selectedMCPServers: Set(config.mcpServers.map(\.name)),
-            selectedHookFiles: [], selectedSkillFiles: [],
-            selectedCommandFiles: [],
-            selectedPlugins: Set(config.plugins),
-            selectedSections: [],
-            includeUserContent: false, includeGitignore: false, includeSettings: false
+            options: ManifestBuilder.BuildOptions(
+                selectedMCPServers: Set(config.mcpServers.map(\.name)),
+                selectedHookFiles: [], selectedSkillFiles: [],
+                selectedCommandFiles: [],
+                selectedPlugins: Set(config.plugins),
+                selectedSections: [],
+                includeUserContent: false, includeGitignore: false, includeSettings: false
+            )
         )
 
         let manifest = result.manifest
@@ -346,10 +352,12 @@ struct ManifestBuilderTests {
 
         let result = ManifestBuilder().build(
             from: config, metadata: metadata,
-            selectedMCPServers: Set(config.mcpServers.map(\.name)),
-            selectedHookFiles: [], selectedSkillFiles: [],
-            selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
-            includeUserContent: false, includeGitignore: false, includeSettings: false
+            options: ManifestBuilder.BuildOptions(
+                selectedMCPServers: Set(config.mcpServers.map(\.name)),
+                selectedHookFiles: [], selectedSkillFiles: [],
+                selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+                includeUserContent: false, includeGitignore: false, includeSettings: false
+            )
         )
 
         // Two unique prompt keys: API_KEY and API_KEY_2
@@ -394,10 +402,12 @@ struct ManifestBuilderTests {
 
         let result = ManifestBuilder().build(
             from: config, metadata: metadata,
-            selectedMCPServers: selectedMCPServers,
-            selectedHookFiles: [], selectedSkillFiles: [],
-            selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
-            includeUserContent: false, includeGitignore: false, includeSettings: false
+            options: ManifestBuilder.BuildOptions(
+                selectedMCPServers: selectedMCPServers,
+                selectedHookFiles: [], selectedSkillFiles: [],
+                selectedCommandFiles: [], selectedPlugins: [], selectedSections: [],
+                includeUserContent: false, includeGitignore: false, includeSettings: false
+            )
         )
 
         let yamlFile = tmpDir.appendingPathComponent("techpack.yaml")

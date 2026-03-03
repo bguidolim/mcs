@@ -186,13 +186,6 @@ struct HookCheck: DoctorCheck, Sendable {
 struct GitignoreCheck: DoctorCheck, Sendable {
     var name: String { "Global gitignore" }
     var section: String { "Gitignore" }
-    let registry: TechPackRegistry
-    let installedPackIDs: Set<String>
-
-    init(registry: TechPackRegistry = .shared, installedPackIDs: Set<String> = []) {
-        self.registry = registry
-        self.installedPackIDs = installedPackIDs
-    }
 
     func check() -> CheckResult {
         let shell = ShellRunner(environment: Environment())
@@ -204,7 +197,6 @@ struct GitignoreCheck: DoctorCheck, Sendable {
             return .fail("global gitignore not found")
         }
         let allEntries = GitignoreManager.coreEntries
-            + registry.gitignoreEntries(installedPacks: installedPackIDs)
         var missing: [String] = []
         for entry in allEntries {
             if !content.contains(entry) {
@@ -222,9 +214,6 @@ struct GitignoreCheck: DoctorCheck, Sendable {
         let gitignoreManager = GitignoreManager(shell: shell)
         do {
             try gitignoreManager.addCoreEntries()
-            for entry in registry.gitignoreEntries(installedPacks: installedPackIDs) {
-                try gitignoreManager.addEntry(entry)
-            }
             return .fixed("added missing entries")
         } catch {
             return .failed(error.localizedDescription)

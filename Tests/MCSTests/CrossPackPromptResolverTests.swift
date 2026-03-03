@@ -246,7 +246,6 @@ struct CrossPackPromptResolverTests {
             minMCSVersion: nil,
             components: [],
             templates: nil,
-            gitignoreEntries: nil,
             prompts: [
                 ExternalPromptDefinition(
                     key: "PROJECT", type: .fileDetect,
@@ -618,7 +617,6 @@ private struct PromptMockPack: TechPack {
     let description: String = "Mock pack for prompt tests"
     let components: [ComponentDefinition]
     let templates: [TemplateContribution] = []
-    let gitignoreEntries: [String] = []
     let supplementaryDoctorChecks: [any DoctorCheck] = []
     private let prompts: [ExternalPromptDefinition]
 

@@ -968,7 +968,6 @@ private struct MockTechPack: TechPack {
     let description: String = "Mock pack for testing"
     let components: [ComponentDefinition]
     let templates: [TemplateContribution]
-    let gitignoreEntries: [String]
     let supplementaryDoctorChecks: [any DoctorCheck]
 
     init(
@@ -976,14 +975,12 @@ private struct MockTechPack: TechPack {
         displayName: String,
         components: [ComponentDefinition] = [],
         templates: [TemplateContribution] = [],
-        gitignoreEntries: [String] = [],
         supplementaryDoctorChecks: [any DoctorCheck] = []
     ) {
         self.identifier = identifier
         self.displayName = displayName
         self.components = components
         self.templates = templates
-        self.gitignoreEntries = gitignoreEntries
         self.supplementaryDoctorChecks = supplementaryDoctorChecks
     }
 

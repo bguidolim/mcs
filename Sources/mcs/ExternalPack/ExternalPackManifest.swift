@@ -13,7 +13,6 @@ struct ExternalPackManifest: Codable, Sendable {
     let minMCSVersion: String?
     let components: [ExternalComponentDefinition]?
     let templates: [ExternalTemplateDefinition]?
-    let gitignoreEntries: [String]?
     let prompts: [ExternalPromptDefinition]?
     let configureProject: ExternalConfigureProject?
     let supplementaryDoctorChecks: [ExternalDoctorCheckDefinition]?
@@ -206,7 +205,6 @@ extension ExternalPackManifest {
             minMCSVersion: minMCSVersion,
             components: normalizedComponents,
             templates: normalizedTemplates,
-            gitignoreEntries: gitignoreEntries,
             prompts: prompts,
             configureProject: configureProject,
             supplementaryDoctorChecks: supplementaryDoctorChecks

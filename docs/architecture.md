@@ -234,7 +234,6 @@ protocol TechPack: Sendable {
     var description: String { get }
     var components: [ComponentDefinition] { get }
     var templates: [TemplateContribution] { get }
-    var gitignoreEntries: [String] { get }
     var supplementaryDoctorChecks: [any DoctorCheck] { get }
     func templateValues(context: ProjectConfigContext) -> [String: String]
     func declaredPrompts(context: ProjectConfigContext) -> [ExternalPromptDefinition]
@@ -245,7 +244,6 @@ protocol TechPack: Sendable {
 Packs provide:
 - **Components**: installable units (MCP servers, skills, etc.)
 - **Templates**: sections to inject into `CLAUDE.local.md`
-- **Gitignore entries**: patterns to add to the global gitignore
 - **Supplementary doctor checks**: pack-level diagnostics not derivable from components
 - **Template values**: resolved via prompts or scripts during sync
 - **Declared prompts**: prompt definitions for cross-pack deduplication (without executing them)

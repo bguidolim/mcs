@@ -44,7 +44,6 @@ protocol TechPack: Sendable {
     /// Section identifiers for template contributions, available without reading
     /// content files from disk. Used for artifact tracking and display.
     var templateSectionIdentifiers: [String] { get }
-    var gitignoreEntries: [String] { get }
     /// Doctor checks that cannot be auto-derived from components.
     /// For pack-level or project-level concerns (e.g. Xcode CLT, config files).
     var supplementaryDoctorChecks: [any DoctorCheck] { get }

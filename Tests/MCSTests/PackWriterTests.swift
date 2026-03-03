@@ -26,7 +26,6 @@ struct PackWriterTests {
             minMCSVersion: nil,
             components: nil,
             templates: nil,
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil

@@ -1,10 +1,9 @@
 import Foundation
-import Testing
 @testable import mcs
+import Testing
 
 @Suite("ExternalPackAdapter")
 struct ExternalPackAdapterTests {
-
     // MARK: - Identity
 
     @Test("Adapter exposes manifest identity fields")
@@ -38,7 +37,7 @@ struct ExternalPackAdapterTests {
                     scope: nil
                 )),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, _) = try makeAdapter(manifest: manifest)
         let components = adapter.components
@@ -48,7 +47,7 @@ struct ExternalPackAdapterTests {
         #expect(component.displayName == "Test MCP")
         #expect(component.type == .mcpServer)
         #expect(component.packIdentifier == "test-pack")
-        if case .mcpServer(let config) = component.installAction {
+        if case let .mcpServer(config) = component.installAction {
             #expect(config.name == "test-server")
             #expect(config.command == "npx")
             #expect(config.args == ["-y", "test@latest"])
@@ -79,11 +78,11 @@ struct ExternalPackAdapterTests {
                     scope: nil
                 )),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, _) = try makeAdapter(manifest: manifest)
         let component = adapter.components[0]
-        if case .mcpServer(let config) = component.installAction {
+        if case let .mcpServer(config) = component.installAction {
             // HTTP transport uses the .http() convenience
             #expect(config.name == "http-server")
             #expect(config.command == "http")
@@ -106,11 +105,11 @@ struct ExternalPackAdapterTests {
                 hookEvent: nil,
                 installAction: .brewInstall(package: "node"),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, _) = try makeAdapter(manifest: manifest)
         let component = adapter.components[0]
-        if case .brewInstall(let package) = component.installAction {
+        if case let .brewInstall(package) = component.installAction {
             #expect(package == "node")
         } else {
             Issue.record("Expected .brewInstall action")
@@ -130,11 +129,11 @@ struct ExternalPackAdapterTests {
                 hookEvent: nil,
                 installAction: .shellCommand(command: "echo hello"),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, _) = try makeAdapter(manifest: manifest)
         let component = adapter.components[0]
-        if case .shellCommand(let command) = component.installAction {
+        if case let .shellCommand(command) = component.installAction {
             #expect(command == "echo hello")
         } else {
             Issue.record("Expected .shellCommand action")
@@ -158,11 +157,11 @@ struct ExternalPackAdapterTests {
                     fileType: .skill
                 )),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, packPath) = try makeAdapter(manifest: manifest)
         let component = adapter.components[0]
-        if case .copyPackFile(let source, let destination, let fileType) = component.installAction {
+        if case let .copyPackFile(source, destination, fileType) = component.installAction {
             #expect(source == packPath.appendingPathComponent("resources/my-skill"))
             #expect(destination == "my-skill")
             #expect(fileType == .skill)
@@ -188,12 +187,12 @@ struct ExternalPackAdapterTests {
                     fileType: .agent
                 )),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, packPath) = try makeAdapter(manifest: manifest)
         let component = adapter.components[0]
         #expect(component.type == .agent)
-        if case .copyPackFile(let source, let destination, let fileType) = component.installAction {
+        if case let .copyPackFile(source, destination, fileType) = component.installAction {
             #expect(source == packPath.appendingPathComponent("agents/code-reviewer.md"))
             #expect(destination == "code-reviewer.md")
             #expect(fileType == .agent)
@@ -215,7 +214,7 @@ struct ExternalPackAdapterTests {
                 hookEvent: nil,
                 installAction: .gitignoreEntries(entries: [".test"]),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, _) = try makeAdapter(manifest: manifest)
         #expect(adapter.components[0].packIdentifier == "test-pack")
@@ -235,7 +234,7 @@ struct ExternalPackAdapterTests {
                 hookEvent: nil,
                 installAction: .shellCommand(command: "echo a"),
                 doctorChecks: nil
-            ),
+            )
         ])
         let (adapter, _) = try makeAdapter(manifest: manifest)
         #expect(adapter.components[0].dependencies == ["core.node"])
@@ -269,9 +268,8 @@ struct ExternalPackAdapterTests {
                     sectionIdentifier: "test-pack",
                     placeholders: ["__PROJECT__"],
                     contentFile: "templates/ios.md"
-                ),
+                )
             ],
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil
@@ -283,34 +281,6 @@ struct ExternalPackAdapterTests {
         #expect(templates[0].sectionIdentifier == "test-pack")
         #expect(templates[0].templateContent.contains("__PROJECT__"))
         #expect(templates[0].placeholders == ["__PROJECT__"])
-    }
-
-    // MARK: - Gitignore
-
-    @Test("Adapter returns gitignore entries")
-    func gitignoreEntries() throws {
-        let manifest = ExternalPackManifest(
-            schemaVersion: 1,
-            identifier: "test-pack",
-            displayName: "Test Pack",
-            description: "desc",
-            author: nil,
-            minMCSVersion: nil,
-            components: nil,
-            templates: nil,
-            gitignoreEntries: [".xcodebuildmcp", ".build"],
-            prompts: nil,
-            configureProject: nil,
-            supplementaryDoctorChecks: nil
-        )
-        let adapter = ExternalPackAdapter(manifest: manifest, packPath: URL(fileURLWithPath: "/tmp"))
-        #expect(adapter.gitignoreEntries == [".xcodebuildmcp", ".build"])
-    }
-
-    @Test("Adapter returns empty gitignore when nil")
-    func emptyGitignore() throws {
-        let (adapter, _) = try makeAdapter(manifest: minimalManifest())
-        #expect(adapter.gitignoreEntries.isEmpty)
     }
 
     // MARK: - Path Traversal via Templates
@@ -342,7 +312,6 @@ struct ExternalPackAdapterTests {
                     contentFile: "../secret.md"
                 )
             ],
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil
@@ -387,7 +356,6 @@ struct ExternalPackAdapterTests {
                     contentFile: "templates/link.md"
                 )
             ],
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil
@@ -423,7 +391,7 @@ struct ExternalPackAdapterTests {
                     fileType: .generic
                 )),
                 doctorChecks: nil
-            ),
+            )
         ])
         let adapter = ExternalPackAdapter(manifest: manifest, packPath: packDir)
         #expect(adapter.components.isEmpty)
@@ -463,7 +431,7 @@ struct ExternalPackAdapterTests {
                     fileType: .generic
                 )),
                 doctorChecks: nil
-            ),
+            )
         ])
         let adapter = ExternalPackAdapter(manifest: manifest, packPath: packDir)
         #expect(adapter.components.isEmpty)
@@ -490,7 +458,7 @@ struct ExternalPackAdapterTests {
                 hookEvent: nil,
                 installAction: .settingsFile(source: "../../etc/passwd"),
                 doctorChecks: nil
-            ),
+            )
         ])
         let adapter = ExternalPackAdapter(manifest: manifest, packPath: packDir)
         #expect(adapter.components.isEmpty)
@@ -525,7 +493,6 @@ struct ExternalPackAdapterTests {
                     contentFile: "templates/section.md"
                 )
             ],
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil
@@ -550,13 +517,12 @@ struct ExternalPackAdapterTests {
             minMCSVersion: nil,
             components: nil,
             templates: nil,
-            gitignoreEntries: nil,
             prompts: [
                 ExternalPromptDefinition(
                     key: "ALREADY_RESOLVED", type: .input,
                     label: "This should be skipped", defaultValue: "default",
                     options: nil, detectPatterns: nil, scriptCommand: nil
-                ),
+                )
             ],
             configureProject: nil,
             supplementaryDoctorChecks: nil
@@ -588,7 +554,6 @@ struct ExternalPackAdapterTests {
             minMCSVersion: nil,
             components: nil,
             templates: nil,
-            gitignoreEntries: nil,
             prompts: [
                 ExternalPromptDefinition(
                     key: "PREFIX", type: .input,
@@ -599,7 +564,7 @@ struct ExternalPackAdapterTests {
                     key: "PROJECT", type: .fileDetect,
                     label: "Xcode project", defaultValue: nil,
                     options: nil, detectPatterns: ["*.xcodeproj"], scriptCommand: nil
-                ),
+                )
             ],
             configureProject: nil,
             supplementaryDoctorChecks: nil
@@ -642,7 +607,6 @@ struct ExternalPackAdapterTests {
             minMCSVersion: nil,
             components: nil,
             templates: nil,
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil
@@ -661,7 +625,6 @@ struct ExternalPackAdapterTests {
             minMCSVersion: nil,
             components: components,
             templates: nil,
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil

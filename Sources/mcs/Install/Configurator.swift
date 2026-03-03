@@ -272,17 +272,6 @@ struct Configurator {
 
         // 9. Ensure gitignore entries
         try ConfiguratorSupport.ensureGitignoreEntries(shell: shell)
-        let gitignoreExec = makeExecutor()
-        for pack in packs {
-            gitignoreExec.addPackGitignoreEntries(from: pack)
-            // Merge legacy top-level gitignore entries with any component-recorded ones
-            if !pack.gitignoreEntries.isEmpty, var artifacts = state.artifacts(for: pack.identifier) {
-                let existing = Set(artifacts.gitignoreEntries)
-                let newEntries = pack.gitignoreEntries.filter { !existing.contains($0) }
-                artifacts.gitignoreEntries.append(contentsOf: newEntries)
-                state.setArtifacts(artifacts, for: pack.identifier)
-            }
-        }
 
         // 10. Final state save
         do {

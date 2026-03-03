@@ -112,21 +112,6 @@ struct ComponentExecutor {
         }
     }
 
-    // MARK: - Pack Post-Processing
-
-    /// Add a pack's gitignore entries to the global gitignore.
-    func addPackGitignoreEntries(from pack: any TechPack) {
-        guard !pack.gitignoreEntries.isEmpty else { return }
-        let manager = GitignoreManager(shell: shell)
-        for entry in pack.gitignoreEntries {
-            do {
-                try manager.addEntry(entry)
-            } catch {
-                output.warn("Failed to add gitignore entry '\(entry)': \(error.localizedDescription)")
-            }
-        }
-    }
-
     // MARK: - Copy Pack File
 
     /// Copy files from an external pack checkout to the appropriate Claude directory.

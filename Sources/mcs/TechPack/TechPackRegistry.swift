@@ -32,12 +32,6 @@ struct TechPackRegistry: Sendable {
             .flatMap { $0.supplementaryDoctorChecks }
     }
 
-    /// Get gitignore entries only for installed packs.
-    func gitignoreEntries(installedPacks ids: Set<String>) -> [String] {
-        availablePacks.filter { ids.contains($0.identifier) }
-            .flatMap { $0.gitignoreEntries }
-    }
-
     /// Get template contributions for a specific pack.
     func templateContributions(for packIdentifier: String) throws -> [TemplateContribution] {
         try pack(for: packIdentifier)?.templates ?? []

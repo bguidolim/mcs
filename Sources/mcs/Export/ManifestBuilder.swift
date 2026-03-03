@@ -289,7 +289,6 @@ struct ManifestBuilder {
             minMCSVersion: nil,
             components: components.isEmpty ? nil : components,
             templates: templates.isEmpty ? nil : templates,
-            gitignoreEntries: nil,
             prompts: prompts.isEmpty ? nil : prompts,
             configureProject: nil,
             supplementaryDoctorChecks: nil

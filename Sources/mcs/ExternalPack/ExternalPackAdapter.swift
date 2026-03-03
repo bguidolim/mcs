@@ -59,12 +59,6 @@ struct ExternalPackAdapter: TechPack {
         manifest.templates?.map(\.sectionIdentifier) ?? []
     }
 
-    // MARK: - Gitignore Entries
-
-    var gitignoreEntries: [String] {
-        manifest.gitignoreEntries ?? []
-    }
-
     // MARK: - Doctor Checks
 
     var supplementaryDoctorChecks: [any DoctorCheck] {

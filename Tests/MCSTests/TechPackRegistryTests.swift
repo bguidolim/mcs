@@ -33,12 +33,6 @@ struct TechPackRegistryTests {
         #expect(checks.isEmpty)
     }
 
-    @Test("gitignoreEntries returns empty when no packs installed")
-    func gitignoreEntriesEmpty() {
-        let entries = TechPackRegistry.shared.gitignoreEntries(installedPacks: [])
-        #expect(entries.isEmpty)
-    }
-
     // MARK: - Template contributions
 
     @Test("templateContributions returns templates for registered pack")
@@ -120,16 +114,6 @@ struct TechPackRegistryTests {
         #expect(checks.first?.name == "test-check")
     }
 
-    @Test("gitignoreEntries returns entries for registered pack")
-    func gitignoreEntriesWithPack() {
-        let fakePack = FakeTechPack(
-            identifier: "test-pack",
-            gitignoreEntries: [".testdir"]
-        )
-        let registry = TechPackRegistry(packs: [fakePack])
-        let entries = registry.gitignoreEntries(installedPacks: ["test-pack"])
-        #expect(entries.contains(".testdir"))
-    }
 }
 
 // MARK: - Test Helper
@@ -140,20 +124,17 @@ private struct FakeTechPack: TechPack {
     let description: String = "A fake pack for testing"
     let components: [ComponentDefinition]
     let templates: [TemplateContribution]
-    let gitignoreEntries: [String]
     let supplementaryDoctorChecks: [any DoctorCheck]
 
     init(
         identifier: String,
         components: [ComponentDefinition] = [],
         templates: [TemplateContribution] = [],
-        gitignoreEntries: [String] = [],
         supplementaryDoctorChecks: [any DoctorCheck] = []
     ) {
         self.identifier = identifier
         self.components = components
         self.templates = templates
-        self.gitignoreEntries = gitignoreEntries
         self.supplementaryDoctorChecks = supplementaryDoctorChecks
     }
 

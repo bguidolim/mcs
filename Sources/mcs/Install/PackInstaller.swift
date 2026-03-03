@@ -77,9 +77,6 @@ struct PackInstaller {
             }
         }
 
-        // Post-processing: gitignore entries
-        executor.addPackGitignoreEntries(from: pack)
-
         return allSucceeded
     }
 

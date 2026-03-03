@@ -13,7 +13,6 @@ private struct StubTechPack: TechPack {
     let components: [ComponentDefinition]
     var templates: [TemplateContribution] { [] }
     var templateSectionIdentifiers: [String] { [] }
-    var gitignoreEntries: [String] { [] }
     var supplementaryDoctorChecks: [any DoctorCheck] { [] }
     func configureProject(at _: URL, context _: ProjectConfigContext) throws {}
 }

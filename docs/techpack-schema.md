@@ -19,7 +19,6 @@ Complete field-by-field reference for `techpack.yaml`. For a tutorial-style intr
 | `prompts` | `[Prompt]` | No | Interactive prompts for `mcs sync` |
 | `configureProject` | `ConfigureProject` | No | Script to run after project configuration |
 | `supplementaryDoctorChecks` | `[DoctorCheck]` | No | Pack-level health checks |
-| `gitignoreEntries` | `[String]` | No | Legacy gitignore entries (prefer `gitignore:` component) |
 
 ## Components
 

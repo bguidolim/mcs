@@ -57,8 +57,6 @@ struct ExternalPackManifestTests {
                 placeholders:
                   - __PROJECT__
                 contentFile: templates/section.md
-            gitignoreEntries:
-              - .my-pack
             prompts:
               - key: project_name
                 type: input
@@ -114,9 +112,6 @@ struct ExternalPackManifestTests {
         #expect(manifest.templates?[0].placeholders == ["__PROJECT__"])
         #expect(manifest.templates?[0].contentFile == "templates/section.md")
 
-        // Gitignore entries
-        #expect(manifest.gitignoreEntries == [".my-pack"])
-
         // Prompts
         #expect(manifest.prompts?.count == 2)
         #expect(manifest.prompts?[0].key == "project_name")
@@ -163,7 +158,6 @@ struct ExternalPackManifestTests {
         #expect(manifest.minMCSVersion == nil)
         #expect(manifest.components == nil)
         #expect(manifest.templates == nil)
-        #expect(manifest.gitignoreEntries == nil)
         #expect(manifest.prompts == nil)
         #expect(manifest.configureProject == nil)
         #expect(manifest.supplementaryDoctorChecks == nil)
@@ -1779,7 +1773,6 @@ struct ExternalPackManifestTests {
                     contentFile: "t.md"
                 )
             ],
-            gitignoreEntries: nil,
             prompts: nil,
             configureProject: nil,
             supplementaryDoctorChecks: nil

@@ -27,7 +27,7 @@ struct PackArtifactRecord: Codable, Equatable {
         mcpServers.isEmpty && files.isEmpty && templateSections.isEmpty
             && hookCommands.isEmpty && settingsKeys.isEmpty
             && brewPackages.isEmpty && plugins.isEmpty
-            && gitignoreEntries.isEmpty
+            && gitignoreEntries.isEmpty && fileHashes.isEmpty
     }
 
     /// Custom decoder for backward compatibility — existing JSON files may lack

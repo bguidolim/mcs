@@ -246,12 +246,31 @@ struct DoctorRunner {
         // --pack flag: single scope, use globalOnly to determine effective root
         if let filter = packFilter {
             let packIDs = Set(filter.components(separatedBy: ","))
+            let effectiveRoot = globalOnly ? nil : projectRoot
+            // Load artifacts from the appropriate state so content drift checks work
+            var artifacts: [String: PackArtifactRecord] = [:]
+            if let root = effectiveRoot {
+                if let state = try? ProjectState(projectRoot: root), state.exists {
+                    for id in packIDs {
+                        if let record = state.artifacts(for: id) {
+                            artifacts[id] = record
+                        }
+                    }
+                }
+            } else {
+                // Global scope — use pre-loaded artifacts
+                for id in packIDs {
+                    if let record = globalArtifactsByPack[id] {
+                        artifacts[id] = record
+                    }
+                }
+            }
             return [CheckScope(
                 packIDs: packIDs,
-                effectiveProjectRoot: globalOnly ? nil : projectRoot,
+                effectiveProjectRoot: effectiveRoot,
                 excludedComponentIDs: [],
                 label: "--pack flag",
-                artifactsByPack: [:]
+                artifactsByPack: artifacts
             )]
         }
 

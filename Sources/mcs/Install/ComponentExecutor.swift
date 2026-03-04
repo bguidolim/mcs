@@ -163,9 +163,7 @@ struct ComponentExecutor {
                         of: destFile.path,
                         within: environment.claudeDirectory.path
                     )
-                    if let hash = try? FileHasher.sha256(of: destFile) {
-                        installedHashes[relPath] = hash
-                    }
+                    recordHash(of: destFile, relativePath: relPath, into: &installedHashes)
                 }
             } else {
                 // Source is a single file
@@ -182,9 +180,7 @@ struct ComponentExecutor {
                     of: destURL.path,
                     within: environment.claudeDirectory.path
                 )
-                if let hash = try? FileHasher.sha256(of: destURL) {
-                    installedHashes[relPath] = hash
-                }
+                recordHash(of: destURL, relativePath: relPath, into: &installedHashes)
             }
             return (true, installedHashes)
         } catch {
@@ -241,9 +237,7 @@ struct ComponentExecutor {
                     try Self.copyWithSubstitution(from: file, to: destFile, values: resolvedValues)
                     let relPath = projectRelativePath(destFile, projectPath: projectPath)
                     installedPaths.append(relPath)
-                    if let hash = try? FileHasher.sha256(of: destFile) {
-                        installedHashes[relPath] = hash
-                    }
+                    recordHash(of: destFile, relativePath: relPath, into: &installedHashes)
                 }
             } else {
                 if fm.fileExists(atPath: destURL.path) {
@@ -255,9 +249,7 @@ struct ComponentExecutor {
                 }
                 let relPath = projectRelativePath(destURL, projectPath: projectPath)
                 installedPaths.append(relPath)
-                if let hash = try? FileHasher.sha256(of: destURL) {
-                    installedHashes[relPath] = hash
-                }
+                recordHash(of: destURL, relativePath: relPath, into: &installedHashes)
             }
             return (installedPaths, installedHashes)
         } catch {
@@ -333,6 +325,20 @@ struct ComponentExecutor {
             output.warn("Could not remove MCP server '\(name)' (scope: \(scope)): \(result.stderr)")
         }
         return result.succeeded
+    }
+
+    /// Compute and record a SHA-256 hash for a just-installed file.
+    /// Warns (without aborting the install) if hashing fails.
+    private func recordHash(
+        of file: URL,
+        relativePath: String,
+        into hashes: inout [String: String]
+    ) {
+        do {
+            hashes[relativePath] = try FileHasher.sha256(of: file)
+        } catch {
+            output.warn("Could not compute hash for \(relativePath): \(error.localizedDescription)")
+        }
     }
 
     private func projectRelativePath(_ url: URL, projectPath: URL) -> String {

@@ -106,6 +106,8 @@ struct PackInstaller {
             return exec.addGitignoreEntries(entries)
 
         case let .copyPackFile(source, destination, fileType):
+            // PackInstaller handles one-shot installs without artifact tracking —
+            // hashes are intentionally discarded (only Configurator records them).
             return exec.installCopyPackFile(
                 source: source,
                 destination: destination,

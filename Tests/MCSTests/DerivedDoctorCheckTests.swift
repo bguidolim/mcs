@@ -118,10 +118,9 @@ struct DerivedDoctorCheckTests {
                 fileType: .skill
             )
         )
-        let fileCheck = component.deriveDoctorCheck() as? FileExistsCheck
-        #expect(fileCheck != nil)
-        #expect(try #require(fileCheck?.path.path.hasSuffix("/.claude/skills/my-skill.md")))
-        #expect(fileCheck?.fallbackPath == nil)
+        let fileCheck = try #require(component.deriveDoctorCheck() as? FileExistsCheck)
+        #expect(fileCheck.path.path.hasSuffix("/.claude/skills/my-skill.md"))
+        #expect(fileCheck.fallbackPath == nil)
     }
 
     @Test("copyPackFile with projectRoot derives FileExistsCheck with project path and global fallback")
@@ -135,12 +134,11 @@ struct DerivedDoctorCheckTests {
                 fileType: .skill
             )
         )
-        let fileCheck = component.deriveDoctorCheck(projectRoot: projectRoot) as? FileExistsCheck
-        #expect(fileCheck != nil)
-        #expect(fileCheck?.path.path == "/tmp/my-project/.claude/skills/my-skill.md")
-        #expect(try #require(fileCheck?.fallbackPath) != nil)
-        #expect(try #require(fileCheck?.fallbackPath?.path.hasSuffix("/.claude/skills/my-skill.md")))
-        #expect(try !#require(fileCheck?.fallbackPath?.path.contains("/my-project/")))
+        let fileCheck = try #require(component.deriveDoctorCheck(projectRoot: projectRoot) as? FileExistsCheck)
+        #expect(fileCheck.path.path == "/tmp/my-project/.claude/skills/my-skill.md")
+        let fallbackPath = try #require(fileCheck.fallbackPath)
+        #expect(fallbackPath.path.hasSuffix("/.claude/skills/my-skill.md"))
+        #expect(!fallbackPath.path.contains("/my-project/"))
     }
 
     @Test("copyPackFile projectRoot resolves correctly for all CopyFileType variants")

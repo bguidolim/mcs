@@ -24,11 +24,11 @@ struct BackupTests {
         var backup = Backup()
         let backupURL = try backup.backupFile(at: original)
 
-        #expect(backupURL != nil)
-        #expect(try #require(backupURL?.lastPathComponent.contains(".backup.")))
-        #expect(try FileManager.default.fileExists(atPath: #require(backupURL?.path)))
+        let url = try #require(backupURL)
+        #expect(url.lastPathComponent.contains(".backup."))
+        #expect(FileManager.default.fileExists(atPath: url.path))
 
-        let backupContent = try String(contentsOf: #require(backupURL), encoding: .utf8)
+        let backupContent = try String(contentsOf: url, encoding: .utf8)
         #expect(backupContent == "content")
     }
 

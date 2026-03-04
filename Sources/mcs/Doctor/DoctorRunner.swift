@@ -109,6 +109,16 @@ struct DoctorRunner {
         var allPackIDs = Set<String>()
         let availablePacks = registry.availablePacks
 
+        // Warn about unregistered pack IDs from --pack filter
+        if packFilter != nil {
+            let availableIDs = Set(availablePacks.map(\.identifier))
+            for scope in scopes {
+                for id in scope.packIDs.sorted() where !availableIDs.contains(id) {
+                    output.warn("Pack \"\(id)\" is not registered \u{2014} no checks will be run for it")
+                }
+            }
+        }
+
         // Layer 1+2: Derived + supplementary checks from installed components (per scope)
         for scope in scopes {
             allPackIDs.formUnion(scope.packIDs)

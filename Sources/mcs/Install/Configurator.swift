@@ -460,6 +460,8 @@ struct Configurator {
                     if exec.removeMCPServer(name: config.name, scope: serverScope) {
                         artifacts.mcpServers.removeAll { $0.name == config.name }
                         output.dimmed("  Removed MCP server: \(config.name)")
+                    } else {
+                        output.warn("  Could not remove MCP server '\(config.name)' — will retry on next sync")
                     }
 
                 case let .copyPackFile(_, destination, fileType):
@@ -469,6 +471,8 @@ struct Configurator {
                     if strategy.removeFileArtifact(relativePath: relativePath, output: output) {
                         artifacts.files.removeAll { $0 == relativePath }
                         artifacts.fileHashes.removeValue(forKey: relativePath)
+                    } else {
+                        output.warn("  Could not remove '\(relativePath)' — will retry on next sync")
                     }
                     if component.type == .hookFile,
                        component.hookEvent != nil,
@@ -487,6 +491,8 @@ struct Configurator {
                     } else if exec.uninstallBrewPackage(package) {
                         artifacts.brewPackages.removeAll { $0 == package }
                         output.dimmed("  Removed brew package: \(package)")
+                    } else {
+                        output.warn("  Could not remove brew package '\(package)' — will retry on next sync")
                     }
 
                 case let .plugin(name):
@@ -499,6 +505,8 @@ struct Configurator {
                     } else if exec.removePlugin(name) {
                         artifacts.plugins.removeAll { $0 == name }
                         output.dimmed("  Removed plugin: \(PluginRef(name).bareName)")
+                    } else {
+                        output.warn("  Could not remove plugin '\(PluginRef(name).bareName)' — will retry on next sync")
                     }
 
                 case let .gitignoreEntries(entries):
@@ -515,7 +523,7 @@ struct Configurator {
 
                 case .shellCommand, .settingsMerge:
                     // Shell command side effects cannot be automatically reversed.
-                    // Settings keys are handled by step 6 (composeSettings rebuilds from scratch).
+                    // Settings keys are handled by step 6 (composeSettings recomposes from current pack definitions).
                     break
                 }
             }
@@ -676,7 +684,7 @@ struct Configurator {
 
     /// Save final project state and update the cross-project index.
     ///
-    /// Two-phase persistence: first saves artifact records to `.mcs-project`,
+    /// Two-phase persistence: first saves artifact records to the scope's state file,
     /// then updates the project index (`~/.mcs/projects.yaml`) for cross-project
     /// reference counting.
     private func saveStateAndUpdateIndex(
@@ -741,13 +749,17 @@ struct Configurator {
             }
         }
 
-        // Files
+        // Files (also reconcile fileHashes to prevent stale content-drift warnings)
         let staleFiles = Set(previous.files).subtracting(currentArtifacts.files)
         for path in staleFiles {
             if strategy.removeFileArtifact(relativePath: path, output: output) {
+                currentArtifacts.fileHashes.removeValue(forKey: path)
                 output.dimmed("  Removed stale file: \(path)")
             } else {
                 currentArtifacts.files.append(path)
+                if let hash = previous.fileHashes[path] {
+                    currentArtifacts.fileHashes[path] = hash
+                }
                 output.warn("  Could not remove stale file '\(path)' — will retry on next sync")
             }
         }

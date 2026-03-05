@@ -3,7 +3,7 @@ import Foundation
 /// Strategy protocol capturing the behavioral differences between
 /// project-scoped and global-scoped sync.
 ///
-/// Each method maps to a point in the 12-phase convergence flow where
+/// Each method maps to a point in the multi-phase convergence flow where
 /// the logic (not just data) differs between scopes. Trivially
 /// parameterizable differences live in `SyncScope` instead.
 protocol SyncStrategy {

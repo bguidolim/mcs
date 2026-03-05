@@ -11,6 +11,7 @@ struct Configurator {
     let shell: ShellRunner
     var registry: TechPackRegistry = .shared
     let strategy: any SyncStrategy
+    var claudeCLI: (any ClaudeCLI)?
 
     private var scope: SyncScope {
         strategy.scope
@@ -864,6 +865,8 @@ struct Configurator {
     // MARK: - Helpers
 
     private func makeExecutor() -> ComponentExecutor {
-        ConfiguratorSupport.makeExecutor(environment: environment, output: output, shell: shell)
+        ConfiguratorSupport.makeExecutor(
+            environment: environment, output: output, shell: shell, claudeCLI: claudeCLI
+        )
     }
 }

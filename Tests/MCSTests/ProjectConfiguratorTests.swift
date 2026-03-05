@@ -16,12 +16,14 @@ struct DryRunTests {
 
     private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return Configurator(
+        var configurator = Configurator(
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
             strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
+        configurator.claudeCLI = MockClaudeCLI()
+        return configurator
     }
 
     @Test("Dry run does not create any files")
@@ -166,12 +168,14 @@ struct PackSettingsMergeTests {
 
     private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return Configurator(
+        var configurator = Configurator(
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
             strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
+        configurator.claudeCLI = MockClaudeCLI()
+        return configurator
     }
 
     /// Write a JSON settings file and return its URL.
@@ -405,10 +409,12 @@ struct InstallProjectFileSubstitutionTests {
 
     private func makeExecutor() -> ComponentExecutor {
         let env = Environment()
+        let shell = ShellRunner(environment: env)
         return ComponentExecutor(
             environment: env,
             output: output,
-            shell: ShellRunner(environment: env)
+            shell: shell,
+            claudeCLI: ClaudeIntegration(shell: shell)
         )
     }
 
@@ -556,12 +562,14 @@ struct AutoDerivedSettingsTests {
 
     private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return Configurator(
+        var configurator = Configurator(
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
             strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
+        configurator.claudeCLI = MockClaudeCLI()
+        return configurator
     }
 
     /// Create a pack with a hookFile component that has hookEvent set.
@@ -806,14 +814,20 @@ struct ConfiguratorExcludedComponentsTests {
         return dir
     }
 
-    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
+    private func makeConfigurator(
+        projectPath: URL,
+        home: URL? = nil,
+        mockCLI: MockClaudeCLI = MockClaudeCLI()
+    ) -> Configurator {
         let env = Environment(home: home)
-        return Configurator(
+        var configurator = Configurator(
             environment: env,
             output: CLIOutput(),
             shell: ShellRunner(environment: env),
             strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
+        configurator.claudeCLI = mockCLI
+        return configurator
     }
 
     @Test("Excluded component is not installed")
@@ -1075,7 +1089,8 @@ struct ConfiguratorExcludedComponentsTests {
             ]
         )
 
-        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        let mockCLI = MockClaudeCLI()
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir, mockCLI: mockCLI)
 
         // First sync: both included
         try configurator.configure(
@@ -1088,12 +1103,18 @@ struct ConfiguratorExcludedComponentsTests {
         let artifacts1 = state1.artifacts(for: "test-pack")
         #expect(artifacts1?.mcpServers.count == 2)
 
+        // Reset mock to track only the second sync's calls
+        mockCLI.mcpRemoveCalls = []
+
         // Second sync: exclude mcp-b
         try configurator.configure(
             packs: [pack],
             confirmRemovals: false,
             excludedComponents: ["test-pack": ["test-pack.mcp-b"]]
         )
+
+        // Verify mcp-excl-b was removed via the mock
+        #expect(mockCLI.mcpRemoveCalls.contains { $0.name == "mcp-excl-b" })
 
         let state2 = try ProjectState(projectRoot: tmpDir)
         let artifacts2 = state2.artifacts(for: "test-pack")
@@ -1281,14 +1302,20 @@ struct StaleArtifactReconciliationTests {
         return dir
     }
 
-    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
+    private func makeConfigurator(
+        projectPath: URL,
+        home: URL? = nil,
+        mockCLI: MockClaudeCLI = MockClaudeCLI()
+    ) -> Configurator {
         let env = Environment(home: home)
-        return Configurator(
+        var configurator = Configurator(
             environment: env,
             output: CLIOutput(colorsEnabled: false),
             shell: ShellRunner(environment: env),
             strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
+        configurator.claudeCLI = mockCLI
+        return configurator
     }
 
     @Test("Stale file is removed when component is dropped from pack")
@@ -1413,13 +1440,17 @@ struct StaleArtifactReconciliationTests {
             ]
         )
 
-        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        let mockCLI = MockClaudeCLI()
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir, mockCLI: mockCLI)
 
         // First sync: both MCP servers installed
         try configurator.configure(packs: [packV1], confirmRemovals: false)
 
         let state1 = try ProjectState(projectRoot: tmpDir)
         #expect(state1.artifacts(for: "test-pack")?.mcpServers.count == 2)
+
+        // Reset mock to track only the second sync's calls
+        mockCLI.mcpRemoveCalls = []
 
         // Pack v2: mcp-drop removed
         let packV2 = MockTechPack(
@@ -1444,18 +1475,13 @@ struct StaleArtifactReconciliationTests {
         // Second sync: stale mcp-drop should be reconciled
         try configurator.configure(packs: [packV2], confirmRemovals: false)
 
+        // Verify mcp-drop removal was attempted via mock
+        #expect(mockCLI.mcpRemoveCalls.contains { $0.name == "mcp-drop" })
+
         let state2 = try ProjectState(projectRoot: tmpDir)
         let mcpServers = state2.artifacts(for: "test-pack")?.mcpServers ?? []
-        #expect(mcpServers.contains { $0.name == "mcp-keep" })
-        // mcp-drop either removed (if claude CLI succeeds) or tracked for retry
-        let dropServer = mcpServers.first { $0.name == "mcp-drop" }
-        if dropServer != nil {
-            // Removal failed — server preserved for retry (expected when claude CLI unavailable)
-        } else {
-            // Removal succeeded — server cleaned up
-        }
-        // In either case, mcp-keep should always be present
-        #expect(mcpServers.contains { $0.name == "mcp-keep" })
+        #expect(mcpServers.count == 1)
+        #expect(mcpServers.first?.name == "mcp-keep")
     }
 
     @Test("Stale settingsMerge keys are cleaned up on re-sync")
@@ -1596,12 +1622,14 @@ struct CorruptStateAbortTests {
 
     private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
         let env = Environment(home: home)
-        return Configurator(
+        var configurator = Configurator(
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
             strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
         )
+        configurator.claudeCLI = MockClaudeCLI()
+        return configurator
     }
 
     @Test("configure throws when .mcs-project is corrupt")
@@ -1633,6 +1661,63 @@ struct CorruptStateAbortTests {
 
         // Should not throw — missing file is a fresh project, not corruption
         try configurator.configure(packs: [pack])
+    }
+}
+
+/// Mock `ClaudeCLI` that records calls without executing real shell commands.
+private final class MockClaudeCLI: ClaudeCLI, @unchecked Sendable {
+    struct MCPAddCall: Equatable {
+        let name: String
+        let scope: String
+        let arguments: [String]
+    }
+
+    struct MCPRemoveCall: Equatable {
+        let name: String
+        let scope: String
+    }
+
+    struct PluginCall: Equatable {
+        let name: String
+    }
+
+    var mcpAddCalls: [MCPAddCall] = []
+    var mcpRemoveCalls: [MCPRemoveCall] = []
+    var pluginMarketplaceAddCalls: [String] = []
+    var pluginInstallCalls: [PluginCall] = []
+    var pluginRemoveCalls: [PluginCall] = []
+
+    /// Result to return from all operations. Defaults to success.
+    var result = ShellResult(exitCode: 0, stdout: "", stderr: "")
+
+    @discardableResult
+    func mcpAdd(name: String, scope: String, arguments: [String]) -> ShellResult {
+        mcpAddCalls.append(MCPAddCall(name: name, scope: scope, arguments: arguments))
+        return result
+    }
+
+    @discardableResult
+    func mcpRemove(name: String, scope: String) -> ShellResult {
+        mcpRemoveCalls.append(MCPRemoveCall(name: name, scope: scope))
+        return result
+    }
+
+    @discardableResult
+    func pluginMarketplaceAdd(repo: String) -> ShellResult {
+        pluginMarketplaceAddCalls.append(repo)
+        return result
+    }
+
+    @discardableResult
+    func pluginInstall(ref: PluginRef) -> ShellResult {
+        pluginInstallCalls.append(PluginCall(name: ref.bareName))
+        return result
+    }
+
+    @discardableResult
+    func pluginRemove(ref: PluginRef) -> ShellResult {
+        pluginRemoveCalls.append(PluginCall(name: ref.bareName))
+        return result
     }
 }
 

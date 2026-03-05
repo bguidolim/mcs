@@ -6,6 +6,7 @@ struct ComponentExecutor {
     let environment: Environment
     let output: CLIOutput
     let shell: ShellRunner
+    let claudeCLI: any ClaudeCLI
 
     // MARK: - Brew Packages
 
@@ -33,7 +34,7 @@ struct ComponentExecutor {
             output.warn("Claude Code CLI not found, skipping MCP server")
             return false
         }
-        let claude = ClaudeIntegration(shell: shell)
+        let claude = claudeCLI
 
         var args: [String] = []
         for (key, value) in config.env.sorted(by: { $0.key < $1.key }) {
@@ -60,7 +61,7 @@ struct ComponentExecutor {
             output.warn("Claude Code CLI not found, skipping plugin")
             return false
         }
-        let claude = ClaudeIntegration(shell: shell)
+        let claude = claudeCLI
         let ref = PluginRef(fullName)
         let result = claude.pluginInstall(ref: ref)
         return result.succeeded
@@ -87,7 +88,7 @@ struct ComponentExecutor {
             output.warn("Claude Code CLI not found, cannot remove plugin")
             return false
         }
-        let claude = ClaudeIntegration(shell: shell)
+        let claude = claudeCLI
         let ref = PluginRef(fullName)
         let result = claude.pluginRemove(ref: ref)
         if !result.succeeded {
@@ -336,7 +337,7 @@ struct ComponentExecutor {
     /// Returns `true` if removal succeeded.
     @discardableResult
     func removeMCPServer(name: String, scope: String) -> Bool {
-        let claude = ClaudeIntegration(shell: shell)
+        let claude = claudeCLI
         let result = claude.mcpRemove(name: name, scope: scope)
         if !result.succeeded {
             output.warn("Could not remove MCP server '\(name)' (scope: \(scope)): \(result.stderr)")

@@ -1,7 +1,21 @@
 import Foundation
 
+/// Protocol for Claude CLI operations, enabling test mocks to avoid real shell calls.
+protocol ClaudeCLI: Sendable {
+    @discardableResult
+    func mcpAdd(name: String, scope: String, arguments: [String]) -> ShellResult
+    @discardableResult
+    func mcpRemove(name: String, scope: String) -> ShellResult
+    @discardableResult
+    func pluginMarketplaceAdd(repo: String) -> ShellResult
+    @discardableResult
+    func pluginInstall(ref: PluginRef) -> ShellResult
+    @discardableResult
+    func pluginRemove(ref: PluginRef) -> ShellResult
+}
+
 /// Wrapper for the `claude` CLI to manage MCP servers and plugins.
-struct ClaudeIntegration: Sendable {
+struct ClaudeIntegration: ClaudeCLI {
     let shell: ShellRunner
 
     /// The claude CLI command, with CLAUDECODE unset to avoid nesting checks.

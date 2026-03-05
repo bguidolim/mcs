@@ -8,12 +8,14 @@ enum ConfiguratorSupport {
     static func makeExecutor(
         environment: Environment,
         output: CLIOutput,
-        shell: ShellRunner
+        shell: ShellRunner,
+        claudeCLI: (any ClaudeCLI)? = nil
     ) -> ComponentExecutor {
         ComponentExecutor(
             environment: environment,
             output: output,
-            shell: shell
+            shell: shell,
+            claudeCLI: claudeCLI ?? ClaudeIntegration(shell: shell)
         )
     }
 

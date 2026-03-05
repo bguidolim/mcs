@@ -124,10 +124,15 @@ struct ProjectSyncStrategy: SyncStrategy {
     func composeSettings(
         packs: [any TechPack],
         excludedComponents: [String: Set<String>],
+        previousSettingsKeys: [String: [String]],
         resolvedValues: [String: String],
         output: CLIOutput
     ) throws -> [String: [String]] {
         var settings = Settings()
+
+        // Collect top-level keys to prevent Layer 3 re-injection of stale extraJSON keys
+        let allPreviousKeys = previousSettingsKeys.values.flatMap(\.self)
+        let dropKeys = Set(allPreviousKeys.filter { !$0.contains(".") })
 
         let (hasContent, contributedKeys) = ConfiguratorSupport.mergePackComponentsIntoSettings(
             packs: packs,
@@ -140,7 +145,7 @@ struct ProjectSyncStrategy: SyncStrategy {
 
         if hasContent {
             do {
-                try settings.save(to: scope.settingsPath)
+                try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
                 output.success("Composed settings.local.json")
             } catch {
                 output.error("Could not write settings.local.json: \(error.localizedDescription)")

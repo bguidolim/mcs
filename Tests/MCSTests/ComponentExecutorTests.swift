@@ -15,7 +15,8 @@ struct ComponentExecutorTests {
         return ComponentExecutor(
             environment: env,
             output: CLIOutput(),
-            shell: ShellRunner(environment: env)
+            shell: ShellRunner(environment: env),
+            claudeCLI: ClaudeIntegration(shell: ShellRunner(environment: env))
         )
     }
 

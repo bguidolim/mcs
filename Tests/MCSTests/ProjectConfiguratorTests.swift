@@ -20,7 +20,8 @@ struct DryRunTests {
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
-            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env),
+            claudeCLI: MockClaudeCLI()
         )
     }
 
@@ -170,7 +171,8 @@ struct PackSettingsMergeTests {
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
-            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env),
+            claudeCLI: MockClaudeCLI()
         )
     }
 
@@ -405,10 +407,12 @@ struct InstallProjectFileSubstitutionTests {
 
     private func makeExecutor() -> ComponentExecutor {
         let env = Environment()
+        let shell = ShellRunner(environment: env)
         return ComponentExecutor(
             environment: env,
             output: output,
-            shell: ShellRunner(environment: env)
+            shell: shell,
+            claudeCLI: ClaudeIntegration(shell: shell)
         )
     }
 
@@ -560,7 +564,8 @@ struct AutoDerivedSettingsTests {
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
-            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env),
+            claudeCLI: MockClaudeCLI()
         )
     }
 
@@ -806,13 +811,18 @@ struct ConfiguratorExcludedComponentsTests {
         return dir
     }
 
-    private func makeConfigurator(projectPath: URL, home: URL? = nil) -> Configurator {
+    private func makeConfigurator(
+        projectPath: URL,
+        home: URL? = nil,
+        mockCLI: MockClaudeCLI = MockClaudeCLI()
+    ) -> Configurator {
         let env = Environment(home: home)
         return Configurator(
             environment: env,
             output: CLIOutput(),
             shell: ShellRunner(environment: env),
-            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env),
+            claudeCLI: mockCLI
         )
     }
 
@@ -960,6 +970,637 @@ struct ConfiguratorExcludedComponentsTests {
         let artifacts = state.artifacts(for: "test-pack")
         #expect(artifacts?.templateSections == ["test-pack.git"])
     }
+
+    @Test("Previously written template section removed when its dependency is excluded")
+    func excludedComponentRemovesDependentTemplateSection() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let pack = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.serena",
+                    displayName: "Serena",
+                    description: "LSP navigation",
+                    type: .mcpServer,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .mcpServer(MCPServerConfig(
+                        name: "serena-dep-test", command: "uvx", args: ["serena"], env: [:]
+                    ))
+                ),
+            ],
+            templates: [
+                TemplateContribution(
+                    sectionIdentifier: "test-pack.serena",
+                    templateContent: "## Serena instructions",
+                    placeholders: [],
+                    dependencies: ["test-pack.serena"]
+                ),
+                TemplateContribution(
+                    sectionIdentifier: "test-pack.git",
+                    templateContent: "## Git instructions",
+                    placeholders: []
+                ),
+            ]
+        )
+
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+
+        // First sync: all components included — both templates written
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: [:]
+        )
+
+        let claudeLocalPath = tmpDir.appendingPathComponent("CLAUDE.local.md")
+        let content1 = try String(contentsOf: claudeLocalPath, encoding: .utf8)
+        #expect(content1.contains("Serena instructions"))
+        #expect(content1.contains("Git instructions"))
+
+        let state1 = try ProjectState(projectRoot: tmpDir)
+        let artifacts1 = state1.artifacts(for: "test-pack")
+        #expect(artifacts1?.templateSections.contains("test-pack.serena") == true)
+
+        // Second sync: exclude serena component — serena template section should be removed
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: ["test-pack": ["test-pack.serena"]]
+        )
+
+        let content2 = try String(contentsOf: claudeLocalPath, encoding: .utf8)
+        #expect(!content2.contains("Serena instructions"), "Serena template section should be removed from file")
+        #expect(content2.contains("Git instructions"), "Git template section should remain")
+
+        let state2 = try ProjectState(projectRoot: tmpDir)
+        let artifacts2 = state2.artifacts(for: "test-pack")
+        #expect(artifacts2?.templateSections == ["test-pack.git"])
+        #expect(artifacts2?.mcpServers.isEmpty == true, "Excluded MCP server should be removed")
+    }
+
+    @Test("Newly excluded MCP server is removed from artifact record")
+    func excludedMCPServerIsRemoved() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let pack = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.mcp-a",
+                    displayName: "MCP A",
+                    description: "First MCP server",
+                    type: .mcpServer,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .mcpServer(MCPServerConfig(
+                        name: "mcp-excl-a", command: "/usr/bin/true", args: [], env: [:]
+                    ))
+                ),
+                ComponentDefinition(
+                    id: "test-pack.mcp-b",
+                    displayName: "MCP B",
+                    description: "Second MCP server",
+                    type: .mcpServer,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .mcpServer(MCPServerConfig(
+                        name: "mcp-excl-b", command: "/usr/bin/true", args: [], env: [:]
+                    ))
+                ),
+            ]
+        )
+
+        let mockCLI = MockClaudeCLI()
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir, mockCLI: mockCLI)
+
+        // First sync: both included
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: [:]
+        )
+
+        let state1 = try ProjectState(projectRoot: tmpDir)
+        let artifacts1 = state1.artifacts(for: "test-pack")
+        #expect(artifacts1?.mcpServers.count == 2)
+
+        // Reset mock to track only the second sync's calls
+        mockCLI.mcpRemoveCalls = []
+
+        // Second sync: exclude mcp-b
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: ["test-pack": ["test-pack.mcp-b"]]
+        )
+
+        // Verify mcp-excl-b was removed via the mock
+        #expect(mockCLI.mcpRemoveCalls.contains { $0.name == "mcp-excl-b" })
+
+        let state2 = try ProjectState(projectRoot: tmpDir)
+        let artifacts2 = state2.artifacts(for: "test-pack")
+        #expect(artifacts2?.mcpServers.count == 1)
+        #expect(artifacts2?.mcpServers.first?.name == "mcp-excl-a")
+    }
+
+    @Test("Newly excluded file is removed from disk and artifact record")
+    func excludedCopyFileIsRemoved() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        let skillsDir = claudeDir.appendingPathComponent("skills")
+        try FileManager.default.createDirectory(at: skillsDir, withIntermediateDirectories: true)
+
+        // Create a source file the pack will install
+        let sourceFile = tmpDir.appendingPathComponent("my-skill.md")
+        try "skill content".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let pack = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.skill-a",
+                    displayName: "Skill A",
+                    description: "A skill file",
+                    type: .skill,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .copyPackFile(
+                        source: sourceFile,
+                        destination: "my-skill.md",
+                        fileType: .skill
+                    )
+                ),
+            ]
+        )
+
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+
+        // First sync: skill included
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: [:]
+        )
+
+        let destFile = skillsDir.appendingPathComponent("my-skill.md")
+        #expect(FileManager.default.fileExists(atPath: destFile.path))
+
+        let state1 = try ProjectState(projectRoot: tmpDir)
+        #expect(state1.artifacts(for: "test-pack")?.files.isEmpty == false)
+
+        // Second sync: skill excluded
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: ["test-pack": ["test-pack.skill-a"]]
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: destFile.path))
+
+        let state2 = try ProjectState(projectRoot: tmpDir)
+        #expect(state2.artifacts(for: "test-pack")?.files.isEmpty == true)
+    }
+
+    @Test("First run with exclusion does not crash")
+    func firstRunWithExclusionDoesNotCrash() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        let pack = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.mcp-a",
+                    displayName: "MCP A",
+                    description: "An MCP server",
+                    type: .mcpServer,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .mcpServer(MCPServerConfig(
+                        name: "mcp-firstrun", command: "/usr/bin/true", args: [], env: [:]
+                    ))
+                ),
+            ]
+        )
+
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+
+        // First-ever sync with component already excluded — should not error
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: ["test-pack": ["test-pack.mcp-a"]]
+        )
+
+        let state = try ProjectState(projectRoot: tmpDir)
+        #expect(state.artifacts(for: "test-pack")?.mcpServers.isEmpty == true)
+    }
+
+    @Test("Re-included file is reinstalled after exclusion")
+    func reincludedComponentIsReinstalled() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        let skillsDir = claudeDir.appendingPathComponent("skills")
+        try FileManager.default.createDirectory(at: skillsDir, withIntermediateDirectories: true)
+
+        let sourceFile = tmpDir.appendingPathComponent("reinclude-skill.md")
+        try "skill content".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let pack = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.skill-r",
+                    displayName: "Skill R",
+                    description: "A skill file",
+                    type: .skill,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .copyPackFile(
+                        source: sourceFile,
+                        destination: "reinclude-skill.md",
+                        fileType: .skill
+                    )
+                ),
+            ]
+        )
+
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        let destFile = skillsDir.appendingPathComponent("reinclude-skill.md")
+
+        // First sync: included
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: [:]
+        )
+        #expect(FileManager.default.fileExists(atPath: destFile.path))
+        let state1 = try ProjectState(projectRoot: tmpDir)
+        #expect(state1.artifacts(for: "test-pack")?.files.isEmpty == false)
+
+        // Second sync: excluded
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: ["test-pack": ["test-pack.skill-r"]]
+        )
+        #expect(!FileManager.default.fileExists(atPath: destFile.path))
+        let state2 = try ProjectState(projectRoot: tmpDir)
+        #expect(state2.artifacts(for: "test-pack")?.files.isEmpty == true)
+
+        // Third sync: re-included
+        try configurator.configure(
+            packs: [pack],
+            confirmRemovals: false,
+            excludedComponents: [:]
+        )
+        #expect(FileManager.default.fileExists(atPath: destFile.path))
+        let state3 = try ProjectState(projectRoot: tmpDir)
+        #expect(state3.artifacts(for: "test-pack")?.files.isEmpty == false)
+    }
+}
+
+// MARK: - Stale Artifact Reconciliation Tests
+
+struct StaleArtifactReconciliationTests {
+    private func makeTmpDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-stale-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeConfigurator(
+        projectPath: URL,
+        home: URL? = nil,
+        mockCLI: MockClaudeCLI = MockClaudeCLI()
+    ) -> Configurator {
+        let env = Environment(home: home)
+        return Configurator(
+            environment: env,
+            output: CLIOutput(colorsEnabled: false),
+            shell: ShellRunner(environment: env),
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env),
+            claudeCLI: mockCLI
+        )
+    }
+
+    @Test("Stale file is removed when component is dropped from pack")
+    func staleFileRemovedOnPackUpdate() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        let skillsDir = claudeDir.appendingPathComponent("skills")
+        try FileManager.default.createDirectory(at: skillsDir, withIntermediateDirectories: true)
+
+        let sourceA = tmpDir.appendingPathComponent("skill-a.md")
+        try "skill a".write(to: sourceA, atomically: true, encoding: .utf8)
+        let sourceB = tmpDir.appendingPathComponent("skill-b.md")
+        try "skill b".write(to: sourceB, atomically: true, encoding: .utf8)
+
+        // Pack v1: two skills
+        let packV1 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.skill-a",
+                    displayName: "Skill A",
+                    description: "First skill",
+                    type: .skill,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .copyPackFile(source: sourceA, destination: "skill-a.md", fileType: .skill)
+                ),
+                ComponentDefinition(
+                    id: "test-pack.skill-b",
+                    displayName: "Skill B",
+                    description: "Second skill",
+                    type: .skill,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .copyPackFile(source: sourceB, destination: "skill-b.md", fileType: .skill)
+                ),
+            ]
+        )
+
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+
+        // First sync: both skills installed
+        try configurator.configure(packs: [packV1], confirmRemovals: false)
+
+        let destA = skillsDir.appendingPathComponent("skill-a.md")
+        let destB = skillsDir.appendingPathComponent("skill-b.md")
+        #expect(FileManager.default.fileExists(atPath: destA.path))
+        #expect(FileManager.default.fileExists(atPath: destB.path))
+
+        // Pack v2: skill-b removed
+        let packV2 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.skill-a",
+                    displayName: "Skill A",
+                    description: "First skill",
+                    type: .skill,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .copyPackFile(source: sourceA, destination: "skill-a.md", fileType: .skill)
+                ),
+            ]
+        )
+
+        // Second sync: stale skill-b should be removed
+        try configurator.configure(packs: [packV2], confirmRemovals: false)
+
+        #expect(FileManager.default.fileExists(atPath: destA.path))
+        #expect(!FileManager.default.fileExists(atPath: destB.path))
+
+        let state = try ProjectState(projectRoot: tmpDir)
+        let files = state.artifacts(for: "test-pack")?.files ?? []
+        #expect(files.contains(where: { $0.contains("skill-a.md") }))
+        #expect(!files.contains(where: { $0.contains("skill-b.md") }))
+    }
+
+    @Test("Stale MCP server is removed when component is dropped from pack")
+    func staleMCPServerRemovedOnPackUpdate() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        // Pack v1: two MCP servers
+        let packV1 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.mcp-keep",
+                    displayName: "MCP Keep",
+                    description: "Kept MCP server",
+                    type: .mcpServer,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .mcpServer(MCPServerConfig(
+                        name: "mcp-keep", command: "/usr/bin/true", args: [], env: [:]
+                    ))
+                ),
+                ComponentDefinition(
+                    id: "test-pack.mcp-drop",
+                    displayName: "MCP Drop",
+                    description: "MCP server to be dropped",
+                    type: .mcpServer,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .mcpServer(MCPServerConfig(
+                        name: "mcp-drop", command: "/usr/bin/true", args: [], env: [:]
+                    ))
+                ),
+            ]
+        )
+
+        let mockCLI = MockClaudeCLI()
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir, mockCLI: mockCLI)
+
+        // First sync: both MCP servers installed
+        try configurator.configure(packs: [packV1], confirmRemovals: false)
+
+        let state1 = try ProjectState(projectRoot: tmpDir)
+        #expect(state1.artifacts(for: "test-pack")?.mcpServers.count == 2)
+
+        // Reset mock to track only the second sync's calls
+        mockCLI.mcpRemoveCalls = []
+
+        // Pack v2: mcp-drop removed
+        let packV2 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.mcp-keep",
+                    displayName: "MCP Keep",
+                    description: "Kept MCP server",
+                    type: .mcpServer,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .mcpServer(MCPServerConfig(
+                        name: "mcp-keep", command: "/usr/bin/true", args: [], env: [:]
+                    ))
+                ),
+            ]
+        )
+
+        // Second sync: stale mcp-drop should be reconciled
+        try configurator.configure(packs: [packV2], confirmRemovals: false)
+
+        // Verify mcp-drop removal was attempted via mock
+        #expect(mockCLI.mcpRemoveCalls.contains { $0.name == "mcp-drop" })
+
+        let state2 = try ProjectState(projectRoot: tmpDir)
+        let mcpServers = state2.artifacts(for: "test-pack")?.mcpServers ?? []
+        #expect(mcpServers.count == 1)
+        #expect(mcpServers.first?.name == "mcp-keep")
+    }
+
+    @Test("Stale settingsMerge keys are cleaned up on re-sync")
+    func staleSettingsKeysCleanedUp() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        // Pack v1: has a settingsMerge component
+        let settingsFileV1 = tmpDir.appendingPathComponent("pack-settings-v1.json")
+        try """
+        {"env": {"MY_VAR": "hello"}}
+        """.write(to: settingsFileV1, atomically: true, encoding: .utf8)
+
+        let packV1 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: [
+                ComponentDefinition(
+                    id: "test-pack.settings",
+                    displayName: "Settings",
+                    description: "Pack settings",
+                    type: .configuration,
+                    packIdentifier: "test-pack",
+                    dependencies: [],
+                    isRequired: false,
+                    installAction: .settingsMerge(source: settingsFileV1)
+                ),
+            ]
+        )
+
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+
+        // First sync: settings key installed
+        try configurator.configure(packs: [packV1], confirmRemovals: false)
+
+        let settingsPath = claudeDir.appendingPathComponent("settings.local.json")
+        let settings1 = try Settings.load(from: settingsPath)
+        let json1 = try JSONSerialization.jsonObject(
+            with: #require(settings1.extraJSON["env"])
+        ) as? [String: Any]
+        #expect(json1?["MY_VAR"] as? String == "hello")
+
+        // Pack v2: settingsMerge component removed
+        let packV2 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            components: []
+        )
+
+        // Second sync: stale settings key should be removed
+        try configurator.configure(packs: [packV2], confirmRemovals: false)
+
+        // settings.local.json should be removed (empty content) or not contain env key
+        if FileManager.default.fileExists(atPath: settingsPath.path) {
+            let settings2 = try Settings.load(from: settingsPath)
+            #expect(settings2.extraJSON["env"] == nil)
+        }
+    }
+
+    @Test("Stale template sections are removed from CLAUDE file on pack update")
+    func staleTemplateSectionsRemoved() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let claudeDir = tmpDir.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+        // Pack v1: two template sections
+        let packV1 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            templates: [
+                TemplateContribution(
+                    sectionIdentifier: "test-pack.section-a",
+                    templateContent: "Section A content",
+                    placeholders: []
+                ),
+                TemplateContribution(
+                    sectionIdentifier: "test-pack.section-b",
+                    templateContent: "Section B content",
+                    placeholders: []
+                ),
+            ]
+        )
+
+        let configurator = makeConfigurator(projectPath: tmpDir, home: tmpDir)
+        let claudePath = tmpDir.appendingPathComponent("CLAUDE.local.md")
+
+        // First sync: both sections written
+        try configurator.configure(packs: [packV1], confirmRemovals: false)
+
+        let content1 = try String(contentsOf: claudePath, encoding: .utf8)
+        #expect(content1.contains("mcs:begin test-pack.section-a"))
+        #expect(content1.contains("mcs:begin test-pack.section-b"))
+
+        // Pack v2: section-b removed
+        let packV2 = MockTechPack(
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            templates: [
+                TemplateContribution(
+                    sectionIdentifier: "test-pack.section-a",
+                    templateContent: "Section A content",
+                    placeholders: []
+                ),
+            ]
+        )
+
+        // Second sync: stale section-b should be removed from file
+        try configurator.configure(packs: [packV2], confirmRemovals: false)
+
+        let content2 = try String(contentsOf: claudePath, encoding: .utf8)
+        #expect(content2.contains("mcs:begin test-pack.section-a"))
+        #expect(!content2.contains("mcs:begin test-pack.section-b"))
+        #expect(!content2.contains("Section B content"))
+
+        // Artifact record should only have section-a
+        let state = try ProjectState(projectRoot: tmpDir)
+        let sections = state.artifacts(for: "test-pack")?.templateSections ?? []
+        #expect(sections == ["test-pack.section-a"])
+    }
 }
 
 // MARK: - Corrupt State Abort Tests
@@ -980,7 +1621,8 @@ struct CorruptStateAbortTests {
             environment: env,
             output: output,
             shell: ShellRunner(environment: env),
-            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env)
+            strategy: ProjectSyncStrategy(projectPath: projectPath, environment: env),
+            claudeCLI: MockClaudeCLI()
         )
     }
 
@@ -1013,6 +1655,67 @@ struct CorruptStateAbortTests {
 
         // Should not throw — missing file is a fresh project, not corruption
         try configurator.configure(packs: [pack])
+    }
+}
+
+/// Mock `ClaudeCLI` that records calls without executing real shell commands.
+private final class MockClaudeCLI: ClaudeCLI, @unchecked Sendable {
+    struct MCPAddCall: Equatable {
+        let name: String
+        let scope: String
+        let arguments: [String]
+    }
+
+    struct MCPRemoveCall: Equatable {
+        let name: String
+        let scope: String
+    }
+
+    struct PluginCall: Equatable {
+        let name: String
+    }
+
+    var isAvailable: Bool {
+        true
+    }
+
+    var mcpAddCalls: [MCPAddCall] = []
+    var mcpRemoveCalls: [MCPRemoveCall] = []
+    var pluginMarketplaceAddCalls: [String] = []
+    var pluginInstallCalls: [PluginCall] = []
+    var pluginRemoveCalls: [PluginCall] = []
+
+    /// Result to return from all operations. Defaults to success.
+    var result = ShellResult(exitCode: 0, stdout: "", stderr: "")
+
+    @discardableResult
+    func mcpAdd(name: String, scope: String, arguments: [String]) -> ShellResult {
+        mcpAddCalls.append(MCPAddCall(name: name, scope: scope, arguments: arguments))
+        return result
+    }
+
+    @discardableResult
+    func mcpRemove(name: String, scope: String) -> ShellResult {
+        mcpRemoveCalls.append(MCPRemoveCall(name: name, scope: scope))
+        return result
+    }
+
+    @discardableResult
+    func pluginMarketplaceAdd(repo: String) -> ShellResult {
+        pluginMarketplaceAddCalls.append(repo)
+        return result
+    }
+
+    @discardableResult
+    func pluginInstall(ref: PluginRef) -> ShellResult {
+        pluginInstallCalls.append(PluginCall(name: ref.bareName))
+        return result
+    }
+
+    @discardableResult
+    func pluginRemove(ref: PluginRef) -> ShellResult {
+        pluginRemoveCalls.append(PluginCall(name: ref.bareName))
+        return result
     }
 }
 

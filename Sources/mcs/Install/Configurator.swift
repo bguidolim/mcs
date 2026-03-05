@@ -2,15 +2,32 @@ import Foundation
 
 /// Unified configuration engine for both project-scoped and global-scoped sync.
 ///
-/// Implements the 12-phase convergence flow once, delegating scope-specific
+/// Implements the multi-phase convergence flow once, delegating scope-specific
 /// behavior to a `SyncStrategy` (project or global). Data-level differences
 /// (paths, flags) are captured in `SyncScope`.
 struct Configurator {
     let environment: Environment
     let output: CLIOutput
     let shell: ShellRunner
-    var registry: TechPackRegistry = .shared
+    var registry: TechPackRegistry
     let strategy: any SyncStrategy
+    let claudeCLI: any ClaudeCLI
+
+    init(
+        environment: Environment,
+        output: CLIOutput,
+        shell: ShellRunner,
+        registry: TechPackRegistry = .shared,
+        strategy: any SyncStrategy,
+        claudeCLI: (any ClaudeCLI)? = nil
+    ) {
+        self.environment = environment
+        self.output = output
+        self.shell = shell
+        self.registry = registry
+        self.strategy = strategy
+        self.claudeCLI = claudeCLI ?? ClaudeIntegration(shell: shell)
+    }
 
     private var scope: SyncScope {
         strategy.scope
@@ -145,6 +162,13 @@ struct Configurator {
             unconfigurePack(packID, state: &state)
         }
 
+        // 1b. Remove artifacts for components newly excluded via --customize
+        removeNewlyExcludedComponentArtifacts(
+            packs: packs,
+            excludedComponents: excludedComponents,
+            state: &state
+        )
+
         // 2. Auto-install global dependencies (project scope only — global handles inline)
         if !scope.isGlobalScope {
             for pack in packs {
@@ -153,83 +177,23 @@ struct Configurator {
             }
         }
 
-        // 3. Resolve all template/placeholder values upfront (single pass)
-        // 3a. Built-in values (REPO_NAME, PROJECT_DIR_NAME in project scope)
-        var allValues = strategy.resolveBuiltInValues(shell: shell, output: output)
-
-        // 3b–3c. Detect shared prompts across packs and resolve them once.
-        // `initialContext` uses partial resolvedValues (built-ins only). groupSharedPrompts
-        // filters out already-resolved keys; current TechPack implementations only use
-        // isGlobalScope from the context in declaredPrompts().
-        let initialContext = strategy.makeConfigContext(output: output, resolvedValues: allValues)
-        let sharedPrompts = CrossPackPromptResolver.groupSharedPrompts(
-            packs: packs, context: initialContext
-        )
-        if !sharedPrompts.isEmpty {
-            let sharedValues = CrossPackPromptResolver.resolveSharedPrompts(sharedPrompts, output: output)
-            allValues.merge(sharedValues) { existing, _ in existing }
-        }
-
-        // 3d. Execute remaining per-pack prompts. templateValues() skips prompts whose key
-        // already exists in context.resolvedValues (pre-resolved by shared prompt resolution).
-        // Merge uses "first wins" — shared values and built-ins take precedence.
-        let context = strategy.makeConfigContext(output: output, resolvedValues: allValues)
-        for pack in packs {
-            let packValues = try pack.templateValues(context: context)
-            allValues.merge(packValues) { existing, _ in existing }
-        }
-
-        // 4. Auto-prompt for undeclared placeholders in pack files
-        let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(
-            packs: packs, resolvedValues: allValues,
-            includeTemplates: scope.includeTemplatesInScan,
-            onWarning: { output.warn($0) }
-        )
-        for key in undeclared {
-            let value = output.promptInline("Set value for \(key)", default: nil)
-            allValues[key] = value
-        }
-
-        // 4b. Persist resolved values for doctor freshness checks
-        state.setResolvedValues(allValues)
+        // 3–4b. Resolve all template/placeholder values upfront (single pass)
+        let allValues = try resolveAllValues(packs: packs, state: &state)
 
         // 4c. Pre-load templates (single disk read per pack), filtering excluded dependencies
-        var preloadedTemplates: [String: [TemplateContribution]] = [:]
-        for pack in packs {
-            do {
-                let excluded = excludedComponents[pack.identifier] ?? []
-                let allTemplates = try pack.templates
-                preloadedTemplates[pack.identifier] = allTemplates.filter { template in
-                    !template.dependencies.contains(where: excluded.contains)
-                }
-            } catch {
-                output.warn("Could not load templates for \(pack.displayName): \(error.localizedDescription)")
-            }
-        }
+        let preloadedTemplates = preloadTemplates(
+            for: packs, excludedComponents: excludedComponents
+        )
 
-        // 5. Install artifacts per pack
-        for pack in packs {
-            let excluded = excludedComponents[pack.identifier] ?? []
-            let isNew = additions.contains(pack.identifier)
-            let label = isNew ? "Configuring" : "Updating"
-            let suffix = scope.labelSuffix
-            output.info("\(label) \(pack.displayName)\(suffix)...")
-            let previousArtifacts = state.artifacts(for: pack.identifier)
-            var exec = makeExecutor()
-            let artifacts = strategy.installArtifacts(
-                pack,
-                previousArtifacts: previousArtifacts,
-                excludedIDs: excluded,
-                resolvedValues: allValues,
-                preloadedTemplates: preloadedTemplates[pack.identifier],
-                executor: &exec,
-                shell: shell,
-                output: output
-            )
-            state.setArtifacts(artifacts, for: pack.identifier)
-            state.setExcludedComponents(excluded, for: pack.identifier)
-            state.recordPack(pack.identifier)
-        }
+        // 5. Install artifacts per pack and reconcile stale artifacts
+        let (previousSettingsKeys, previousTemplateSections) = installAndReconcileArtifacts(
+            packs: packs,
+            additions: additions,
+            excludedComponents: excludedComponents,
+            allValues: allValues,
+            preloadedTemplates: preloadedTemplates,
+            state: &state
+        )
 
         // 5b. Intermediate state save
         try state.save()
@@ -237,6 +201,7 @@ struct Configurator {
         // 6. Compose settings file from ALL selected packs
         let contributedKeys = try strategy.composeSettings(
             packs: packs, excludedComponents: excludedComponents,
+            previousSettingsKeys: previousSettingsKeys,
             resolvedValues: allValues, output: output
         )
 
@@ -254,17 +219,12 @@ struct Configurator {
             values: allValues, output: output
         )
 
-        // 7b. Reconcile template sections (global only — removes skipped sections from artifacts)
+        // 7b. Remove stale template sections and reconcile artifact records
         if let writtenSections {
-            for pack in packs {
-                if var artifacts = state.artifacts(for: pack.identifier) {
-                    let before = artifacts.templateSections.count
-                    artifacts.templateSections = artifacts.templateSections.filter { writtenSections.contains($0) }
-                    if artifacts.templateSections.count != before {
-                        state.setArtifacts(artifacts, for: pack.identifier)
-                    }
-                }
-            }
+            reconcileTemplateSections(
+                packs: packs, writtenSections: writtenSections,
+                previousTemplateSections: previousTemplateSections, state: &state
+            )
         }
 
         // 8. Run pack-specific configureProject hooks (project scope only)
@@ -279,33 +239,8 @@ struct Configurator {
         // 9. Ensure gitignore entries
         try ConfiguratorSupport.ensureGitignoreEntries(shell: shell)
 
-        // 10. Final state save
-        do {
-            try state.save()
-            output.success("Updated \(scope.stateFile.lastPathComponent)")
-        } catch {
-            output.error("Could not write \(scope.stateFile.lastPathComponent): \(error.localizedDescription)")
-            output.error("State may be inconsistent. Re-run '\(scope.syncHint)' to recover.")
-            throw MCSError.fileOperationFailed(
-                path: scope.stateFile.path,
-                reason: error.localizedDescription
-            )
-        }
-
-        // 11. Update project index for cross-project tracking
-        do {
-            let indexFile = ProjectIndex(path: environment.projectsIndexFile)
-            var indexData = try indexFile.load()
-            indexFile.upsert(
-                projectPath: scope.scopeIdentifier,
-                packIDs: packs.map(\.identifier),
-                in: &indexData
-            )
-            try indexFile.save(indexData)
-        } catch {
-            output.error("Could not update project index: \(error.localizedDescription)")
-            output.error("Cross-project resource tracking may be inaccurate. Re-run '\(scope.syncHint)' to retry.")
-        }
+        // 10–11. Save final state and update project index
+        try saveStateAndUpdateIndex(state: &state, packs: packs)
     }
 
     // MARK: - Pack Unconfiguration
@@ -488,6 +423,451 @@ struct Configurator {
         }
     }
 
+    /// Remove artifacts for components that were previously included but are now excluded.
+    ///
+    /// When `--customize` changes which components are excluded within a still-selected pack,
+    /// artifacts from newly-excluded components must be cleaned up. This method compares
+    /// the previous exclusion set (from state) with the current one to find newly-excluded
+    /// components, then removes their artifacts (MCP servers, files, brew, plugins, gitignore)
+    /// driven by component definitions rather than artifact records.
+    private func removeNewlyExcludedComponentArtifacts(
+        packs: [any TechPack],
+        excludedComponents: [String: Set<String>],
+        state: inout ProjectState
+    ) {
+        for pack in packs {
+            let previousExcluded = state.excludedComponents(for: pack.identifier)
+            let currentExcluded = excludedComponents[pack.identifier] ?? []
+            let newlyExcluded = currentExcluded.subtracting(previousExcluded)
+
+            guard !newlyExcluded.isEmpty else { continue }
+            guard var artifacts = state.artifacts(for: pack.identifier) else { continue }
+
+            let excludedDefs = pack.components.filter { newlyExcluded.contains($0.id) }
+            guard !excludedDefs.isEmpty else { continue }
+
+            let exec = makeExecutor()
+            let refCounter = ResourceRefCounter(
+                environment: environment, output: output, registry: registry
+            )
+            let suffix = scope.labelSuffix
+            output.info("Removing excluded components from \(pack.displayName)\(suffix)...")
+
+            for component in excludedDefs {
+                switch component.installAction {
+                case let .mcpServer(config):
+                    let serverScope = scope.mcpScopeOverride ?? config.resolvedScope
+                    if exec.removeMCPServer(name: config.name, scope: serverScope) {
+                        artifacts.mcpServers.removeAll { $0.name == config.name }
+                        output.dimmed("  Removed MCP server: \(config.name)")
+                    } else {
+                        output.warn("  Could not remove MCP server '\(config.name)' — will retry on next sync")
+                    }
+
+                case let .copyPackFile(_, destination, fileType):
+                    let relativePath = deriveFileRelativePath(
+                        destination: destination, fileType: fileType
+                    )
+                    if strategy.removeFileArtifact(relativePath: relativePath, output: output) {
+                        artifacts.files.removeAll { $0 == relativePath }
+                        artifacts.fileHashes.removeValue(forKey: relativePath)
+                    } else {
+                        output.warn("  Could not remove '\(relativePath)' — will retry on next sync")
+                    }
+                    if component.type == .hookFile,
+                       component.hookEvent != nil,
+                       fileType == .hook {
+                        let hookCmd = "\(scope.hookCommandPrefix)\(destination)"
+                        artifacts.hookCommands.removeAll { $0 == hookCmd }
+                    }
+
+                case let .brewInstall(package):
+                    if refCounter.isStillNeeded(
+                        .brewPackage(package),
+                        excludingScope: scope.scopeIdentifier,
+                        excludingPack: pack.identifier
+                    ) {
+                        output.dimmed("  Keeping brew package '\(package)' — still needed by another scope")
+                    } else if exec.uninstallBrewPackage(package) {
+                        artifacts.brewPackages.removeAll { $0 == package }
+                        output.dimmed("  Removed brew package: \(package)")
+                    } else {
+                        output.warn("  Could not remove brew package '\(package)' — will retry on next sync")
+                    }
+
+                case let .plugin(name):
+                    if refCounter.isStillNeeded(
+                        .plugin(name),
+                        excludingScope: scope.scopeIdentifier,
+                        excludingPack: pack.identifier
+                    ) {
+                        output.dimmed("  Keeping plugin '\(PluginRef(name).bareName)' — still needed by another scope")
+                    } else if exec.removePlugin(name) {
+                        artifacts.plugins.removeAll { $0 == name }
+                        output.dimmed("  Removed plugin: \(PluginRef(name).bareName)")
+                    } else {
+                        output.warn("  Could not remove plugin '\(PluginRef(name).bareName)' — will retry on next sync")
+                    }
+
+                case let .gitignoreEntries(entries):
+                    let gitignoreManager = GitignoreManager(shell: shell)
+                    for entry in entries {
+                        do {
+                            try gitignoreManager.removeEntry(entry)
+                            artifacts.gitignoreEntries.removeAll { $0 == entry }
+                            output.dimmed("  Removed gitignore entry: \(entry)")
+                        } catch {
+                            output.warn("  Could not remove gitignore entry '\(entry)': \(error.localizedDescription)")
+                        }
+                    }
+
+                case .shellCommand, .settingsMerge:
+                    // Shell command side effects cannot be automatically reversed.
+                    // Settings keys are handled by step 6 (composeSettings recomposes from current pack definitions).
+                    break
+                }
+            }
+
+            state.setArtifacts(artifacts, for: pack.identifier)
+        }
+    }
+
+    /// Derive the relative file path that `installArtifacts` would have recorded for a `copyPackFile` component.
+    private func deriveFileRelativePath(destination: String, fileType: CopyFileType) -> String {
+        if scope.isGlobalScope {
+            let baseDir = fileType.baseDirectory(in: environment)
+            let destURL = baseDir.appendingPathComponent(destination)
+            return PathContainment.relativePath(
+                of: destURL.path,
+                within: environment.claudeDirectory.path
+            )
+        } else {
+            let projectPath = scope.targetPath.deletingLastPathComponent()
+            let baseDir = fileType.projectBaseDirectory(projectPath: projectPath)
+            let destURL = baseDir.appendingPathComponent(destination)
+            return PathContainment.relativePath(
+                of: destURL.path,
+                within: projectPath.path
+            )
+        }
+    }
+
+    /// Resolve all template/placeholder values upfront (single pass).
+    ///
+    /// Resolves built-in values (e.g. REPO_NAME), shared cross-pack prompts,
+    /// per-pack prompts, and auto-prompts for undeclared placeholders.
+    /// Persists resolved values to state for doctor freshness checks.
+    private func resolveAllValues(
+        packs: [any TechPack],
+        state: inout ProjectState
+    ) throws -> [String: String] {
+        // 3a. Built-in values (REPO_NAME, PROJECT_DIR_NAME in project scope)
+        var allValues = strategy.resolveBuiltInValues(shell: shell, output: output)
+
+        // 3b–3c. Detect shared prompts across packs and resolve them once.
+        // `initialContext` uses partial resolvedValues (built-ins only). groupSharedPrompts
+        // filters out already-resolved keys; current TechPack implementations only use
+        // isGlobalScope from the context in declaredPrompts().
+        let initialContext = strategy.makeConfigContext(output: output, resolvedValues: allValues)
+        let sharedPrompts = CrossPackPromptResolver.groupSharedPrompts(
+            packs: packs, context: initialContext
+        )
+        if !sharedPrompts.isEmpty {
+            let sharedValues = CrossPackPromptResolver.resolveSharedPrompts(sharedPrompts, output: output)
+            allValues.merge(sharedValues) { existing, _ in existing }
+        }
+
+        // 3d. Execute remaining per-pack prompts. templateValues() skips prompts whose key
+        // already exists in context.resolvedValues (pre-resolved by shared prompt resolution).
+        // Merge uses "first wins" — shared values and built-ins take precedence.
+        let context = strategy.makeConfigContext(output: output, resolvedValues: allValues)
+        for pack in packs {
+            let packValues = try pack.templateValues(context: context)
+            allValues.merge(packValues) { existing, _ in existing }
+        }
+
+        // 4. Auto-prompt for undeclared placeholders in pack files
+        let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(
+            packs: packs, resolvedValues: allValues,
+            includeTemplates: scope.includeTemplatesInScan,
+            onWarning: { output.warn($0) }
+        )
+        for key in undeclared {
+            let value = output.promptInline("Set value for \(key)", default: nil)
+            allValues[key] = value
+        }
+
+        // 4b. Persist resolved values for doctor freshness checks
+        state.setResolvedValues(allValues)
+
+        return allValues
+    }
+
+    /// Pre-load templates from disk (single read per pack), filtering excluded dependencies.
+    ///
+    /// Templates whose `dependencies` include an excluded component are filtered out,
+    /// so they won't appear in the CLAUDE file or artifact records.
+    /// Results are cached for use in both artifact installation (step 5)
+    /// and CLAUDE file composition (step 7).
+    private func preloadTemplates(
+        for packs: [any TechPack],
+        excludedComponents: [String: Set<String>]
+    ) -> [String: [TemplateContribution]] {
+        var preloadedTemplates: [String: [TemplateContribution]] = [:]
+        for pack in packs {
+            do {
+                let excluded = excludedComponents[pack.identifier] ?? []
+                let allTemplates = try pack.templates
+                preloadedTemplates[pack.identifier] = allTemplates.filter { template in
+                    !template.dependencies.contains(where: excluded.contains)
+                }
+            } catch {
+                output.warn("Could not load templates for \(pack.displayName): \(error.localizedDescription)")
+            }
+        }
+        return preloadedTemplates
+    }
+
+    /// Install artifacts for each pack and reconcile stale artifacts from previous runs.
+    ///
+    /// For each pack, snapshots the previous artifact record (for later use in settings
+    /// and template section cleanup), installs current artifacts, and diffs against the
+    /// previous record to remove stale artifacts (from removed/renamed components or
+    /// scope changes).
+    ///
+    /// - Returns: Tuple of previous settings keys and template sections, needed by
+    ///   steps 6 (settings composition) and 7b (template section reconciliation).
+    private func installAndReconcileArtifacts(
+        packs: [any TechPack],
+        additions: Set<String>,
+        excludedComponents: [String: Set<String>],
+        allValues: [String: String],
+        preloadedTemplates: [String: [TemplateContribution]],
+        state: inout ProjectState
+    ) -> (previousSettingsKeys: [String: [String]], previousTemplateSections: [String: [String]]) {
+        var previousSettingsKeys: [String: [String]] = [:]
+        var previousTemplateSections: [String: [String]] = [:]
+
+        for pack in packs {
+            let excluded = excludedComponents[pack.identifier] ?? []
+            let previousArtifacts = state.artifacts(for: pack.identifier)
+
+            // Snapshot previous metadata before overwriting (needed by steps 6-7)
+            previousSettingsKeys[pack.identifier] = previousArtifacts?.settingsKeys ?? []
+            previousTemplateSections[pack.identifier] = previousArtifacts?.templateSections ?? []
+
+            let isNew = additions.contains(pack.identifier)
+            output.info("\(isNew ? "Configuring" : "Updating") \(pack.displayName)\(scope.labelSuffix)...")
+            var exec = makeExecutor()
+            var artifacts = strategy.installArtifacts(
+                pack,
+                previousArtifacts: previousArtifacts,
+                excludedIDs: excluded,
+                resolvedValues: allValues,
+                preloadedTemplates: preloadedTemplates[pack.identifier],
+                executor: &exec,
+                shell: shell,
+                output: output
+            )
+            reconcileStaleArtifacts(
+                previousArtifacts: previousArtifacts,
+                currentArtifacts: &artifacts,
+                packID: pack.identifier
+            )
+            state.setArtifacts(artifacts, for: pack.identifier)
+            state.setExcludedComponents(excluded, for: pack.identifier)
+            state.recordPack(pack.identifier)
+        }
+
+        return (previousSettingsKeys, previousTemplateSections)
+    }
+
+    /// Save final project state and update the cross-project index.
+    ///
+    /// Two-phase persistence: first saves artifact records to the scope's state file,
+    /// then updates the project index (`~/.mcs/projects.yaml`) for cross-project
+    /// reference counting.
+    private func saveStateAndUpdateIndex(
+        state: inout ProjectState,
+        packs: [any TechPack]
+    ) throws {
+        // 10. Final state save
+        do {
+            try state.save()
+            output.success("Updated \(scope.stateFile.lastPathComponent)")
+        } catch {
+            output.error("Could not write \(scope.stateFile.lastPathComponent): \(error.localizedDescription)")
+            output.error("State may be inconsistent. Re-run '\(scope.syncHint)' to recover.")
+            throw MCSError.fileOperationFailed(
+                path: scope.stateFile.path,
+                reason: error.localizedDescription
+            )
+        }
+
+        // 11. Update project index for cross-project tracking
+        do {
+            let indexFile = ProjectIndex(path: environment.projectsIndexFile)
+            var indexData = try indexFile.load()
+            indexFile.upsert(
+                projectPath: scope.scopeIdentifier,
+                packIDs: packs.map(\.identifier),
+                in: &indexData
+            )
+            try indexFile.save(indexData)
+        } catch {
+            output.error("Could not update project index: \(error.localizedDescription)")
+            output.error("Cross-project resource tracking may be inaccurate. Re-run '\(scope.syncHint)' to retry.")
+        }
+    }
+
+    /// Remove artifacts that were tracked in the previous sync but are absent from the current one.
+    ///
+    /// After `installArtifacts()` produces a fresh `PackArtifactRecord`, this method diffs it
+    /// against the previous record to find stale artifacts (from removed/renamed components or
+    /// scope changes) and cleans them up. Failed removals are re-added to `currentArtifacts`
+    /// so they remain tracked and will be retried on the next sync.
+    ///
+    /// Hook commands and settings keys are handled by step 6 (settings composition),
+    /// which rebuilds from current pack definitions. Template sections are handled in step 7b.
+    private func reconcileStaleArtifacts(
+        previousArtifacts: PackArtifactRecord?,
+        currentArtifacts: inout PackArtifactRecord,
+        packID: String
+    ) {
+        guard let previous = previousArtifacts else { return }
+
+        let exec = makeExecutor()
+
+        // MCP servers (catches both removals and scope changes — MCPServerRef hashes on name+scope)
+        let staleMCPs = Set(previous.mcpServers).subtracting(currentArtifacts.mcpServers)
+        for server in staleMCPs {
+            if exec.removeMCPServer(name: server.name, scope: server.scope) {
+                output.dimmed("  Removed stale MCP server: \(server.name) (scope: \(server.scope))")
+            } else {
+                currentArtifacts.mcpServers.append(server)
+                output.warn("  Could not remove stale MCP server '\(server.name)' — will retry on next sync")
+            }
+        }
+
+        // Files (also reconcile fileHashes to prevent stale content-drift warnings)
+        let staleFiles = Set(previous.files).subtracting(currentArtifacts.files)
+        for path in staleFiles {
+            if strategy.removeFileArtifact(relativePath: path, output: output) {
+                currentArtifacts.fileHashes.removeValue(forKey: path)
+                output.dimmed("  Removed stale file: \(path)")
+            } else {
+                currentArtifacts.files.append(path)
+                if let hash = previous.fileHashes[path] {
+                    currentArtifacts.fileHashes[path] = hash
+                }
+                output.warn("  Could not remove stale file '\(path)' — will retry on next sync")
+            }
+        }
+
+        // Gitignore entries
+        let staleGitignore = Set(previous.gitignoreEntries).subtracting(currentArtifacts.gitignoreEntries)
+        if !staleGitignore.isEmpty {
+            let gitignoreManager = GitignoreManager(shell: shell)
+            for entry in staleGitignore {
+                do {
+                    try gitignoreManager.removeEntry(entry)
+                    output.dimmed("  Removed stale gitignore entry: \(entry)")
+                } catch {
+                    currentArtifacts.gitignoreEntries.append(entry)
+                    output.warn("  Could not remove gitignore entry '\(entry)': \(error.localizedDescription)")
+                }
+            }
+        }
+
+        // Brew packages and plugins (ref-counted)
+        let staleBrew = Set(previous.brewPackages).subtracting(currentArtifacts.brewPackages)
+        let stalePlugins = Set(previous.plugins).subtracting(currentArtifacts.plugins)
+        if !staleBrew.isEmpty || !stalePlugins.isEmpty {
+            let refCounter = ResourceRefCounter(
+                environment: environment, output: output, registry: registry
+            )
+            for package in staleBrew {
+                if refCounter.isStillNeeded(
+                    .brewPackage(package),
+                    excludingScope: scope.scopeIdentifier,
+                    excludingPack: packID
+                ) {
+                    output.dimmed("  Keeping brew package '\(package)' — still needed by another scope")
+                } else if exec.uninstallBrewPackage(package) {
+                    output.dimmed("  Removed stale brew package: \(package)")
+                } else {
+                    currentArtifacts.brewPackages.append(package)
+                    output.warn("  Could not remove stale brew package '\(package)' — will retry on next sync")
+                }
+            }
+            for name in stalePlugins {
+                if refCounter.isStillNeeded(
+                    .plugin(name),
+                    excludingScope: scope.scopeIdentifier,
+                    excludingPack: packID
+                ) {
+                    output.dimmed("  Keeping plugin '\(PluginRef(name).bareName)' — still needed by another scope")
+                } else if exec.removePlugin(name) {
+                    output.dimmed("  Removed stale plugin: \(PluginRef(name).bareName)")
+                } else {
+                    currentArtifacts.plugins.append(name)
+                    output.warn("  Could not remove stale plugin '\(PluginRef(name).bareName)' — will retry on next sync")
+                }
+            }
+        }
+    }
+
+    /// Remove stale template sections from the CLAUDE file and update artifact records.
+    ///
+    /// Compares previously-tracked sections against what was written this run,
+    /// removes orphaned sections from the physical file, and updates artifact records.
+    /// Artifact records are only updated after a successful file write to prevent
+    /// state/disk divergence.
+    private func reconcileTemplateSections(
+        packs: [any TechPack],
+        writtenSections: Set<String>,
+        previousTemplateSections: [String: [String]],
+        state: inout ProjectState
+    ) {
+        // Collect stale sections (tracked in PREVIOUS records but not written this run)
+        var staleSections: [String] = []
+        for pack in packs {
+            let prevSections = previousTemplateSections[pack.identifier] ?? []
+            let stale = prevSections.filter { !writtenSections.contains($0) }
+            staleSections.append(contentsOf: stale)
+        }
+
+        // Remove stale sections from the actual CLAUDE file
+        var fileUpdateSucceeded = staleSections.isEmpty
+        if !staleSections.isEmpty,
+           FileManager.default.fileExists(atPath: scope.claudeFilePath.path) {
+            do {
+                var content = try String(contentsOf: scope.claudeFilePath, encoding: .utf8)
+                for sectionID in staleSections {
+                    content = TemplateComposer.removeSection(in: content, sectionIdentifier: sectionID)
+                    output.dimmed("  Removed stale template section: \(sectionID)")
+                }
+                try content.write(to: scope.claudeFilePath, atomically: true, encoding: .utf8)
+                fileUpdateSucceeded = true
+            } catch {
+                output.warn("Could not remove stale template sections: \(error.localizedDescription)")
+                output.warn("Stale sections will be retried on next sync")
+            }
+        }
+
+        // Only update artifact records after successful file modification
+        guard fileUpdateSucceeded else { return }
+        for pack in packs {
+            if var artifacts = state.artifacts(for: pack.identifier) {
+                let before = artifacts.templateSections.count
+                artifacts.templateSections = artifacts.templateSections.filter { writtenSections.contains($0) }
+                if artifacts.templateSections.count != before {
+                    state.setArtifacts(artifacts, for: pack.identifier)
+                }
+            }
+        }
+    }
+
     // MARK: - Global Dependencies
 
     /// Auto-install brew packages and plugins (project scope only).
@@ -513,6 +893,8 @@ struct Configurator {
     // MARK: - Helpers
 
     private func makeExecutor() -> ComponentExecutor {
-        ConfiguratorSupport.makeExecutor(environment: environment, output: output, shell: shell)
+        ComponentExecutor(
+            environment: environment, output: output, shell: shell, claudeCLI: claudeCLI
+        )
     }
 }

@@ -75,12 +75,12 @@ struct GlobalSyncStrategy: SyncStrategy {
                     command: resolved.command,
                     args: resolved.args,
                     env: resolved.env,
-                    scope: "user"
+                    scope: Constants.MCPScope.user
                 )
                 if executor.installMCPServer(globalConfig) {
                     artifacts.mcpServers.append(MCPServerRef(
                         name: resolved.name,
-                        scope: "user"
+                        scope: Constants.MCPScope.user
                     ))
                     output.success("  \(component.displayName) registered (scope: user)")
                 }
@@ -157,6 +157,7 @@ struct GlobalSyncStrategy: SyncStrategy {
     func composeSettings(
         packs: [any TechPack],
         excludedComponents: [String: Set<String>],
+        previousSettingsKeys: [String: [String]],
         resolvedValues: [String: String],
         output: CLIOutput
     ) throws -> [String: [String]] {
@@ -184,6 +185,16 @@ struct GlobalSyncStrategy: SyncStrategy {
             settings.hooks = hooks.isEmpty ? nil : hooks
         }
 
+        // Strip previously-tracked settings keys (enabledPlugins + settingsMerge extraJSON)
+        // before re-composing, so removed components don't leave stale entries.
+        let allPreviousKeys = previousSettingsKeys.values.flatMap(\.self)
+        if !allPreviousKeys.isEmpty {
+            settings.removeKeys(allPreviousKeys)
+        }
+
+        // Collect top-level keys to pass as dropKeys, preventing Layer 3 re-injection
+        let dropKeys = Set(allPreviousKeys.filter { !$0.contains(".") })
+
         let (hasContent, contributedKeys) = ConfiguratorSupport.mergePackComponentsIntoSettings(
             packs: packs,
             excludedComponents: excludedComponents,
@@ -195,7 +206,7 @@ struct GlobalSyncStrategy: SyncStrategy {
 
         if hasContent {
             do {
-                try settings.save(to: scope.settingsPath)
+                try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
                 output.success("Composed settings.json (global)")
             } catch {
                 output.error("Could not write settings.json: \(error.localizedDescription)")

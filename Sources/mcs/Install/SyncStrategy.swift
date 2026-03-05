@@ -3,7 +3,7 @@ import Foundation
 /// Strategy protocol capturing the behavioral differences between
 /// project-scoped and global-scoped sync.
 ///
-/// Each method maps to a point in the 12-phase convergence flow where
+/// Each method maps to a point in the multi-phase convergence flow where
 /// the logic (not just data) differs between scopes. Trivially
 /// parameterizable differences live in `SyncScope` instead.
 protocol SyncStrategy {
@@ -42,10 +42,14 @@ protocol SyncStrategy {
     /// Project scope creates `settings.local.json` from scratch, deletes it when empty.
     /// Global scope loads existing `settings.json`, strips managed hooks, and preserves user content.
     ///
+    /// - Parameter previousSettingsKeys: Settings keys tracked in the previous sync's artifact records.
+    ///   Global scope uses these to strip stale keys before recomposing; both scopes derive
+    ///   `dropKeys` from them to prevent Layer 3 re-injection during `Settings.save()`.
     /// - Returns: A mapping of pack ID to contributed extraJSON key paths.
     func composeSettings(
         packs: [any TechPack],
         excludedComponents: [String: Set<String>],
+        previousSettingsKeys: [String: [String]],
         resolvedValues: [String: String],
         output: CLIOutput
     ) throws -> [String: [String]]

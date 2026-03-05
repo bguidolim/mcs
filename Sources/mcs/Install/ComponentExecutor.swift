@@ -6,6 +6,7 @@ struct ComponentExecutor {
     let environment: Environment
     let output: CLIOutput
     let shell: ShellRunner
+    let claudeCLI: any ClaudeCLI
 
     // MARK: - Brew Packages
 
@@ -29,12 +30,10 @@ struct ComponentExecutor {
 
     /// Register an MCP server via the Claude CLI.
     func installMCPServer(_ config: MCPServerConfig) -> Bool {
-        guard shell.commandExists(Constants.CLI.claudeCommand) else {
+        guard claudeCLI.isAvailable else {
             output.warn("Claude Code CLI not found, skipping MCP server")
             return false
         }
-        let claude = ClaudeIntegration(shell: shell)
-
         var args: [String] = []
         for (key, value) in config.env.sorted(by: { $0.key < $1.key }) {
             args.append(contentsOf: ["-e", "\(key)=\(value)"])
@@ -48,7 +47,7 @@ struct ComponentExecutor {
             args.append(contentsOf: config.args)
         }
 
-        let result = claude.mcpAdd(name: config.name, scope: config.resolvedScope, arguments: args)
+        let result = claudeCLI.mcpAdd(name: config.name, scope: config.resolvedScope, arguments: args)
         return result.succeeded
     }
 
@@ -56,13 +55,12 @@ struct ComponentExecutor {
 
     /// Install a plugin via the Claude CLI.
     func installPlugin(_ fullName: String) -> Bool {
-        guard shell.commandExists(Constants.CLI.claudeCommand) else {
+        guard claudeCLI.isAvailable else {
             output.warn("Claude Code CLI not found, skipping plugin")
             return false
         }
-        let claude = ClaudeIntegration(shell: shell)
         let ref = PluginRef(fullName)
-        let result = claude.pluginInstall(ref: ref)
+        let result = claudeCLI.pluginInstall(ref: ref)
         return result.succeeded
     }
 
@@ -83,13 +81,12 @@ struct ComponentExecutor {
 
     /// Remove a plugin via the Claude CLI. Returns `true` if removal succeeded.
     func removePlugin(_ fullName: String) -> Bool {
-        guard shell.commandExists(Constants.CLI.claudeCommand) else {
+        guard claudeCLI.isAvailable else {
             output.warn("Claude Code CLI not found, cannot remove plugin")
             return false
         }
-        let claude = ClaudeIntegration(shell: shell)
         let ref = PluginRef(fullName)
-        let result = claude.pluginRemove(ref: ref)
+        let result = claudeCLI.pluginRemove(ref: ref)
         if !result.succeeded {
             output.warn("Could not remove plugin '\(ref.bareName)': \(result.stderr)")
         }
@@ -336,8 +333,7 @@ struct ComponentExecutor {
     /// Returns `true` if removal succeeded.
     @discardableResult
     func removeMCPServer(name: String, scope: String) -> Bool {
-        let claude = ClaudeIntegration(shell: shell)
-        let result = claude.mcpRemove(name: name, scope: scope)
+        let result = claudeCLI.mcpRemove(name: name, scope: scope)
         if !result.succeeded {
             output.warn("Could not remove MCP server '\(name)' (scope: \(scope)): \(result.stderr)")
         }

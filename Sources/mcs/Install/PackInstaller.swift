@@ -23,7 +23,7 @@ struct PackInstaller {
     }
 
     private var executor: ComponentExecutor {
-        ComponentExecutor(
+        ConfiguratorSupport.makeExecutor(
             environment: environment,
             output: output,
             shell: shell

@@ -27,7 +27,7 @@ How mcs works under the hood:
 
 | Task | Where to look |
 |------|---------------|
-| Install mcs | [README > Quick Install](../README.md#quick-install) |
+| Install mcs | [README > Quick Start](../README.md#-quick-start) |
 | Add a pack | [CLI > mcs pack add](cli.md#mcs-pack-add-source) |
 | Sync a project | [CLI > mcs sync](cli.md#mcs-sync) |
 | Create a pack | [Creating Tech Packs](creating-tech-packs.md) |

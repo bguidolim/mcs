@@ -299,8 +299,7 @@ struct GlobalSyncStrategy: SyncStrategy {
     // MARK: - File Path Derivation
 
     func fileRelativePath(destination: String, fileType: CopyFileType) -> String {
-        let baseDir = fileType.baseDirectory(in: environment)
-        let destURL = baseDir.appendingPathComponent(destination)
+        let destURL = fileType.destinationURL(in: environment, destination: destination)
         return PathContainment.relativePath(
             of: destURL.path,
             within: environment.claudeDirectory.path

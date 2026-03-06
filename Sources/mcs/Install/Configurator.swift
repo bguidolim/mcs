@@ -452,7 +452,7 @@ struct Configurator {
                     }
 
                 case let .copyPackFile(_, destination, fileType):
-                    let relativePath = deriveFileRelativePath(
+                    let relativePath = strategy.fileRelativePath(
                         destination: destination, fileType: fileType
                     )
                     if removeFileArtifactItem(relativePath: relativePath) {
@@ -516,26 +516,6 @@ struct Configurator {
             }
 
             state.setArtifacts(artifacts, for: pack.identifier)
-        }
-    }
-
-    /// Derive the relative file path that `installArtifacts` would have recorded for a `copyPackFile` component.
-    private func deriveFileRelativePath(destination: String, fileType: CopyFileType) -> String {
-        if scope.isGlobalScope {
-            let baseDir = fileType.baseDirectory(in: environment)
-            let destURL = baseDir.appendingPathComponent(destination)
-            return PathContainment.relativePath(
-                of: destURL.path,
-                within: environment.claudeDirectory.path
-            )
-        } else {
-            let projectPath = scope.targetPath.deletingLastPathComponent()
-            let baseDir = fileType.projectBaseDirectory(projectPath: projectPath)
-            let destURL = baseDir.appendingPathComponent(destination)
-            return PathContainment.relativePath(
-                of: destURL.path,
-                within: projectPath.path
-            )
         }
     }
 

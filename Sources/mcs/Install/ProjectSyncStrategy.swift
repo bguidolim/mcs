@@ -210,6 +210,17 @@ struct ProjectSyncStrategy: SyncStrategy {
         return Set(allContributions.map(\.sectionIdentifier))
     }
 
+    // MARK: - File Path Derivation
+
+    func fileRelativePath(destination: String, fileType: CopyFileType) -> String {
+        let baseDir = fileType.projectBaseDirectory(projectPath: projectPath)
+        let destURL = baseDir.appendingPathComponent(destination)
+        return PathContainment.relativePath(
+            of: destURL.path,
+            within: projectPath.path
+        )
+    }
+
     // MARK: - File Removal
 
     func removeFileArtifact(relativePath: String, output: CLIOutput) -> Bool {

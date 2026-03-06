@@ -102,12 +102,7 @@ struct GlobalSyncStrategy: SyncStrategy {
                     resolvedValues: resolvedValues
                 )
                 if result.success {
-                    let baseDir = fileType.baseDirectory(in: environment)
-                    let destURL = baseDir.appendingPathComponent(destination)
-                    let relativePath = PathContainment.relativePath(
-                        of: destURL.path,
-                        within: environment.claudeDirectory.path
-                    )
+                    let relativePath = fileRelativePath(destination: destination, fileType: fileType)
                     artifacts.files.append(relativePath)
                     artifacts.fileHashes.merge(result.hashes) { _, new in new }
                     if component.type == .hookFile,
@@ -299,6 +294,16 @@ struct GlobalSyncStrategy: SyncStrategy {
         output.success("Generated \(scope.claudeFilePath.lastPathComponent) (global)")
 
         return Set(allContributions.map(\.sectionIdentifier))
+    }
+
+    // MARK: - File Path Derivation
+
+    func fileRelativePath(destination: String, fileType: CopyFileType) -> String {
+        let destURL = fileType.destinationURL(in: environment, destination: destination)
+        return PathContainment.relativePath(
+            of: destURL.path,
+            within: environment.claudeDirectory.path
+        )
     }
 
     // MARK: - File Removal

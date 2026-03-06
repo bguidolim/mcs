@@ -69,6 +69,12 @@ protocol SyncStrategy {
         output: CLIOutput
     ) throws -> Set<String>?
 
+    /// Derive the relative file path that artifact tracking records for a `copyPackFile` component.
+    ///
+    /// Global scope computes relative to `~/.claude/`.
+    /// Project scope computes relative to the project root.
+    func fileRelativePath(destination: String, fileType: CopyFileType) -> String
+
     /// Remove a file artifact during pack unconfiguration.
     ///
     /// Project scope uses `ComponentExecutor.removeProjectFile`.

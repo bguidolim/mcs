@@ -60,6 +60,8 @@ struct PackUpdaterTests {
                 context: "git config email")
         try git(shell, ["-C", workDir.path, "config", "user.name", "MCS Test"],
                 context: "git config name")
+        try git(shell, ["-C", workDir.path, "config", "commit.gpgsign", "false"],
+                context: "git config commit.gpgsign")
 
         let manifest = """
         schemaVersion: 1

@@ -12,7 +12,6 @@ private func makeFetcher() -> PackFetcher {
     )
 }
 
-@Suite("PackFetcher ref validation")
 struct PackFetcherRefValidationTests {
     // MARK: - Valid refs
 
@@ -98,7 +97,6 @@ struct PackFetcherRefValidationTests {
     }
 }
 
-@Suite("PackFetcher identifier validation")
 struct PackFetcherIdentifierValidationTests {
     // MARK: - Valid identifiers
 
@@ -150,7 +148,6 @@ struct PackFetcherIdentifierValidationTests {
 
 // MARK: - Integration Tests (git operations)
 
-@Suite("PackFetcher operations")
 struct PackFetcherOperationTests {
     private struct TestSetupError: Error {
         let message: String
@@ -215,6 +212,8 @@ struct PackFetcherOperationTests {
                 context: "git config user.email")
         try git(shell, ["-C", workDir.path, "config", "user.name", "MCS Test"],
                 context: "git config user.name")
+        try git(shell, ["-C", workDir.path, "config", "commit.gpgsign", "false"],
+                context: "git config commit.gpgsign")
 
         let readme = workDir.appendingPathComponent("README.md")
         try "initial".write(to: readme, atomically: true, encoding: .utf8)

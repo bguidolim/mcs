@@ -501,7 +501,8 @@ struct DerivedDoctorCheckSandboxTests {
             #expect(fileCheck.path.path.hasPrefix(projectRoot.path))
             // Fallback path should be under the sandbox home
             #expect(fileCheck.fallbackPath != nil)
-            #expect(try #require(fileCheck.fallbackPath?.path.hasPrefix(home.path)))
+            let fallback = try #require(fileCheck.fallbackPath)
+            #expect(fallback.path.hasPrefix(home.path))
         } else {
             Issue.record("Expected FileExistsCheck, got \(type(of: check!))")
         }

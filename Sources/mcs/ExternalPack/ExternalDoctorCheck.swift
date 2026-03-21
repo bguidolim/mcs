@@ -388,7 +388,8 @@ enum ExternalDoctorCheckFactory {
         from definition: ExternalDoctorCheckDefinition,
         packPath: URL,
         projectRoot: URL?,
-        scriptRunner: ScriptRunner
+        scriptRunner: ScriptRunner,
+        environment: Environment = Environment()
     ) -> any DoctorCheck {
         let section = definition.section ?? "External Pack"
         let scope = definition.scope ?? .global
@@ -407,7 +408,8 @@ enum ExternalDoctorCheckFactory {
                 command: command,
                 args: definition.args ?? [],
                 fixCommand: definition.fixCommand,
-                scriptRunner: scriptRunner
+                scriptRunner: scriptRunner,
+                environment: environment
             )
 
         case .fileExists:
@@ -503,7 +505,8 @@ enum ExternalDoctorCheckFactory {
                 name: definition.name,
                 section: section,
                 event: event,
-                isOptional: definition.isOptional ?? false
+                isOptional: definition.isOptional ?? false,
+                environment: environment
             )
 
         case .settingsKeyEquals:
@@ -519,7 +522,8 @@ enum ExternalDoctorCheckFactory {
                 name: definition.name,
                 section: section,
                 keyPath: keyPath,
-                expectedValue: expectedValue
+                expectedValue: expectedValue,
+                environment: environment
             )
         }
     }

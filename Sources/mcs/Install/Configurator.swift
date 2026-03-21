@@ -351,6 +351,7 @@ struct Configurator {
                 try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
                 remaining.hookCommands = []
                 remaining.settingsKeys = []
+                remaining.settingsHash = nil
                 for cmd in artifacts.hookCommands {
                     output.dimmed("  Removed hook: \(cmd)")
                 }

@@ -7,8 +7,8 @@ struct CheckUpdatesCommand: ParsableCommand {
         abstract: "Check for tech pack and CLI updates"
     )
 
-    @Flag(name: .long, help: "Bypass the 7-day cooldown")
-    var force: Bool = false
+    @Flag(name: .long, help: "Run as a Claude Code SessionStart hook (respects 7-day cooldown and config)")
+    var hook: Bool = false
 
     @Flag(name: .long, help: "Output results as JSON")
     var json: Bool = false
@@ -17,7 +17,6 @@ struct CheckUpdatesCommand: ParsableCommand {
         let env = Environment()
         let output = CLIOutput()
         let shell = ShellRunner(environment: env)
-        let config = MCSConfig.load(from: env.mcsConfigFile)
 
         let registry = PackRegistryFile(path: env.packsRegistry)
         let registryData: PackRegistryFile.RegistryData
@@ -27,16 +26,25 @@ struct CheckUpdatesCommand: ParsableCommand {
             registryData = PackRegistryFile.RegistryData()
         }
 
-        // When config is unconfigured, default to checking both
-        let checkPacks = config.updateCheckPacks ?? true
-        let checkCLI = config.updateCheckCLI ?? true
+        let checkPacks: Bool
+        let checkCLI: Bool
+        if hook {
+            // Hook mode: respect config keys
+            let config = MCSConfig.load(from: env.mcsConfigFile)
+            checkPacks = config.updateCheckPacks ?? true
+            checkCLI = config.updateCheckCLI ?? true
+        } else {
+            // User-invoked: always check both
+            checkPacks = true
+            checkCLI = true
+        }
 
         let relevantEntries = UpdateChecker.filterEntries(registryData.packs, environment: env)
 
         let checker = UpdateChecker(environment: env, shell: shell)
         let result = checker.performCheck(
             entries: relevantEntries,
-            force: force,
+            isHook: hook,
             checkPacks: checkPacks,
             checkCLI: checkCLI
         )

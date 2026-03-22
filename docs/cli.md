@@ -134,20 +134,20 @@ The export wizard discovers MCP servers, hooks, skills, commands, agents, plugin
 Check for available tech pack and CLI updates. Designed to be lightweight and non-intrusive.
 
 ```bash
-mcs check-updates                # Check with 7-day cooldown
-mcs check-updates --force        # Bypass cooldown
+mcs check-updates                # Check for updates (always runs)
+mcs check-updates --hook         # Run as SessionStart hook (respects 7-day cooldown and config)
 mcs check-updates --json         # Machine-readable JSON output
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--force` | Bypass the 7-day cooldown and check immediately. |
+| `--hook` | Run as a Claude Code SessionStart hook. Respects the 7-day cooldown and config keys. Without this flag, checks always run. |
 | `--json` | Output results as JSON instead of human-readable text. |
 
 **How it works:**
 - **Pack checks**: Runs `git ls-remote` per pack to compare the remote HEAD against the local commit SHA. Local packs are skipped.
 - **CLI version check**: Queries `git ls-remote --tags` on the mcs repository and compares the latest CalVer tag against the installed version.
-- **Cooldown**: Checks at most once every 7 days (tracked via `~/.mcs/last-update-check`). Use `--force` to bypass. Note: `mcs sync` and `mcs doctor` always bypass the cooldown since they are user-initiated commands.
+- **Cooldown**: The `--hook` flag respects a 7-day cooldown (tracked via `~/.mcs/last-update-check`). Without `--hook`, checks always run — `mcs check-updates`, `mcs sync`, and `mcs doctor` never skip.
 - **Scope**: Checks global packs plus packs configured in the current project (detected via project root). Packs not relevant to the current context are skipped.
 - **Offline resilience**: Network failures are silently ignored — the command never errors on connectivity issues.
 
@@ -173,7 +173,7 @@ mcs config set <key> <value>     # Set a value (true/false)
 These keys control a `SessionStart` hook in `~/.claude/settings.json` that runs `mcs check-updates` when you start a Claude Code session. The hook's output is injected into Claude's context so Claude can inform you about available updates.
 
 - **Enabled (either key `true`)**: A synchronous `SessionStart` hook is registered. It respects the 7-day cooldown.
-- **Disabled (both keys `false`)**: No hook is registered. You can still check manually with `mcs check-updates --force` or rely on `mcs sync` / `mcs doctor` which always check.
+- **Disabled (both keys `false`)**: No hook is registered. You can still check manually with `mcs check-updates` or rely on `mcs sync` / `mcs doctor` which always check.
 
 When either key changes, `mcs config set` immediately adds or removes the hook from `~/.claude/settings.json` — no re-sync needed. The same hook is also converged during `mcs sync`.
 

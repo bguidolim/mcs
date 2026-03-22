@@ -14,7 +14,7 @@ struct UpdateChecker {
 
     // MARK: - SessionStart Hook (single source of truth)
 
-    static let hookCommand = "mcs check-updates"
+    static let hookCommand = "mcs check-updates --hook"
     static let hookTimeout: Int = 30
     static let hookStatusMessage = "Checking for updates..."
 
@@ -51,7 +51,7 @@ struct UpdateChecker {
         }
     }
 
-    /// Run a forced update check and print results. Used by sync and doctor.
+    /// Run an update check and print results. Used by sync and doctor (user-invoked, no cooldown).
     static func checkAndPrint(env: Environment, shell: ShellRunner, output: CLIOutput) {
         let packRegistry = PackRegistryFile(path: env.packsRegistry)
         let allEntries = (try? packRegistry.load().packs) ?? []
@@ -59,7 +59,6 @@ struct UpdateChecker {
         let checker = UpdateChecker(environment: env, shell: shell)
         let result = checker.performCheck(
             entries: relevantEntries,
-            force: true,
             checkPacks: true,
             checkCLI: true
         )
@@ -177,21 +176,25 @@ struct UpdateChecker {
 
     // MARK: - Combined Check
 
-    /// Run all enabled checks. Handles cooldown and timestamp recording.
+    /// Run all enabled checks.
+    /// - `isHook: true` — running as a SessionStart hook: respects cooldown, records timestamp
+    /// - `isHook: false` (default) — user-invoked: always checks, never records timestamp
     func performCheck(
         entries: [PackRegistryFile.PackEntry],
-        force: Bool,
+        isHook: Bool = false,
         checkPacks: Bool,
         checkCLI: Bool
     ) -> CheckResult {
-        if !force, !shouldCheck() {
+        if isHook, !shouldCheck() {
             return CheckResult(packUpdates: [], cliUpdate: nil)
         }
 
         let packUpdates = checkPacks ? checkPackUpdates(entries: entries) : []
         let cliUpdate = checkCLI ? checkCLIVersion(currentVersion: MCSVersion.current) : nil
 
-        recordCheckTimestamp()
+        if isHook {
+            recordCheckTimestamp()
+        }
 
         return CheckResult(packUpdates: packUpdates, cliUpdate: cliUpdate)
     }

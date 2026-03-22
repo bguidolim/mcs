@@ -43,8 +43,8 @@ mcs export <dir> --global        # Export global scope (~/.claude/)
 mcs export <dir> --identifier id # Set pack identifier (prompted if omitted)
 mcs export <dir> --non-interactive  # Include everything without prompts
 mcs export <dir> --dry-run       # Preview what would be exported
-mcs check-updates                # Check for pack and CLI updates (7-day cooldown)
-mcs check-updates --force        # Bypass cooldown
+mcs check-updates                # Check for pack and CLI updates
+mcs check-updates --hook         # Run as SessionStart hook (7-day cooldown, respects config)
 mcs check-updates --json         # Machine-readable JSON output
 mcs config list                  # Show all settings with current values
 mcs config get <key>             # Get a specific setting value

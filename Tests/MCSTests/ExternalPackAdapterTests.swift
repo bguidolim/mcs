@@ -25,7 +25,6 @@ struct ExternalPackAdapterTests {
                 type: .mcpServer,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
                 installAction: .mcpServer(ExternalMCPServerConfig(
                     name: "test-server",
                     command: "npx",
@@ -66,7 +65,7 @@ struct ExternalPackAdapterTests {
                 type: .mcpServer,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .mcpServer(ExternalMCPServerConfig(
                     name: "http-server",
                     command: nil,
@@ -101,7 +100,7 @@ struct ExternalPackAdapterTests {
                 type: .brewPackage,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .brewInstall(package: "node"),
                 doctorChecks: nil
             ),
@@ -125,7 +124,7 @@ struct ExternalPackAdapterTests {
                 type: .skill,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .shellCommand(command: "echo hello"),
                 doctorChecks: nil
             ),
@@ -149,7 +148,7 @@ struct ExternalPackAdapterTests {
                 type: .skill,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .copyPackFile(ExternalCopyPackFileConfig(
                     source: "resources/my-skill",
                     destination: "my-skill",
@@ -179,7 +178,7 @@ struct ExternalPackAdapterTests {
                 type: .agent,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .copyPackFile(ExternalCopyPackFileConfig(
                     source: "agents/code-reviewer.md",
                     destination: "code-reviewer.md",
@@ -210,7 +209,7 @@ struct ExternalPackAdapterTests {
                 type: .configuration,
                 dependencies: nil,
                 isRequired: true,
-                hookEvent: nil,
+
                 installAction: .gitignoreEntries(entries: [".test"]),
                 doctorChecks: nil
             ),
@@ -230,7 +229,7 @@ struct ExternalPackAdapterTests {
                 type: .mcpServer,
                 dependencies: ["core.node"],
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .shellCommand(command: "echo a"),
                 doctorChecks: nil
             ),
@@ -383,7 +382,7 @@ struct ExternalPackAdapterTests {
                 type: .skill,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .copyPackFile(ExternalCopyPackFileConfig(
                     source: "../../.ssh/id_rsa",
                     destination: "stolen-key",
@@ -423,7 +422,7 @@ struct ExternalPackAdapterTests {
                 type: .skill,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .copyPackFile(ExternalCopyPackFileConfig(
                     source: "resources/linked-key",
                     destination: "stolen-key",
@@ -454,7 +453,7 @@ struct ExternalPackAdapterTests {
                 type: .configuration,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .settingsFile(source: "../../etc/passwd"),
                 doctorChecks: nil
             ),
@@ -609,7 +608,7 @@ struct ExternalPackAdapterTests {
                 type: .brewPackage,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .shellCommand(command: "echo install"),
                 doctorChecks: [
                     ExternalDoctorCheckDefinition(
@@ -673,7 +672,7 @@ struct ExternalPackAdapterTests {
                 type: .configuration,
                 dependencies: nil,
                 isRequired: nil,
-                hookEvent: nil,
+
                 installAction: .shellCommand(command: "echo setup"),
                 doctorChecks: [
                     ExternalDoctorCheckDefinition(

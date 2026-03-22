@@ -109,9 +109,11 @@ private struct LifecycleTestBed {
     func hookComponent(
         pack: String, id: String, source: URL, destination: String,
         hookEvent: String? = nil, isRequired: Bool = true,
-        hookTimeout: Int? = nil, hookAsync: Bool? = nil, hookStatusMessage: String? = nil
+        hookRegistration: HookRegistration? = nil
     ) -> ComponentDefinition {
-        ComponentDefinition(
+        // If hookEvent is provided but hookRegistration is nil, construct a basic registration
+        let registration = hookRegistration ?? hookEvent.map { HookRegistration(event: $0) }
+        return ComponentDefinition(
             id: "\(pack).\(id)",
             displayName: id,
             description: "Hook \(id)",
@@ -119,10 +121,7 @@ private struct LifecycleTestBed {
             packIdentifier: pack,
             dependencies: [],
             isRequired: isRequired,
-            hookEvent: hookEvent,
-            hookTimeout: hookTimeout,
-            hookAsync: hookAsync,
-            hookStatusMessage: hookStatusMessage,
+            hookRegistration: registration,
             installAction: .copyPackFile(source: source, destination: destination, fileType: .hook)
         )
     }
@@ -770,9 +769,10 @@ struct HookMetadataLifecycleTests {
                 bed.hookComponent(
                     pack: "meta-pack", id: "lint",
                     source: hookSource, destination: "lint.sh",
-                    hookEvent: "PostToolUse",
-                    hookTimeout: 30, hookAsync: true,
-                    hookStatusMessage: "Running lint..."
+                    hookRegistration: HookRegistration(
+                        event: "PostToolUse", timeout: 30,
+                        isAsync: true, statusMessage: "Running lint..."
+                    )
                 ),
             ]
         )

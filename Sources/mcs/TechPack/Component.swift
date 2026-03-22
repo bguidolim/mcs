@@ -29,12 +29,12 @@ extension ComponentType {
 /// When a component has a `HookRegistration`, the engine auto-registers the hook
 /// in `settings.local.json` with the specified handler fields.
 struct HookRegistration: Equatable {
-    let event: String
+    let event: Constants.HookEvent
     let timeout: Int?
     let isAsync: Bool?
     let statusMessage: String?
 
-    init(event: String, timeout: Int? = nil, isAsync: Bool? = nil, statusMessage: String? = nil) {
+    init(event: Constants.HookEvent, timeout: Int? = nil, isAsync: Bool? = nil, statusMessage: String? = nil) {
         self.event = event
         self.timeout = timeout
         self.isAsync = isAsync

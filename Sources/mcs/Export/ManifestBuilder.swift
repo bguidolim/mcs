@@ -181,7 +181,7 @@ struct ManifestBuilder {
             CopyFileSpec(
                 files: config.hookFiles, selected: options.selectedHookFiles,
                 idPrefix: "hook", componentType: .hookFile, fileType: .hook,
-                descriptionFor: { "Hook script for \($0.hookRegistration?.event ?? "unknown event")" }
+                descriptionFor: { "Hook script for \($0.hookRegistration?.event.rawValue ?? "unknown event")" }
             ),
             CopyFileSpec(
                 files: config.skillFiles, selected: options.selectedSkillFiles,
@@ -459,7 +459,7 @@ struct ManifestBuilder {
 
         // hookRegistration fields
         if let reg = comp.hookRegistration {
-            yaml.line("    hookEvent: \(yamlQuote(reg.event))")
+            yaml.line("    hookEvent: \(yamlQuote(reg.event.rawValue))")
             if let timeout = reg.timeout {
                 yaml.line("    hookTimeout: \(timeout)")
             }

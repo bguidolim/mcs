@@ -110,6 +110,22 @@ struct Settings: Codable {
         return true
     }
 
+    /// Remove a hook entry by command string from the given event.
+    /// Returns `true` if the entry was found and removed.
+    @discardableResult
+    mutating func removeHookEntry(event: String, command: String) -> Bool {
+        guard var groups = hooks?[event] else { return false }
+        let before = groups.count
+        groups.removeAll { $0.hooks?.first?.command == command }
+        if groups.isEmpty {
+            hooks?.removeValue(forKey: event)
+        } else {
+            hooks?[event] = groups
+        }
+        if hooks?.isEmpty == true { hooks = nil }
+        return groups.count < before
+    }
+
     // MARK: - Deep Merge
 
     /// Merge `other` into `self`, preserving existing user values.

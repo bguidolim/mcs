@@ -27,6 +27,12 @@ enum Constants {
 
         /// The process lock file preventing concurrent mcs execution.
         static let mcsLock = "lock"
+
+        /// The timestamp file for update check cooldown.
+        static let lastUpdateCheck = "last-update-check"
+
+        /// The user preferences file.
+        static let mcsConfig = "config.yaml"
     }
 
     // MARK: - CLI
@@ -75,21 +81,34 @@ enum Constants {
 
     // MARK: - Hooks
 
-    enum Hooks {
-        /// All Claude Code hook event names (PascalCase).
-        /// Source: https://docs.anthropic.com/en/docs/claude-code/hooks
-        static let validEvents: Set<String> = [
-            "SessionStart", "UserPromptSubmit",
-            "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure",
-            "Notification",
-            "SubagentStart", "SubagentStop",
-            "Stop", "StopFailure",
-            "TeammateIdle", "TaskCompleted",
-            "ConfigChange", "InstructionsLoaded",
-            "WorktreeCreate", "WorktreeRemove",
-            "PreCompact", "PostCompact", "SessionEnd",
-            "Elicitation", "ElicitationResult",
-        ]
+    /// All Claude Code hook event types.
+    /// Source: https://docs.anthropic.com/en/docs/claude-code/hooks
+    enum HookEvent: String, CaseIterable, Codable {
+        case sessionStart = "SessionStart"
+        case userPromptSubmit = "UserPromptSubmit"
+        case preToolUse = "PreToolUse"
+        case permissionRequest = "PermissionRequest"
+        case postToolUse = "PostToolUse"
+        case postToolUseFailure = "PostToolUseFailure"
+        case notification = "Notification"
+        case subagentStart = "SubagentStart"
+        case subagentStop = "SubagentStop"
+        case stop = "Stop"
+        case stopFailure = "StopFailure"
+        case teammateIdle = "TeammateIdle"
+        case taskCompleted = "TaskCompleted"
+        case configChange = "ConfigChange"
+        case instructionsLoaded = "InstructionsLoaded"
+        case worktreeCreate = "WorktreeCreate"
+        case worktreeRemove = "WorktreeRemove"
+        case preCompact = "PreCompact"
+        case postCompact = "PostCompact"
+        case sessionEnd = "SessionEnd"
+        case elicitation = "Elicitation"
+        case elicitationResult = "ElicitationResult"
+
+        /// Set of all valid event raw values (for string-based validation).
+        static let validRawValues: Set<String> = Set(allCases.map(\.rawValue))
     }
 
     // MARK: - MCP Scopes
@@ -100,6 +119,16 @@ enum Constants {
 
         /// Cross-project scope (used for global scope).
         static let user = "user"
+    }
+
+    // MARK: - MCS Repository
+
+    enum MCSRepo {
+        /// The HTTPS URL for the mcs git repository (used for version checks).
+        static let url = "https://github.com/bguidolim/mcs.git"
+
+        /// The Homebrew formula name for mcs.
+        static let brewFormula = "bguidolim/tap/managed-claude-stack"
     }
 
     // MARK: - Plugins

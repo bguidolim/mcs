@@ -212,7 +212,7 @@ struct SinglePackLifecycleTests {
             identifier: "test-pack",
             displayName: "Test Pack",
             components: [
-                bed.hookComponent(pack: "test-pack", id: "lint-hook", source: hookSource, destination: "lint.sh", hookRegistration: HookRegistration(event: "PostToolUse")),
+                bed.hookComponent(pack: "test-pack", id: "lint-hook", source: hookSource, destination: "lint.sh", hookRegistration: HookRegistration(event: .postToolUse)),
                 bed.mcpComponent(pack: "test-pack", id: "mcp-server", name: "test-mcp", args: ["-y", "test-server"], env: ["API_KEY": "test-key"]),
                 bed.settingsComponent(pack: "test-pack", id: "settings", source: settingsSource),
             ],
@@ -768,7 +768,7 @@ struct HookMetadataLifecycleTests {
                     pack: "meta-pack", id: "lint",
                     source: hookSource, destination: "lint.sh",
                     hookRegistration: HookRegistration(
-                        event: "PostToolUse", timeout: 30,
+                        event: .postToolUse, timeout: 30,
                         isAsync: true, statusMessage: "Running lint..."
                     )
                 ),
@@ -812,7 +812,7 @@ struct HookMetadataLifecycleTests {
                 bed.hookComponent(
                     pack: "plain-pack", id: "guard",
                     source: hookSource, destination: "guard.sh",
-                    hookRegistration: HookRegistration(event: "PreToolUse")
+                    hookRegistration: HookRegistration(event: .preToolUse)
                 ),
             ]
         )

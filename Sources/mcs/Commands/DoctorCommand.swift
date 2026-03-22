@@ -26,6 +26,7 @@ struct DoctorCommand: LockedCommand {
     func perform() throws {
         let env = Environment()
         let output = CLIOutput()
+        let shell = ShellRunner(environment: env)
         let registry = TechPackRegistry.loadWithExternalPacks(
             environment: env,
             output: output
@@ -39,5 +40,8 @@ struct DoctorCommand: LockedCommand {
             environment: env
         )
         try runner.run()
+
+        // Always check for updates in doctor — it's a diagnostic tool
+        UpdateChecker.checkAndPrint(env: env, shell: shell, output: output)
     }
 }

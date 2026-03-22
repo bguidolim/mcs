@@ -219,12 +219,7 @@ struct DoctorRunner {
             runChecks(checks)
         }
 
-        // Phase 2: Confirm and execute pending fixes
-        if fixMode {
-            executePendingFixes()
-        }
-
-        // Summary
+        // Summary (before fixes, so the user sees the full picture first)
         output.header("Summary")
         output.doctorSummary(
             passed: passCount,
@@ -232,6 +227,11 @@ struct DoctorRunner {
             warnings: warnCount,
             issues: failCount
         )
+
+        // Phase 2: Confirm and execute pending fixes (after summary)
+        if fixMode {
+            executePendingFixes()
+        }
     }
 
     // MARK: - Scope resolution
@@ -542,26 +542,29 @@ struct DoctorRunner {
         for check in unfixable {
             let result = check.fix()
             if case let .notFixable(msg) = result {
-                output.warn("  ↳ \(check.name): \(msg)")
+                output.warn("    ↳ \(check.name): \(msg)")
             }
         }
 
         guard !fixable.isEmpty else { return }
 
+        output.plain("")
         output.sectionHeader("Available fixes")
 
         for check in fixable {
-            output.plain("  • \(check.name): \(check.fixCommandPreview!)")
+            output.plain("    • \(check.name): \(check.fixCommandPreview!)")
         }
 
+        output.plain("")
         let fixLabel = fixable.count == 1 ? "fix" : "fixes"
         if !skipConfirmation {
             guard output.askYesNo("Apply \(fixable.count) \(fixLabel)?", default: false) else {
-                output.dimmed("Skipped all fixes.")
+                output.dimmed("  Skipped all fixes.")
                 return
             }
         }
 
+        output.plain("")
         for check in fixable {
             switch check.fix() {
             case let .fixed(msg):
@@ -569,7 +572,7 @@ struct DoctorRunner {
             case let .failed(msg):
                 docFixFailed(check.name, msg)
             case let .notFixable(msg):
-                output.warn("  ↳ \(check.name): \(msg)")
+                output.warn("    ↳ \(check.name): \(msg)")
             }
         }
     }
@@ -597,11 +600,10 @@ struct DoctorRunner {
 
     private mutating func docFixed(_ name: String, _ msg: String) {
         fixedCount += 1
-        failCount -= 1 // Convert fail to fixed
-        output.success("  ✓ \(name): \(msg)")
+        output.success("    ✓ \(name): \(msg)")
     }
 
     private mutating func docFixFailed(_ name: String, _ msg: String) {
-        output.error("  ✗ \(name): \(msg)")
+        output.error("    ✗ \(name): \(msg)")
     }
 }

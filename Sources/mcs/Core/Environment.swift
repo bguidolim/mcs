@@ -97,6 +97,16 @@ struct Environment {
         mcsDirectory.appendingPathComponent(Constants.FileNames.mcsLock)
     }
 
+    /// Timestamp file for update check cooldown (`~/.mcs/last-update-check`).
+    var lastUpdateCheckFile: URL {
+        mcsDirectory.appendingPathComponent(Constants.FileNames.lastUpdateCheck)
+    }
+
+    /// User preferences file (`~/.mcs/config.yaml`).
+    var mcsConfigFile: URL {
+        mcsDirectory.appendingPathComponent(Constants.FileNames.mcsConfig)
+    }
+
     /// PATH string that includes the Homebrew bin directory.
     var pathWithBrew: String {
         let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"

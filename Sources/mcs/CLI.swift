@@ -18,6 +18,8 @@ struct MCS: ParsableCommand {
             CleanupCommand.self,
             PackCommand.self,
             ExportCommand.self,
+            CheckUpdatesCommand.self,
+            ConfigCommand.self,
         ],
         defaultSubcommand: SyncCommand.self
     )

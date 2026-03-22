@@ -237,9 +237,10 @@ struct ConfigurationDiscovery {
         for (event, groups) in hooks {
             for group in groups {
                 for entry in group.hooks ?? [] {
-                    if let command = entry.command {
+                    if let command = entry.command,
+                       let hookEvent = Constants.HookEvent(rawValue: event) {
                         commandToReg[command] = HookRegistration(
-                            event: event,
+                            event: hookEvent,
                             timeout: entry.timeout,
                             isAsync: entry.isAsync,
                             statusMessage: entry.statusMessage

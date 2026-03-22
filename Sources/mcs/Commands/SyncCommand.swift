@@ -44,6 +44,9 @@ struct SyncCommand: LockedCommand {
             throw ExitCode.failure
         }
 
+        // First-run: prompt for update notification preference
+        promptForUpdateCheckIfNeeded(env: env, output: output)
+
         // Handle --update: fetch latest for all packs before loading
         if update {
             let lockOps = LockfileOperations(environment: env, output: output, shell: shell)
@@ -59,6 +62,11 @@ struct SyncCommand: LockedCommand {
             try performGlobal(env: env, output: output, shell: shell, registry: registry)
         } else {
             try performProject(env: env, output: output, shell: shell, registry: registry)
+        }
+
+        // Always check for updates after sync — user explicitly ran the command
+        if !dryRun {
+            UpdateChecker.checkAndPrint(env: env, shell: shell, output: output)
         }
     }
 
@@ -170,6 +178,26 @@ struct SyncCommand: LockedCommand {
     }
 
     // MARK: - Shared Helpers
+
+    /// Prompt for update notification preference on first interactive sync.
+    @discardableResult
+    private func promptForUpdateCheckIfNeeded(env: Environment, output: CLIOutput) -> MCSConfig {
+        var config = MCSConfig.load(from: env.mcsConfigFile)
+
+        // Only prompt in interactive mode (no --pack, --all, or --dry-run) and if never configured
+        let isInteractive = pack.isEmpty && !all && !dryRun
+        guard isInteractive, config.isUnconfigured else { return config }
+
+        let enabled = output.askYesNo("Enable update notifications on session start?")
+        config.updateCheckPacks = enabled
+        config.updateCheckCLI = enabled
+        do {
+            try config.save(to: env.mcsConfigFile)
+        } catch {
+            output.warn("Could not save config: \(error.localizedDescription)")
+        }
+        return config
+    }
 
     private func resolvePacks(
         from registry: TechPackRegistry,

@@ -173,7 +173,10 @@ struct GlobalSyncStrategy: SyncStrategy {
             for (event, groups) in hooks {
                 hooks[event] = groups.filter { group in
                     guard let cmd = group.hooks?.first?.command else { return true }
-                    return !cmd.hasPrefix(scope.hookCommandPrefix)
+                    // Strip pack-managed hooks and the first-party update check hook
+                    if cmd.hasPrefix(scope.hookCommandPrefix) { return false }
+                    if cmd == UpdateChecker.hookCommand { return false }
+                    return true
                 }
             }
             hooks = hooks.filter { !$0.value.isEmpty }
@@ -190,7 +193,7 @@ struct GlobalSyncStrategy: SyncStrategy {
         // Collect top-level keys to pass as dropKeys, preventing Layer 3 re-injection
         let dropKeys = Set(allPreviousKeys.filter { !$0.contains(".") })
 
-        let (hasContent, contributedKeys) = ConfiguratorSupport.mergePackComponentsIntoSettings(
+        var (hasContent, contributedKeys) = ConfiguratorSupport.mergePackComponentsIntoSettings(
             packs: packs,
             excludedComponents: excludedComponents,
             settings: &settings,
@@ -198,6 +201,12 @@ struct GlobalSyncStrategy: SyncStrategy {
             resolvedValues: resolvedValues,
             output: output
         )
+
+        // Re-inject first-party update check hook if enabled
+        let config = MCSConfig.load(from: environment.mcsConfigFile)
+        if config.isUpdateCheckEnabled {
+            if UpdateChecker.addHook(to: &settings) { hasContent = true }
+        }
 
         if hasContent {
             do {

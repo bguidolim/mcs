@@ -219,7 +219,7 @@ struct ExportCommand: ParsableCommand {
         // Hook files
         if !config.hookFiles.isEmpty {
             let items = appendItems(config.hookFiles.map { hook in
-                let eventInfo = hook.hookRegistration.map { " → \($0.event)" } ?? " (unknown event)"
+                let eventInfo = hook.hookRegistration.map { " → \($0.event.rawValue)" } ?? " (unknown event)"
                 return (name: hook.filename, description: "Hook script\(eventInfo)")
             }, category: .hooks)
             groups.append(SelectableGroup(title: "Hooks", items: items, requiredItems: []))

@@ -1997,6 +1997,35 @@ struct ExternalPackManifestTests {
         }
     }
 
+    @Test("Decode rejects hook metadata without hookEvent")
+    func rejectOrphanedHookMetadata() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: My Pack
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.node
+            description: Node.js
+            type: brewPackage
+            hookTimeout: 30
+            installAction:
+              type: brewInstall
+              package: node
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        #expect(throws: (any Error).self) {
+            try ExternalPackManifest.load(from: file)
+        }
+    }
+
     // MARK: - Shorthand: brew
 
     @Test("Shorthand brew: infers brewPackage type and brewInstall action")

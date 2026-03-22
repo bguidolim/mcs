@@ -28,7 +28,7 @@ extension ComponentType {
 /// Groups the hook event name with optional handler fields (timeout, async, statusMessage).
 /// When a component has a `HookRegistration`, the engine auto-registers the hook
 /// in `settings.local.json` with the specified handler fields.
-struct HookRegistration {
+struct HookRegistration: Equatable {
     let event: String
     let timeout: Int?
     let isAsync: Bool?

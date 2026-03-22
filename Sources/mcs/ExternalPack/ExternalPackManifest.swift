@@ -384,8 +384,21 @@ struct ExternalComponentDefinition: Codable {
         let hookTimeout = try container.decodeIfPresent(Int.self, forKey: .hookTimeout)
         let hookAsync = try container.decodeIfPresent(Bool.self, forKey: .hookAsync)
         let hookStatusMessage = try container.decodeIfPresent(String.self, forKey: .hookStatusMessage)
-        hookRegistration = hookEvent.map {
-            HookRegistration(event: $0, timeout: hookTimeout, isAsync: hookAsync, statusMessage: hookStatusMessage)
+        if let hookEvent {
+            hookRegistration = HookRegistration(
+                event: hookEvent, timeout: hookTimeout, isAsync: hookAsync, statusMessage: hookStatusMessage
+            )
+        } else {
+            hookRegistration = nil
+            // Reject orphaned hook metadata (timeout/async/statusMessage without hookEvent)
+            if hookTimeout != nil || hookAsync != nil || hookStatusMessage != nil {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: container.codingPath,
+                        debugDescription: "hookTimeout/hookAsync/hookStatusMessage require hookEvent to be set"
+                    )
+                )
+            }
         }
         doctorChecks = try container.decodeIfPresent([ExternalDoctorCheckDefinition].self, forKey: .doctorChecks)
 

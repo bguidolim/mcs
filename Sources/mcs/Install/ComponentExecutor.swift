@@ -378,7 +378,7 @@ struct ComponentExecutor {
         }
 
         // Try supplementary checks (component-specific extras)
-        for check in component.supplementaryChecks {
+        for check in component.supplementaryChecks(nil, Environment()) {
             if case .pass = check.check() { return true }
         }
 

@@ -35,7 +35,9 @@ struct ComponentDefinition: Identifiable {
 
     /// Additional doctor checks that cannot be auto-derived from installAction.
     /// Used for components with .shellCommand or multi-step verification needs.
-    let supplementaryChecks: [any DoctorCheck]
+    /// Factory closure defers construction to execution time so the caller can
+    /// supply the correct `projectRoot` and `Environment` for the current scope.
+    let supplementaryChecks: @Sendable (URL?, Environment) -> [any DoctorCheck]
 
     init(
         id: String,
@@ -47,7 +49,7 @@ struct ComponentDefinition: Identifiable {
         isRequired: Bool,
         hookEvent: String? = nil,
         installAction: ComponentInstallAction,
-        supplementaryChecks: [any DoctorCheck] = []
+        supplementaryChecks: @escaping @Sendable (URL?, Environment) -> [any DoctorCheck] = { _, _ in [] }
     ) {
         self.id = id
         self.displayName = displayName
@@ -60,6 +62,34 @@ struct ComponentDefinition: Identifiable {
         self.installAction = installAction
         self.supplementaryChecks = supplementaryChecks
     }
+
+    #if DEBUG
+    /// Convenience initializer accepting a static array of checks (used in tests).
+    init(
+        id: String,
+        displayName: String,
+        description: String,
+        type: ComponentType,
+        packIdentifier: String?,
+        dependencies: [String],
+        isRequired: Bool,
+        hookEvent: String? = nil,
+        installAction: ComponentInstallAction,
+        supplementaryChecks checks: [any DoctorCheck]
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.description = description
+        self.type = type
+        self.packIdentifier = packIdentifier
+        self.dependencies = dependencies
+        self.isRequired = isRequired
+        self.hookEvent = hookEvent
+        self.installAction = installAction
+        let captured = checks
+        supplementaryChecks = { _, _ in captured }
+    }
+    #endif
 }
 
 /// How to install a component

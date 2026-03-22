@@ -28,8 +28,8 @@ enum Constants {
         /// The process lock file preventing concurrent mcs execution.
         static let mcsLock = "lock"
 
-        /// The timestamp file for update check cooldown.
-        static let lastUpdateCheck = "last-update-check"
+        /// The update check cache file (timestamp + results).
+        static let updateCheckCache = "update-check.json"
 
         /// The user preferences file.
         static let mcsConfig = "config.yaml"

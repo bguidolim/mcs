@@ -70,50 +70,82 @@ struct UpdateChecker {
 
     // MARK: - Result Types
 
-    struct PackUpdate {
+    struct PackUpdate: Codable {
         let identifier: String
         let displayName: String
         let localSHA: String
         let remoteSHA: String
     }
 
-    struct CLIUpdate {
+    struct CLIUpdate: Codable {
         let currentVersion: String
         let latestVersion: String
     }
 
-    struct CheckResult {
+    struct CheckResult: Codable {
         let packUpdates: [PackUpdate]
         let cliUpdate: CLIUpdate?
 
         var isEmpty: Bool {
             packUpdates.isEmpty && cliUpdate == nil
         }
+
+        private enum CodingKeys: String, CodingKey {
+            case packUpdates = "packs"
+            case cliUpdate = "cli"
+        }
     }
 
-    // MARK: - Cooldown
+    /// On-disk cache: check results + timestamp in a single JSON file.
+    struct CachedResult: Codable {
+        let timestamp: String
+        let result: CheckResult
+    }
 
-    /// Returns `true` if enough time has elapsed since the last check.
-    func shouldCheck(cooldownInterval: TimeInterval = UpdateChecker.cooldownInterval) -> Bool {
-        guard let raw = try? String(contentsOf: environment.lastUpdateCheckFile, encoding: .utf8) else {
-            return true
+    // MARK: - Cache
+
+    /// Load the cached check result. Returns nil if missing, corrupt, or CLI version changed.
+    func loadCache() -> CachedResult? {
+        guard let data = try? Data(contentsOf: environment.updateCheckCacheFile),
+              let cached = try? JSONDecoder().decode(CachedResult.self, from: data)
+        else {
+            return nil
         }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let lastCheck = ISO8601DateFormatter().date(from: trimmed)
+        // Invalidate if the CLI version changed (user upgraded mcs)
+        if let cli = cached.result.cliUpdate,
+           cli.currentVersion != MCSVersion.current {
+            return nil
+        }
+        return cached
+    }
+
+    /// Save check results to the cache file.
+    func saveCache(_ result: CheckResult) {
+        let cached = CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            result: result
+        )
+        let dir = environment.updateCheckCacheFile.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(cached) else { return }
+        try? data.write(to: environment.updateCheckCacheFile, options: .atomic)
+    }
+
+    /// Delete the cache file (e.g., after `mcs pack update`).
+    static func invalidateCache(environment: Environment) {
+        try? FileManager.default.removeItem(at: environment.updateCheckCacheFile)
+    }
+
+    /// Returns `true` if the cache is stale or missing.
+    func isCacheStale(cooldownInterval: TimeInterval = UpdateChecker.cooldownInterval) -> Bool {
+        guard let cached = loadCache(),
+              let lastCheck = ISO8601DateFormatter().date(from: cached.timestamp)
         else {
             return true
         }
         return Date().timeIntervalSince(lastCheck) >= cooldownInterval
-    }
-
-    /// Record the current time as the last check timestamp.
-    func recordCheckTimestamp() {
-        let formatter = ISO8601DateFormatter()
-        let timestamp = formatter.string(from: Date())
-        let dir = environment.lastUpdateCheckFile.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? timestamp.write(to: environment.lastUpdateCheckFile, atomically: true, encoding: .utf8)
     }
 
     // MARK: - Pack Checks
@@ -177,26 +209,27 @@ struct UpdateChecker {
     // MARK: - Combined Check
 
     /// Run all enabled checks.
-    /// - `isHook: true` — running as a SessionStart hook: respects cooldown, records timestamp
-    /// - `isHook: false` (default) — user-invoked: always checks, never records timestamp
+    /// - `isHook: true` — SessionStart hook: returns cached results if fresh, otherwise checks + caches
+    /// - `isHook: false` (default) — user-invoked: always does network checks + updates cache
     func performCheck(
         entries: [PackRegistryFile.PackEntry],
         isHook: Bool = false,
         checkPacks: Bool,
         checkCLI: Bool
     ) -> CheckResult {
-        if isHook, !shouldCheck() {
-            return CheckResult(packUpdates: [], cliUpdate: nil)
+        // Hook mode: return cached results if still fresh
+        if isHook, !isCacheStale() {
+            return loadCache()?.result ?? CheckResult(packUpdates: [], cliUpdate: nil)
         }
 
         let packUpdates = checkPacks ? checkPackUpdates(entries: entries) : []
         let cliUpdate = checkCLI ? checkCLIVersion(currentVersion: MCSVersion.current) : nil
+        let result = CheckResult(packUpdates: packUpdates, cliUpdate: cliUpdate)
 
-        if isHook {
-            recordCheckTimestamp()
-        }
+        // Always save to cache so the hook can serve fresh data between network checks
+        saveCache(result)
 
-        return CheckResult(packUpdates: packUpdates, cliUpdate: cliUpdate)
+        return result
     }
 
     // MARK: - Output Formatting

@@ -97,9 +97,9 @@ struct Environment {
         mcsDirectory.appendingPathComponent(Constants.FileNames.mcsLock)
     }
 
-    /// Timestamp file for update check cooldown (`~/.mcs/last-update-check`).
-    var lastUpdateCheckFile: URL {
-        mcsDirectory.appendingPathComponent(Constants.FileNames.lastUpdateCheck)
+    /// Update check cache file (`~/.mcs/update-check.json`).
+    var updateCheckCacheFile: URL {
+        mcsDirectory.appendingPathComponent(Constants.FileNames.updateCheckCache)
     }
 
     /// User preferences file (`~/.mcs/config.yaml`).

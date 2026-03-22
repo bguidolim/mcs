@@ -688,6 +688,8 @@ struct UpdatePack: LockedCommand {
                 ctx.output.error("Failed to save registry: \(error.localizedDescription)")
                 throw ExitCode.failure
             }
+            // Invalidate update check cache so the next hook re-checks
+            UpdateChecker.invalidateCache(environment: ctx.env)
             ctx.output.plain("")
             ctx.output.info("Run 'mcs sync' to apply updated pack components.")
         }

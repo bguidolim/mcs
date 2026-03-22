@@ -2,9 +2,9 @@ import Foundation
 @testable import mcs
 import Testing
 
-// MARK: - Cooldown Tests
+// MARK: - Cache Tests
 
-struct UpdateCheckerCooldownTests {
+struct UpdateCheckerCacheTests {
     private func makeTmpDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("mcs-updatechecker-test-\(UUID().uuidString)")
@@ -18,79 +18,117 @@ struct UpdateCheckerCooldownTests {
         return UpdateChecker(environment: env, shell: shell)
     }
 
-    @Test("shouldCheck returns true when file does not exist")
-    func shouldCheckWhenFileMissing() throws {
+    private func writeCacheFile(at env: Environment, timestamp: Date, result: UpdateChecker.CheckResult) throws {
+        let cached = UpdateChecker.CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: timestamp),
+            result: result
+        )
+        let dir = env.updateCheckCacheFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(cached)
+        try data.write(to: env.updateCheckCacheFile, options: .atomic)
+    }
+
+    private var emptyResult: UpdateChecker.CheckResult {
+        UpdateChecker.CheckResult(packUpdates: [], cliUpdate: nil)
+    }
+
+    @Test("isCacheStale returns true when file does not exist")
+    func staleWhenFileMissing() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let checker = makeChecker(home: tmpDir)
-        #expect(checker.shouldCheck())
+        #expect(checker.isCacheStale())
     }
 
-    @Test("shouldCheck returns true when timestamp is expired")
-    func shouldCheckWhenExpired() throws {
+    @Test("isCacheStale returns true when timestamp is expired")
+    func staleWhenExpired() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        try writeCacheFile(at: env, timestamp: Date().addingTimeInterval(-700_000), result: emptyResult)
+
+        let checker = makeChecker(home: tmpDir)
+        #expect(checker.isCacheStale())
+    }
+
+    @Test("isCacheStale returns false when timestamp is fresh")
+    func freshWhenRecent() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        try writeCacheFile(at: env, timestamp: Date().addingTimeInterval(-3600), result: emptyResult)
+
+        let checker = makeChecker(home: tmpDir)
+        #expect(!checker.isCacheStale())
+    }
+
+    @Test("isCacheStale returns true when file content is corrupt")
+    func staleWhenCorrupt() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let env = Environment(home: tmpDir)
         let mcsDir = tmpDir.appendingPathComponent(".mcs")
         try FileManager.default.createDirectory(at: mcsDir, withIntermediateDirectories: true)
-
-        let formatter = ISO8601DateFormatter()
-        let oldDate = Date().addingTimeInterval(-700_000) // ~8 days ago
-        let timestamp = formatter.string(from: oldDate)
-        try timestamp.write(to: env.lastUpdateCheckFile, atomically: true, encoding: .utf8)
+        try "not-json".write(to: env.updateCheckCacheFile, atomically: true, encoding: .utf8)
 
         let checker = makeChecker(home: tmpDir)
-        #expect(checker.shouldCheck())
+        #expect(checker.isCacheStale())
     }
 
-    @Test("shouldCheck returns false when timestamp is fresh")
-    func shouldCheckWhenFresh() throws {
-        let tmpDir = try makeTmpDir()
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let env = Environment(home: tmpDir)
-        let mcsDir = tmpDir.appendingPathComponent(".mcs")
-        try FileManager.default.createDirectory(at: mcsDir, withIntermediateDirectories: true)
-
-        let formatter = ISO8601DateFormatter()
-        let recentDate = Date().addingTimeInterval(-3600) // 1 hour ago
-        let timestamp = formatter.string(from: recentDate)
-        try timestamp.write(to: env.lastUpdateCheckFile, atomically: true, encoding: .utf8)
-
-        let checker = makeChecker(home: tmpDir)
-        #expect(!checker.shouldCheck())
-    }
-
-    @Test("shouldCheck returns true when file content is corrupt")
-    func shouldCheckWhenCorrupt() throws {
-        let tmpDir = try makeTmpDir()
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let env = Environment(home: tmpDir)
-        let mcsDir = tmpDir.appendingPathComponent(".mcs")
-        try FileManager.default.createDirectory(at: mcsDir, withIntermediateDirectories: true)
-
-        try "not-a-date".write(to: env.lastUpdateCheckFile, atomically: true, encoding: .utf8)
-
-        let checker = makeChecker(home: tmpDir)
-        #expect(checker.shouldCheck())
-    }
-
-    @Test("recordCheckTimestamp writes a parseable ISO8601 timestamp")
-    func recordTimestamp() throws {
+    @Test("saveCache writes a decodable cache file")
+    func saveCacheRoundtrip() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let checker = makeChecker(home: tmpDir)
-        checker.recordCheckTimestamp()
+        let result = UpdateChecker.CheckResult(
+            packUpdates: [UpdateChecker.PackUpdate(
+                identifier: "test", displayName: "Test", localSHA: "aaa", remoteSHA: "bbb"
+            )],
+            cliUpdate: nil
+        )
+        checker.saveCache(result)
+
+        let cached = checker.loadCache()
+        #expect(cached != nil)
+        #expect(cached?.result.packUpdates.count == 1)
+        #expect(cached?.result.packUpdates.first?.identifier == "test")
+    }
+
+    @Test("loadCache returns nil when CLI version changed")
+    func cacheInvalidatedOnCLIUpgrade() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         let env = Environment(home: tmpDir)
-        let content = try String(contentsOf: env.lastUpdateCheckFile, encoding: .utf8)
-        let formatter = ISO8601DateFormatter()
-        let date = formatter.date(from: content.trimmingCharacters(in: .whitespacesAndNewlines))
-        #expect(date != nil)
+        let staleResult = UpdateChecker.CheckResult(
+            packUpdates: [],
+            cliUpdate: UpdateChecker.CLIUpdate(currentVersion: "1999.1.1", latestVersion: "2000.1.1")
+        )
+        try writeCacheFile(at: env, timestamp: Date(), result: staleResult)
+
+        let checker = makeChecker(home: tmpDir)
+        #expect(checker.loadCache() == nil)
+    }
+
+    @Test("invalidateCache deletes the cache file")
+    func invalidateCache() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let checker = makeChecker(home: tmpDir)
+        checker.saveCache(emptyResult)
+
+        let env = Environment(home: tmpDir)
+        #expect(FileManager.default.fileExists(atPath: env.updateCheckCacheFile.path))
+
+        UpdateChecker.invalidateCache(environment: env)
+        #expect(!FileManager.default.fileExists(atPath: env.updateCheckCacheFile.path))
     }
 }
 

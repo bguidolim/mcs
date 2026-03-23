@@ -157,7 +157,9 @@ struct CLIOutput {
     func doctorSummary(passed: Int, fixed: Int, warnings: Int, issues: Int) {
         var parts: [String] = []
         parts.append("\(blue)\(passed) passed\(reset)")
-        parts.append("\(green)\(fixed) fixed\(reset)")
+        if fixed > 0 {
+            parts.append("\(green)\(fixed) fixed\(reset)")
+        }
         parts.append("\(yellow)\(warnings) warnings\(reset)")
         parts.append("\(red)\(issues) issues\(reset)")
         write(parts.joined(separator: "  ") + "\n")

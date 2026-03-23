@@ -768,4 +768,54 @@ struct SettingsMergeTests {
         #expect(entry.isAsync == true)
         #expect(entry.statusMessage == "Initializing...")
     }
+
+    // MARK: - removeHookEntry
+
+    @Test("removeHookEntry removes matching command and returns true")
+    func removeHookEntryRemovesMatch() {
+        var settings = Settings()
+        settings.addHookEntry(event: "SessionStart", command: "mcs check-updates --hook", timeout: 30)
+        settings.addHookEntry(event: "SessionStart", command: "bash .claude/hooks/startup.sh")
+
+        let removed = settings.removeHookEntry(event: "SessionStart", command: "mcs check-updates --hook")
+        #expect(removed)
+        #expect(settings.hooks?["SessionStart"]?.count == 1)
+        #expect(settings.hooks?["SessionStart"]?.first?.hooks?.first?.command == "bash .claude/hooks/startup.sh")
+    }
+
+    @Test("removeHookEntry returns false when event does not exist")
+    func removeHookEntryMissingEvent() {
+        var settings = Settings()
+        let removed = settings.removeHookEntry(event: "SessionStart", command: "mcs check-updates --hook")
+        #expect(!removed)
+    }
+
+    @Test("removeHookEntry returns false when command does not match")
+    func removeHookEntryNoMatch() {
+        var settings = Settings()
+        settings.addHookEntry(event: "SessionStart", command: "bash .claude/hooks/startup.sh")
+
+        let removed = settings.removeHookEntry(event: "SessionStart", command: "nonexistent")
+        #expect(!removed)
+        #expect(settings.hooks?["SessionStart"]?.count == 1)
+    }
+
+    @Test("removeHookEntry cleans up event key when last hook removed")
+    func removeHookEntryCleanupEvent() {
+        var settings = Settings()
+        settings.addHookEntry(event: "SessionStart", command: "mcs check-updates --hook")
+
+        let removed = settings.removeHookEntry(event: "SessionStart", command: "mcs check-updates --hook")
+        #expect(removed)
+        #expect(settings.hooks?["SessionStart"] == nil)
+    }
+
+    @Test("removeHookEntry nils hooks when last event removed")
+    func removeHookEntryNilsHooks() {
+        var settings = Settings()
+        settings.addHookEntry(event: "SessionStart", command: "mcs check-updates --hook")
+
+        settings.removeHookEntry(event: "SessionStart", command: "mcs check-updates --hook")
+        #expect(settings.hooks == nil)
+    }
 }

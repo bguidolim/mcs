@@ -160,7 +160,7 @@ The perfect complement to `mcs`: configure your environment with `mcs`, then use
 
 | Document | Description |
 |----------|-------------|
-| 📖 [CLI Reference](docs/cli.md) | Complete command reference (`sync`, `pack`, `doctor`, `export`, `cleanup`) |
+| 📖 [CLI Reference](docs/cli.md) | Complete command reference (`sync`, `pack`, `doctor`, `export`, `cleanup`, `check-updates`, `config`) |
 | 📖 [Creating Tech Packs](docs/creating-tech-packs.md) | Step-by-step guide to building your first pack |
 | 📋 [Tech Pack Schema](docs/techpack-schema.md) | Complete `techpack.yaml` field reference |
 | 🏗️ [Architecture](docs/architecture.md) | Internal design, sync flow, safety guarantees, and extension points |

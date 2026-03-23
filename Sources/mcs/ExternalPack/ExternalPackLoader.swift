@@ -265,6 +265,14 @@ enum VersionCompare {
         return currentParts.patch >= requiredParts.patch
     }
 
+    /// Check if `candidate` is strictly newer than `current`.
+    static func isNewer(candidate: String, than current: String) -> Bool {
+        guard let a = parse(candidate), let b = parse(current) else { return false }
+        if a.major != b.major { return a.major > b.major }
+        if a.minor != b.minor { return a.minor > b.minor }
+        return a.patch > b.patch
+    }
+
     /// Parse a version string into (major, minor, patch) components.
     /// Strips pre-release suffixes (e.g., "2.1.0-alpha" → 2.1.0).
     /// Returns nil if the string does not contain at least three numeric components.

@@ -205,7 +205,7 @@ struct GlobalSettingsCompositionTests {
                 packIdentifier: "test-pack",
                 dependencies: [],
                 isRequired: true,
-                hookRegistration: HookRegistration(event: "SessionStart"),
+                hookRegistration: HookRegistration(event: .sessionStart),
                 installAction: .copyPackFile(
                     source: hookSource,
                     destination: "start.sh",
@@ -251,7 +251,7 @@ struct GlobalSettingsCompositionTests {
                 packIdentifier: "test-pack",
                 dependencies: [],
                 isRequired: true,
-                hookRegistration: HookRegistration(event: "SessionStart"),
+                hookRegistration: HookRegistration(event: .sessionStart),
                 installAction: .copyPackFile(
                     source: hookSource,
                     destination: "start.sh",
@@ -292,7 +292,7 @@ struct GlobalSettingsCompositionTests {
                 packIdentifier: "test-pack",
                 dependencies: [],
                 isRequired: true,
-                hookRegistration: HookRegistration(event: "SessionStart"),
+                hookRegistration: HookRegistration(event: .sessionStart),
                 installAction: .copyPackFile(
                     source: settingsPath, // dummy, won't be reached
                     destination: "hook.sh",
@@ -351,7 +351,7 @@ struct GlobalSettingsCompositionTests {
                 packIdentifier: "test-pack",
                 dependencies: [],
                 isRequired: true,
-                hookRegistration: HookRegistration(event: "SessionStart"),
+                hookRegistration: HookRegistration(event: .sessionStart),
                 installAction: .copyPackFile(
                     source: hookSource,
                     destination: "start.sh",
@@ -812,7 +812,7 @@ struct GlobalUnconfigurePackTests {
                 packIdentifier: "test-pack",
                 dependencies: [],
                 isRequired: true,
-                hookRegistration: HookRegistration(event: "SessionStart"),
+                hookRegistration: HookRegistration(event: .sessionStart),
                 installAction: .copyPackFile(
                     source: hookSource,
                     destination: "hook.sh",
@@ -1144,5 +1144,86 @@ struct GlobalStateAndIndexTests {
         let globalProjects = index.projects(withPack: "test-pack", in: data)
         let globalEntry = globalProjects.first { $0.path == ProjectIndex.globalSentinel }
         #expect(globalEntry != nil)
+    }
+}
+
+// MARK: - Global Hook Injection Tests
+
+struct GlobalHookInjectionTests {
+    @Test("Global sync injects update check hook when config enabled")
+    func globalSyncInjectsHook() throws {
+        let tmpDir = try makeGlobalTmpDir(label: "hook-inject")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        var config = MCSConfig()
+        config.updateCheckPacks = true
+        try config.save(to: env.mcsConfigFile)
+
+        // Create empty settings.json so the strategy can load it
+        try "{}".write(to: env.claudeSettings, atomically: true, encoding: .utf8)
+
+        let configurator = makeGlobalConfigurator(home: tmpDir)
+        let pack = MockTechPack(identifier: "test-pack", displayName: "Test", components: [])
+        try configurator.configure(packs: [pack], confirmRemovals: false, excludedComponents: [:])
+
+        let settings = try Settings.load(from: env.claudeSettings)
+        let groups = settings.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? []
+        let commands = groups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
+        #expect(commands.contains(UpdateChecker.hookCommand))
+    }
+
+    @Test("Global sync strips old hook and re-injects current version")
+    func globalSyncConvergesHook() throws {
+        let tmpDir = try makeGlobalTmpDir(label: "hook-converge")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        var config = MCSConfig()
+        config.updateCheckPacks = true
+        try config.save(to: env.mcsConfigFile)
+
+        // Pre-populate settings with the hook
+        var initial = Settings()
+        UpdateChecker.addHook(to: &initial)
+        try initial.save(to: env.claudeSettings)
+
+        // Sync should strip and re-inject (idempotent)
+        let configurator = makeGlobalConfigurator(home: tmpDir)
+        let pack = MockTechPack(identifier: "test-pack", displayName: "Test", components: [])
+        try configurator.configure(packs: [pack], confirmRemovals: false, excludedComponents: [:])
+
+        let settings = try Settings.load(from: env.claudeSettings)
+        let groups = settings.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? []
+        let commands = groups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
+        #expect(commands.contains(UpdateChecker.hookCommand))
+        // Verify no duplicates
+        #expect(commands.count(where: { $0 == UpdateChecker.hookCommand }) == 1)
+    }
+
+    @Test("Global sync removes hook when config disabled")
+    func globalSyncRemovesHookWhenDisabled() throws {
+        let tmpDir = try makeGlobalTmpDir(label: "hook-remove")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        var config = MCSConfig()
+        config.updateCheckPacks = false
+        config.updateCheckCLI = false
+        try config.save(to: env.mcsConfigFile)
+
+        // Pre-populate settings with the hook
+        var initial = Settings()
+        UpdateChecker.addHook(to: &initial)
+        try initial.save(to: env.claudeSettings)
+
+        let configurator = makeGlobalConfigurator(home: tmpDir)
+        let pack = MockTechPack(identifier: "test-pack", displayName: "Test", components: [])
+        try configurator.configure(packs: [pack], confirmRemovals: false, excludedComponents: [:])
+
+        let settings = try Settings.load(from: env.claudeSettings)
+        let groups = settings.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? []
+        let commands = groups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
+        #expect(!commands.contains(UpdateChecker.hookCommand))
     }
 }

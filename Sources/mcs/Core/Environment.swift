@@ -97,6 +97,16 @@ struct Environment {
         mcsDirectory.appendingPathComponent(Constants.FileNames.mcsLock)
     }
 
+    /// Update check cache file (`~/.mcs/update-check.json`).
+    var updateCheckCacheFile: URL {
+        mcsDirectory.appendingPathComponent(Constants.FileNames.updateCheckCache)
+    }
+
+    /// User preferences file (`~/.mcs/config.yaml`).
+    var mcsConfigFile: URL {
+        mcsDirectory.appendingPathComponent(Constants.FileNames.mcsConfig)
+    }
+
     /// PATH string that includes the Homebrew bin directory.
     var pathWithBrew: String {
         let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"

@@ -66,14 +66,8 @@ extension ExternalPackManifest {
                 }
                 seenComponentIDs.insert(component.id)
 
-                // Validate hook registration
+                // Validate hook registration metadata
                 if let reg = component.hookRegistration {
-                    guard Constants.Hooks.validEvents.contains(reg.event) else {
-                        throw ManifestError.invalidHookEvent(
-                            componentID: component.id,
-                            hookEvent: reg.event
-                        )
-                    }
                     if let timeout = reg.timeout, timeout <= 0 {
                         throw ManifestError.invalidHookMetadata(
                             componentID: component.id,
@@ -169,7 +163,7 @@ extension ExternalPackManifest {
             guard let event = check.event, !event.isEmpty else {
                 throw ManifestError.invalidDoctorCheck(name: check.name, reason: "hookEventExists requires non-empty 'event'")
             }
-            guard Constants.Hooks.validEvents.contains(event) else {
+            guard Constants.HookEvent.validRawValues.contains(event) else {
                 throw ManifestError.invalidDoctorCheck(name: check.name, reason: "hookEventExists has unknown event '\(event)'")
             }
         case .settingsKeyEquals:
@@ -247,7 +241,6 @@ enum ManifestError: Error, Equatable, LocalizedError {
     case dotInRawID(String)
     case templateDependencyMismatch(sectionIdentifier: String, componentID: String)
     case unresolvedDependency(componentID: String, dependency: String)
-    case invalidHookEvent(componentID: String, hookEvent: String)
     case invalidHookMetadata(componentID: String, reason: String)
 
     var errorDescription: String? {
@@ -274,8 +267,6 @@ enum ManifestError: Error, Equatable, LocalizedError {
             "ID '\(id)' must not contain dots — use a short name and the pack prefix will be added automatically"
         case let .unresolvedDependency(componentID, dependency):
             "Component '\(componentID)' depends on '\(dependency)' which does not exist in the pack"
-        case let .invalidHookEvent(componentID, hookEvent):
-            "Component '\(componentID)' has unknown hookEvent '\(hookEvent)'"
         case let .invalidHookMetadata(componentID, reason):
             "Component '\(componentID)': \(reason)"
         }
@@ -380,11 +371,19 @@ struct ExternalComponentDefinition: Codable {
         description = try container.decode(String.self, forKey: .description)
         dependencies = try container.decodeIfPresent([String].self, forKey: .dependencies)
         isRequired = try container.decodeIfPresent(Bool.self, forKey: .isRequired)
-        let hookEvent = try container.decodeIfPresent(String.self, forKey: .hookEvent)
+        let hookEventRaw = try container.decodeIfPresent(String.self, forKey: .hookEvent)
         let hookTimeout = try container.decodeIfPresent(Int.self, forKey: .hookTimeout)
         let hookAsync = try container.decodeIfPresent(Bool.self, forKey: .hookAsync)
         let hookStatusMessage = try container.decodeIfPresent(String.self, forKey: .hookStatusMessage)
-        if let hookEvent {
+        if let hookEventRaw {
+            guard let hookEvent = Constants.HookEvent(rawValue: hookEventRaw) else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: container.codingPath,
+                        debugDescription: "Component '\(id)': unknown hookEvent '\(hookEventRaw)'"
+                    )
+                )
+            }
             hookRegistration = HookRegistration(
                 event: hookEvent, timeout: hookTimeout, isAsync: hookAsync, statusMessage: hookStatusMessage
             )
@@ -423,7 +422,7 @@ struct ExternalComponentDefinition: Codable {
         try container.encode(type, forKey: .type)
         try container.encodeIfPresent(dependencies, forKey: .dependencies)
         try container.encodeIfPresent(isRequired, forKey: .isRequired)
-        try container.encodeIfPresent(hookRegistration?.event, forKey: .hookEvent)
+        try container.encodeIfPresent(hookRegistration?.event.rawValue, forKey: .hookEvent)
         try container.encodeIfPresent(hookRegistration?.timeout, forKey: .hookTimeout)
         try container.encodeIfPresent(hookRegistration?.isAsync, forKey: .hookAsync)
         try container.encodeIfPresent(hookRegistration?.statusMessage, forKey: .hookStatusMessage)

@@ -43,6 +43,12 @@ mcs export <dir> --global        # Export global scope (~/.claude/)
 mcs export <dir> --identifier id # Set pack identifier (prompted if omitted)
 mcs export <dir> --non-interactive  # Include everything without prompts
 mcs export <dir> --dry-run       # Preview what would be exported
+mcs check-updates                # Check for pack and CLI updates
+mcs check-updates --hook         # Run as SessionStart hook (7-day cooldown, respects config)
+mcs check-updates --json         # Machine-readable JSON output
+mcs config list                  # Show all settings with current values
+mcs config get <key>             # Get a specific setting value
+mcs config set <key> <value>     # Set a configuration value (true/false)
 ```
 
 ## Architecture
@@ -71,6 +77,8 @@ mcs export <dir> --dry-run       # Preview what would be exported
 - `ProjectState.swift` — per-project `.claude/.mcs-project` JSON state (configured packs, per-pack `PackArtifactRecord` with ownership tracking, version)
 - `ProjectIndex.swift` — cross-project index (`~/.mcs/projects.yaml`) mapping project paths to pack IDs for reference counting
 - `MCSError.swift` — error types for the CLI
+- `MCSConfig.swift` — user preferences (`~/.mcs/config.yaml`) with update-check-packs and update-check-cli keys
+- `UpdateChecker.swift` — pack freshness checks (`git ls-remote`), CLI version checks (`git ls-remote --tags`), cooldown management
 
 ### TechPack System (`Sources/mcs/TechPack/`)
 - `TechPack.swift` — protocol for tech packs (components, templates, hooks, doctor checks, project configuration)
@@ -104,6 +112,8 @@ mcs export <dir> --dry-run       # Preview what would be exported
 - `CleanupCommand.swift` — backup file management with --force flag
 - `PackCommand.swift` — `mcs pack add/remove/list/update` subcommands; uses `PackSourceResolver` for 3-tier input detection (URL schemes → filesystem paths → GitHub shorthand)
 - `ExportCommand.swift` — export wizard: reads live configuration and generates a reusable tech pack directory; supports `--global`, `--identifier`, `--non-interactive`, `--dry-run`
+- `CheckUpdatesCommand.swift` — lightweight update checker for packs (`git ls-remote`) and CLI version (`git ls-remote --tags`); respects config keys and 7-day cooldown
+- `ConfigCommand.swift` — `mcs config list/get/set` for managing user preferences; `set` immediately syncs the SessionStart hook in `~/.claude/settings.json`
 
 ### Export (`Sources/mcs/Export/`)
 - `ConfigurationDiscovery.swift` — reads live config sources (settings, MCP servers, hooks, skills, CLAUDE.md, gitignore), produces `DiscoveredConfiguration` model

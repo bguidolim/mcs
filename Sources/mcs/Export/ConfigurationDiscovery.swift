@@ -237,13 +237,16 @@ struct ConfigurationDiscovery {
         for (event, groups) in hooks {
             for group in groups {
                 for entry in group.hooks ?? [] {
-                    if let command = entry.command {
+                    guard let command = entry.command else { continue }
+                    if let hookEvent = Constants.HookEvent(rawValue: event) {
                         commandToReg[command] = HookRegistration(
-                            event: event,
+                            event: hookEvent,
                             timeout: entry.timeout,
                             isAsync: entry.isAsync,
                             statusMessage: entry.statusMessage
                         )
+                    } else {
+                        output.warn("Skipping hook with unknown event '\(event)' — mcs may need to be updated")
                     }
                 }
             }

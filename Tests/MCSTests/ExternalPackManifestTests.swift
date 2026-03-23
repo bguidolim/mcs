@@ -1898,7 +1898,7 @@ struct ExternalPackManifestTests {
 
     // MARK: - hookEvent validation
 
-    @Test("Validation rejects unknown hookEvent on component")
+    @Test("Decode rejects unknown hookEvent on component")
     func rejectUnknownHookEvent() throws {
         let yaml = """
         schemaVersion: 1
@@ -1921,20 +1921,14 @@ struct ExternalPackManifestTests {
         let file = tmpDir.appendingPathComponent("techpack.yaml")
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
-        let raw = try ExternalPackManifest.load(from: file)
-        let manifest = try raw.normalized()
-
-        #expect(throws: ManifestError.invalidHookEvent(
-            componentID: "my-pack.hook",
-            hookEvent: "BogusEvent"
-        )) {
-            try manifest.validate()
+        #expect(throws: (any Error).self) {
+            try ExternalPackManifest.load(from: file)
         }
     }
 
-    @Test("Validation accepts all known hookEvent values")
+    @Test("Decode accepts all known hookEvent values")
     func acceptKnownHookEvents() throws {
-        for event in Constants.Hooks.validEvents.sorted() {
+        for event in Constants.HookEvent.allCases.map(\.rawValue) {
             let yaml = """
             schemaVersion: 1
             identifier: my-pack
@@ -2306,7 +2300,7 @@ struct ExternalPackManifestTests {
         let comp = try #require(manifest.components?.first)
 
         #expect(comp.type == .hookFile)
-        #expect(comp.hookRegistration?.event == "SessionStart")
+        #expect(comp.hookRegistration?.event == .sessionStart)
         guard case let .copyPackFile(config) = comp.installAction else {
             Issue.record("Expected copyPackFile"); return
         }
@@ -2344,7 +2338,7 @@ struct ExternalPackManifestTests {
         let manifest = try ExternalPackManifest.load(from: file)
         let comp = try #require(manifest.components?.first)
 
-        #expect(comp.hookRegistration?.event == "PostToolUse")
+        #expect(comp.hookRegistration?.event == .postToolUse)
         #expect(comp.hookRegistration?.timeout == 30)
         #expect(comp.hookRegistration?.isAsync == true)
         #expect(comp.hookRegistration?.statusMessage == "Running lint...")
@@ -2813,7 +2807,7 @@ struct ExternalPackManifestTests {
         #expect(comp.type == .hookFile)
         #expect(comp.dependencies == ["my-pack.jq"])
         #expect(comp.isRequired == true)
-        #expect(comp.hookRegistration?.event == "SessionStart")
+        #expect(comp.hookRegistration?.event == .sessionStart)
         #expect(comp.doctorChecks?.count == 1)
     }
 }

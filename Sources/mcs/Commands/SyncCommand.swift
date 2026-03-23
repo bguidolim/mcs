@@ -196,6 +196,7 @@ struct SyncCommand: LockedCommand {
         } catch {
             output.warn("Could not save config: \(error.localizedDescription)")
         }
+        UpdateChecker.syncHook(config: config, env: env, output: output)
         return config
     }
 

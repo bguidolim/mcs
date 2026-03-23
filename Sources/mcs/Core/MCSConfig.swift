@@ -32,12 +32,12 @@ struct MCSConfig: Codable {
 
     static let knownKeys: [ConfigKey] = [
         ConfigKey(
-            key: "update-check-packs",
+            key: CodingKeys.updateCheckPacks.rawValue,
             description: "Automatically check for tech pack updates on Claude Code session start",
             defaultValue: "false"
         ),
         ConfigKey(
-            key: "update-check-cli",
+            key: CodingKeys.updateCheckCLI.rawValue,
             description: "Automatically check for new mcs versions on Claude Code session start",
             defaultValue: "false"
         ),

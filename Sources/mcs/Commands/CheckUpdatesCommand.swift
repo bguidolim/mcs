@@ -31,8 +31,8 @@ struct CheckUpdatesCommand: ParsableCommand {
         if hook {
             // Hook mode: respect config keys
             let config = MCSConfig.load(from: env.mcsConfigFile)
-            checkPacks = config.updateCheckPacks ?? true
-            checkCLI = config.updateCheckCLI ?? true
+            checkPacks = config.updateCheckPacks ?? false
+            checkCLI = config.updateCheckCLI ?? false
         } else {
             // User-invoked: always check both
             checkPacks = true

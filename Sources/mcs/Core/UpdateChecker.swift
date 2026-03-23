@@ -217,9 +217,11 @@ struct UpdateChecker {
         checkPacks: Bool,
         checkCLI: Bool
     ) -> CheckResult {
-        // Hook mode: return cached results if still fresh
-        if isHook, !isCacheStale() {
-            return loadCache()?.result ?? CheckResult(packUpdates: [], cliUpdate: nil)
+        // Hook mode: serve cached results if still fresh (single disk read)
+        if isHook, let cached = loadCache(),
+           let lastCheck = ISO8601DateFormatter().date(from: cached.timestamp),
+           Date().timeIntervalSince(lastCheck) < Self.cooldownInterval {
+            return cached.result
         }
 
         let packUpdates = checkPacks ? checkPackUpdates(entries: entries) : []
@@ -275,7 +277,10 @@ struct UpdateChecker {
     /// Uses strong directive language to ensure Claude relays the notification.
     private static func buildContextString(_ result: CheckResult) -> String {
         var lines: [String] = []
-        lines.append("STOP. Before doing ANY work, you MUST relay the following update notifications to the user. This is non-negotiable even if the user's message is a task request.")
+        lines.append(
+            "STOP. Before doing ANY work, you MUST relay the following update notifications to the user."
+                + " This is non-negotiable even if the user's message is a task request."
+        )
         lines.append("")
         if let cli = result.cliUpdate {
             lines.append(

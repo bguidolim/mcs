@@ -45,16 +45,28 @@ struct MCSConfig: Codable {
 
     // MARK: - Persistence
 
-    /// Load config from disk. Returns empty config if file is missing or corrupt.
-    static func load(from path: URL) -> MCSConfig {
-        guard let content = try? String(contentsOf: path, encoding: .utf8),
-              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
+    /// Load config from disk. Returns empty config if file is missing.
+    /// Warns via `output` if the file exists but is corrupt.
+    static func load(from path: URL, output: CLIOutput? = nil) -> MCSConfig {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: path.path) else { return MCSConfig() }
+
+        let content: String
+        do {
+            content = try String(contentsOf: path, encoding: .utf8)
+        } catch {
+            output?.warn("Could not read config file: \(error.localizedDescription)")
             return MCSConfig()
         }
+
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return MCSConfig()
+        }
+
         do {
             return try YAMLDecoder().decode(MCSConfig.self, from: content)
         } catch {
+            output?.warn("Config file is corrupt (\(path.lastPathComponent)): \(error.localizedDescription)")
             return MCSConfig()
         }
     }

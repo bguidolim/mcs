@@ -122,6 +122,92 @@ struct UpdateCheckerCacheTests {
     }
 }
 
+// MARK: - performCheck Tests
+
+struct UpdateCheckerPerformCheckTests {
+    private func makeTmpDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-performcheck-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeChecker(home: URL) -> UpdateChecker {
+        let env = Environment(home: home)
+        let shell = ShellRunner(environment: env)
+        return UpdateChecker(environment: env, shell: shell)
+    }
+
+    private func writeFreshCache(at env: Environment, result: UpdateChecker.CheckResult) throws {
+        let cached = UpdateChecker.CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            result: result
+        )
+        let dir = env.updateCheckCacheFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(cached)
+        try data.write(to: env.updateCheckCacheFile, options: .atomic)
+    }
+
+    @Test("Hook mode returns cached result when cache is fresh")
+    func hookModeReturnsCachedResult() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        let cachedResult = UpdateChecker.CheckResult(
+            packUpdates: [UpdateChecker.PackUpdate(
+                identifier: "cached-pack", displayName: "Cached", localSHA: "aaa", remoteSHA: "bbb"
+            )],
+            cliUpdate: nil
+        )
+        try writeFreshCache(at: env, result: cachedResult)
+
+        let checker = makeChecker(home: tmpDir)
+        let result = checker.performCheck(entries: [], isHook: true, checkPacks: true, checkCLI: false)
+
+        // Should return cached result, not do network calls (entries is empty so network would return nothing)
+        #expect(result.packUpdates.count == 1)
+        #expect(result.packUpdates.first?.identifier == "cached-pack")
+    }
+
+    @Test("User mode always does fresh check regardless of cache")
+    func userModeIgnoresCache() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        let cachedResult = UpdateChecker.CheckResult(
+            packUpdates: [UpdateChecker.PackUpdate(
+                identifier: "stale", displayName: "Stale", localSHA: "aaa", remoteSHA: "bbb"
+            )],
+            cliUpdate: nil
+        )
+        try writeFreshCache(at: env, result: cachedResult)
+
+        let checker = makeChecker(home: tmpDir)
+        // User mode (isHook: false, default) with no entries — should do fresh check, returning empty
+        let result = checker.performCheck(entries: [], checkPacks: true, checkCLI: false)
+
+        // Should NOT return cached "stale" pack — should do fresh check with empty entries
+        #expect(result.packUpdates.isEmpty)
+    }
+
+    @Test("performCheck saves cache after network check")
+    func savesCache() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        #expect(!FileManager.default.fileExists(atPath: env.updateCheckCacheFile.path))
+
+        let checker = makeChecker(home: tmpDir)
+        _ = checker.performCheck(entries: [], checkPacks: true, checkCLI: false)
+
+        #expect(FileManager.default.fileExists(atPath: env.updateCheckCacheFile.path))
+    }
+}
+
 // MARK: - Parsing Tests
 
 struct UpdateCheckerParsingTests {

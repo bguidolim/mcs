@@ -70,7 +70,7 @@ struct UpdateChecker {
         )
         if !result.isEmpty {
             output.plain("")
-            printHumanReadable(result, output: output)
+            printResult(result, output: output)
         }
     }
 
@@ -131,17 +131,30 @@ struct UpdateChecker {
             timestamp: ISO8601DateFormatter().string(from: Date()),
             result: result
         )
-        let dir = environment.updateCheckCacheFile.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(cached) else { return }
-        try? data.write(to: environment.updateCheckCacheFile, options: .atomic)
+        do {
+            let dir = environment.updateCheckCacheFile.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(cached)
+            try data.write(to: environment.updateCheckCacheFile, options: .atomic)
+        } catch {
+            // Cache write failure is non-fatal — next check will just redo network calls
+        }
     }
 
     /// Delete the cache file (e.g., after `mcs pack update`).
-    static func invalidateCache(environment: Environment) {
-        try? FileManager.default.removeItem(at: environment.updateCheckCacheFile)
+    /// Returns true if deleted or already absent; false on permission error.
+    @discardableResult
+    static func invalidateCache(environment: Environment) -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: environment.updateCheckCacheFile.path) else { return true }
+        do {
+            try fm.removeItem(at: environment.updateCheckCacheFile)
+            return true
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Pack Checks
@@ -236,7 +249,7 @@ struct UpdateChecker {
     /// In hook mode, outputs structured JSON with `additionalContext` for Claude Code.
     /// In user mode, outputs colored terminal text.
     @discardableResult
-    static func printHumanReadable(_ result: CheckResult, output: CLIOutput, isHook: Bool = false) -> Bool {
+    static func printResult(_ result: CheckResult, output: CLIOutput, isHook: Bool = false) -> Bool {
         guard !result.isEmpty else { return false }
 
         if isHook {
@@ -304,15 +317,30 @@ struct UpdateChecker {
     static func relevantPackIDs(environment: Environment) -> Set<String> {
         var ids = Set<String>()
 
-        // Global packs
-        if let globalState = try? ProjectState(stateFile: environment.globalStateFile) {
-            ids.formUnion(globalState.configuredPacks)
+        // Global packs — only load if the state file exists
+        let fm = FileManager.default
+        if fm.fileExists(atPath: environment.globalStateFile.path) {
+            do {
+                let globalState = try ProjectState(stateFile: environment.globalStateFile)
+                ids.formUnion(globalState.configuredPacks)
+            } catch {
+                // Corrupt state — fall through to check all packs (safe fallback)
+            }
         }
 
         // Project packs (detect from CWD)
-        if let projectRoot = ProjectDetector.findProjectRoot(),
-           let projectState = try? ProjectState(projectRoot: projectRoot) {
-            ids.formUnion(projectState.configuredPacks)
+        if let projectRoot = ProjectDetector.findProjectRoot() {
+            let statePath = projectRoot
+                .appendingPathComponent(Constants.FileNames.claudeDirectory)
+                .appendingPathComponent(Constants.FileNames.mcsProject)
+            if fm.fileExists(atPath: statePath.path) {
+                do {
+                    let projectState = try ProjectState(projectRoot: projectRoot)
+                    ids.formUnion(projectState.configuredPacks)
+                } catch {
+                    // Corrupt state — fall through to check all packs (safe fallback)
+                }
+            }
         }
 
         return ids

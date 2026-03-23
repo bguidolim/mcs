@@ -144,7 +144,7 @@ struct ProjectSyncStrategy: SyncStrategy {
         )
 
         // Inject first-party update check hook if enabled
-        let config = MCSConfig.load(from: environment.mcsConfigFile)
+        let config = MCSConfig.load(from: environment.mcsConfigFile, output: output)
         if config.isUpdateCheckEnabled {
             if UpdateChecker.addHook(to: &settings) { hasContent = true }
         }

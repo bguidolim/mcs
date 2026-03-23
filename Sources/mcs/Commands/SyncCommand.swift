@@ -182,7 +182,7 @@ struct SyncCommand: LockedCommand {
     /// Prompt for update notification preference on first interactive sync.
     @discardableResult
     private func promptForUpdateCheckIfNeeded(env: Environment, output: CLIOutput) -> MCSConfig {
-        var config = MCSConfig.load(from: env.mcsConfigFile)
+        var config = MCSConfig.load(from: env.mcsConfigFile, output: output)
 
         // Only prompt in interactive mode (no --pack, --all, or --dry-run) and if never configured
         let isInteractive = pack.isEmpty && !all && !dryRun

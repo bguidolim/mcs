@@ -203,23 +203,25 @@ struct GlobalSyncStrategy: SyncStrategy {
         )
 
         // Re-inject first-party update check hook if enabled
-        let config = MCSConfig.load(from: environment.mcsConfigFile)
+        let config = MCSConfig.load(from: environment.mcsConfigFile, output: output)
         if config.isUpdateCheckEnabled {
             if UpdateChecker.addHook(to: &settings) { hasContent = true }
         }
 
-        if hasContent {
-            do {
-                try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
+        // Always save in global scope — the file is loaded-then-modified, so stripping
+        // hooks or keys needs to be persisted even if no pack content was added.
+        do {
+            try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
+            if hasContent {
                 output.success("Composed settings.json (global)")
-            } catch {
-                output.error("Could not write settings.json: \(error.localizedDescription)")
-                output.error("Hooks and plugins will not be active. Re-run '\(scope.syncHint)' after fixing the issue.")
-                throw MCSError.fileOperationFailed(
-                    path: scope.settingsPath.path,
-                    reason: error.localizedDescription
-                )
             }
+        } catch {
+            output.error("Could not write settings.json: \(error.localizedDescription)")
+            output.error("Hooks and plugins will not be active. Re-run '\(scope.syncHint)' after fixing the issue.")
+            throw MCSError.fileOperationFailed(
+                path: scope.settingsPath.path,
+                reason: error.localizedDescription
+            )
         }
 
         let settingsHashes = ConfiguratorSupport.computeSettingsHashes(

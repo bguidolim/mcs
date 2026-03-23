@@ -20,7 +20,7 @@ struct ListConfig: ParsableCommand {
     func run() throws {
         let env = Environment()
         let output = CLIOutput()
-        let config = MCSConfig.load(from: env.mcsConfigFile)
+        let config = MCSConfig.load(from: env.mcsConfigFile, output: output)
 
         output.header("Configuration")
         output.plain("")
@@ -51,7 +51,7 @@ struct GetConfig: ParsableCommand {
     func run() throws {
         let env = Environment()
         let output = CLIOutput()
-        let config = MCSConfig.load(from: env.mcsConfigFile)
+        let config = MCSConfig.load(from: env.mcsConfigFile, output: output)
 
         guard MCSConfig.knownKeys.contains(where: { $0.key == key }) else {
             output.error("Unknown config key '\(key)'")
@@ -84,7 +84,7 @@ struct SetConfig: ParsableCommand {
     func run() throws {
         let env = Environment()
         let output = CLIOutput()
-        var config = MCSConfig.load(from: env.mcsConfigFile)
+        var config = MCSConfig.load(from: env.mcsConfigFile, output: output)
 
         guard MCSConfig.knownKeys.contains(where: { $0.key == key }) else {
             output.error("Unknown config key '\(key)'")

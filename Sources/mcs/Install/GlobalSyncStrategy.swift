@@ -168,7 +168,9 @@ struct GlobalSyncStrategy: SyncStrategy {
             )
         }
 
-        // Strip mcs-managed hook entries before re-composing
+        // Strip mcs-managed hook entries before re-composing.
+        // Track whether stripping removed anything so we persist the removal.
+        let groupCountBefore = settings.hooks?.values.reduce(0) { $0 + $1.count } ?? 0
         if var hooks = settings.hooks {
             for (event, groups) in hooks {
                 hooks[event] = groups.filter { group in
@@ -182,6 +184,8 @@ struct GlobalSyncStrategy: SyncStrategy {
             hooks = hooks.filter { !$0.value.isEmpty }
             settings.hooks = hooks.isEmpty ? nil : hooks
         }
+        let groupCountAfter = settings.hooks?.values.reduce(0) { $0 + $1.count } ?? 0
+        let strippedContent = groupCountAfter < groupCountBefore
 
         // Strip previously-tracked settings keys (enabledPlugins + settingsMerge extraJSON)
         // before re-composing, so removed components don't leave stale entries.
@@ -208,20 +212,20 @@ struct GlobalSyncStrategy: SyncStrategy {
             if UpdateChecker.addHook(to: &settings) { hasContent = true }
         }
 
-        // Always save in global scope — the file is loaded-then-modified, so stripping
-        // hooks or keys needs to be persisted even if no pack content was added.
-        do {
-            try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
-            if hasContent {
-                output.success("Composed settings.json (global)")
+        if hasContent || strippedContent {
+            do {
+                try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
+                if hasContent {
+                    output.success("Composed settings.json (global)")
+                }
+            } catch {
+                output.error("Could not write settings.json: \(error.localizedDescription)")
+                output.error("Hooks and plugins will not be active. Re-run '\(scope.syncHint)' after fixing the issue.")
+                throw MCSError.fileOperationFailed(
+                    path: scope.settingsPath.path,
+                    reason: error.localizedDescription
+                )
             }
-        } catch {
-            output.error("Could not write settings.json: \(error.localizedDescription)")
-            output.error("Hooks and plugins will not be active. Re-run '\(scope.syncHint)' after fixing the issue.")
-            throw MCSError.fileOperationFailed(
-                path: scope.settingsPath.path,
-                reason: error.localizedDescription
-            )
         }
 
         let settingsHashes = ConfiguratorSupport.computeSettingsHashes(

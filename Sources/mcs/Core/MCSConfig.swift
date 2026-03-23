@@ -7,7 +7,7 @@ struct MCSConfig: Codable {
     var updateCheckPacks: Bool?
     var updateCheckCLI: Bool?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case updateCheckPacks = "update-check-packs"
         case updateCheckCLI = "update-check-cli"
     }

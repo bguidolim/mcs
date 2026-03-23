@@ -171,10 +171,10 @@ struct MCSConfigTests {
 
     // MARK: - Known Keys
 
-    @Test("knownKeys contains both update check keys")
+    @Test("knownKeys covers all CodingKeys")
     func knownKeysComplete() {
-        let keys = MCSConfig.knownKeys.map(\.key)
-        #expect(keys.contains("update-check-packs"))
-        #expect(keys.contains("update-check-cli"))
+        let codingKeyValues = Set(MCSConfig.CodingKeys.allCases.map(\.rawValue))
+        let knownKeyValues = Set(MCSConfig.knownKeys.map(\.key))
+        #expect(codingKeyValues == knownKeyValues)
     }
 }

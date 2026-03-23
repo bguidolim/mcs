@@ -164,6 +164,16 @@ struct PackFetcherOperationTests {
         return (fetcher, shell)
     }
 
+    /// Set up a pack directory suitable for update tests, returning the dirs, fetcher, and mock shell.
+    private func makeUpdateFixture() throws -> (tmpDir: URL, packPath: URL, fetcher: PackFetcher, shell: MockShellRunner) {
+        let tmpDir = try makeTmpDir()
+        let packsDir = tmpDir.appendingPathComponent("packs")
+        let packPath = packsDir.appendingPathComponent("test-pack")
+        try FileManager.default.createDirectory(at: packPath, withIntermediateDirectories: true)
+        let (fetcher, shell) = makeMockFetcher(home: tmpDir, packsDir: packsDir)
+        return (tmpDir, packPath, fetcher, shell)
+    }
+
     // MARK: - ensureGitAvailable
 
     @Test("fetch throws gitNotInstalled when git is missing")
@@ -277,15 +287,9 @@ struct PackFetcherOperationTests {
 
     @Test("update calls fetch and reset for default branch")
     func updateCallsFetchAndReset() throws {
-        let tmpDir = try makeTmpDir()
+        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let packsDir = tmpDir.appendingPathComponent("packs")
-        let packPath = packsDir.appendingPathComponent("test-pack")
-        try FileManager.default.createDirectory(at: packPath, withIntermediateDirectories: true)
 
-        let (fetcher, shell) = makeMockFetcher(home: tmpDir, packsDir: packsDir)
-
-        // rev-parse before, fetch, reset, rev-parse after (different SHA)
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
             ShellResult(exitCode: 0, stdout: "", stderr: ""),
@@ -306,15 +310,9 @@ struct PackFetcherOperationTests {
 
     @Test("update returns nil when SHA is unchanged")
     func updateReturnsNilWhenUnchanged() throws {
-        let tmpDir = try makeTmpDir()
+        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let packsDir = tmpDir.appendingPathComponent("packs")
-        let packPath = packsDir.appendingPathComponent("test-pack")
-        try FileManager.default.createDirectory(at: packPath, withIntermediateDirectories: true)
 
-        let (fetcher, shell) = makeMockFetcher(home: tmpDir, packsDir: packsDir)
-
-        // Both rev-parse calls return the same SHA
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "same-sha", stderr: ""),
             ShellResult(exitCode: 0, stdout: "", stderr: ""),
@@ -328,15 +326,9 @@ struct PackFetcherOperationTests {
 
     @Test("update throws fetchFailed on error")
     func updateThrowsOnFetchFailure() throws {
-        let tmpDir = try makeTmpDir()
+        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let packsDir = tmpDir.appendingPathComponent("packs")
-        let packPath = packsDir.appendingPathComponent("test-pack")
-        try FileManager.default.createDirectory(at: packPath, withIntermediateDirectories: true)
 
-        let (fetcher, shell) = makeMockFetcher(home: tmpDir, packsDir: packsDir)
-
-        // rev-parse succeeds, fetch fails
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
             ShellResult(exitCode: 1, stdout: "", stderr: "fatal: remote not found"),
@@ -349,15 +341,9 @@ struct PackFetcherOperationTests {
 
     @Test("update with ref calls checkout with retry on tag fetch")
     func updateWithRefCallsCheckout() throws {
-        let tmpDir = try makeTmpDir()
+        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let packsDir = tmpDir.appendingPathComponent("packs")
-        let packPath = packsDir.appendingPathComponent("test-pack")
-        try FileManager.default.createDirectory(at: packPath, withIntermediateDirectories: true)
 
-        let (fetcher, shell) = makeMockFetcher(home: tmpDir, packsDir: packsDir)
-
-        // rev-parse, fetch, checkout succeeds first try, rev-parse after
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
             ShellResult(exitCode: 0, stdout: "", stderr: ""),
@@ -374,15 +360,9 @@ struct PackFetcherOperationTests {
 
     @Test("update with ref retries checkout after tag fetch on initial failure")
     func updateWithRefRetriesCheckout() throws {
-        let tmpDir = try makeTmpDir()
+        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let packsDir = tmpDir.appendingPathComponent("packs")
-        let packPath = packsDir.appendingPathComponent("test-pack")
-        try FileManager.default.createDirectory(at: packPath, withIntermediateDirectories: true)
 
-        let (fetcher, shell) = makeMockFetcher(home: tmpDir, packsDir: packsDir)
-
-        // rev-parse, fetch, checkout fails, fetch tag, checkout retry succeeds, rev-parse
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
             ShellResult(exitCode: 0, stdout: "", stderr: ""),
@@ -398,6 +378,41 @@ struct PackFetcherOperationTests {
         // Tag fetch is distinct from the initial fetch — it includes "tag" in the arguments
         let tagFetchCall = try #require(shell.runCalls.first { $0.arguments.contains("tag") })
         #expect(tagFetchCall.arguments.contains("v2.0.0"))
+    }
+
+    @Test("update throws refNotFound when both checkout and tag fetch fail")
+    func updateWithRefThrowsWhenTagFetchFails() throws {
+        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // rev-parse, fetch, checkout fails, tag fetch fails
+        shell.runResults = [
+            ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
+            ShellResult(exitCode: 0, stdout: "", stderr: ""),
+            ShellResult(exitCode: 1, stdout: "", stderr: "error: pathspec"),
+            ShellResult(exitCode: 1, stdout: "", stderr: "fatal: couldn't find remote ref"),
+        ]
+
+        #expect(throws: PackFetchError.self) {
+            try fetcher.update(packPath: packPath, ref: "nonexistent-tag")
+        }
+    }
+
+    @Test("update throws updateFailed when reset fails")
+    func updateThrowsWhenResetFails() throws {
+        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // rev-parse, fetch succeeds, reset fails
+        shell.runResults = [
+            ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
+            ShellResult(exitCode: 0, stdout: "", stderr: ""),
+            ShellResult(exitCode: 1, stdout: "", stderr: "fatal: could not reset"),
+        ]
+
+        #expect(throws: PackFetchError.self) {
+            try fetcher.update(packPath: packPath, ref: nil)
+        }
     }
 
     // MARK: - currentCommit tests

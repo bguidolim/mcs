@@ -74,9 +74,9 @@ struct ShellRunner: ShellRunning {
     @discardableResult
     func run(
         _ executable: String,
-        arguments: [String] = [],
-        workingDirectory: String? = nil,
-        additionalEnvironment: [String: String] = [:]
+        arguments: [String],
+        workingDirectory: String?,
+        additionalEnvironment: [String: String]
     ) -> ShellResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -132,8 +132,8 @@ struct ShellRunner: ShellRunning {
     @discardableResult
     func shell(
         _ command: String,
-        workingDirectory: String? = nil,
-        additionalEnvironment: [String: String] = [:]
+        workingDirectory: String?,
+        additionalEnvironment: [String: String]
     ) -> ShellResult {
         run(
             Constants.CLI.bash,

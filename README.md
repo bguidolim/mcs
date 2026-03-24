@@ -8,7 +8,7 @@
 [![macOS](https://img.shields.io/badge/macOS-13+-000000.svg?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040.svg?logo=homebrew&logoColor=white)](https://github.com/bguidolim/homebrew-tap)
-[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-❤️-ea4aaa.svg?logo=github)](https://github.com/sponsors/bguidolim)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/bguidolim/mcs)
 
 </div>
 

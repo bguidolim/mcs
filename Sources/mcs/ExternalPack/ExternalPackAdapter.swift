@@ -212,9 +212,10 @@ struct ExternalPackAdapter: TechPack {
                 return nil
             }
             let fileType = config.fileType.flatMap { CopyFileType(rawValue: $0.rawValue) } ?? .generic
+            let namespacedDestination = "\(manifest.identifier)/\(config.destination)"
             return .copyPackFile(
                 source: sourceURL,
-                destination: config.destination,
+                destination: namespacedDestination,
                 fileType: fileType
             )
         }

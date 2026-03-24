@@ -12,11 +12,6 @@
 
 </div>
 
----
-> [!WARNING]
-> **This project is under active development.** Expect breaking changes, bugs, and incomplete features. Migrations between versions are not guaranteed. Use at your own risk.
----
-
 ## 🚀 Quick Start
 
 ### 1. Install
@@ -29,7 +24,7 @@ brew install bguidolim/tap/managed-claude-stack
 
 ```bash
 # this is a real tech pack as example
-# more info about tech packs: https://github.com/bguidolim/mcs?tab=readme-ov-file#-whats-in-a-tech-pack
+# more info about tech packs below
 mcs pack add bguidolim/mcs-continuous-learning
 ```
 
@@ -135,7 +130,7 @@ A tech pack is a Git repo with a `techpack.yaml` manifest. It can bundle MCP ser
 
 - **🧑‍💻 Solo Developer** — New Mac? One `mcs pack add` + `mcs sync` and your entire Claude Code environment is back. No wiki, no notes, no memory required.
 - **👥 Teams** — Create a team pack with your org's MCP servers, approved plugins, and coding standards. Every developer gets the same setup with `mcs sync --all`.
-- **🌐 Open Source** — Ship a tech pack with your repo. Contributors run `mcs sync` and get the right MCP servers, skills, and conventions automatically.
+- **🌐 Open Source** — Use `mcs export` to create a tech pack from your repo's config. Contributors run `mcs sync` and get the right MCP servers, skills, and conventions automatically.
 - **🧪 Experimentation** — Try a different set of MCP servers, swap packs, roll back. `mcs` converges cleanly — deselected packs are fully removed, no leftovers.
 
 ---

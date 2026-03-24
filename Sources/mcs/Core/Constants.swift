@@ -125,10 +125,10 @@ enum Constants {
 
     enum MCSRepo {
         /// The HTTPS URL for the mcs git repository (used for version checks).
-        static let url = "https://github.com/bguidolim/mcs.git"
+        static let url = "https://github.com/mcs-cli/mcs.git"
 
         /// The Homebrew formula name for mcs.
-        static let brewFormula = "bguidolim/tap/managed-claude-stack"
+        static let brewFormula = "mcs-cli/tap/mcs"
     }
 
     // MARK: - Plugins

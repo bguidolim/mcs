@@ -128,13 +128,13 @@ jobs:
         run: |
           SHA=$(shasum -a 256 "${TARBALL}" | cut -d' ' -f1)
 
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/bguidolim/homebrew-tap.git" tap
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/mcs-cli/homebrew-tap.git" tap
           cd tap
-          cat > Formula/managed-claude-stack.rb << FORMULA
-          class ManagedClaudeStack < Formula
+          cat > Formula/mcs.rb << FORMULA
+          class Mcs < Formula
             desc "Configure Claude Code with MCP servers, plugins, skills, and hooks"
-            homepage "https://github.com/bguidolim/mcs"
-            url "https://github.com/bguidolim/mcs/releases/download/${TAG_NAME}/mcs-${TAG_NAME}-macos-universal.tar.gz"
+            homepage "https://github.com/mcs-cli/mcs"
+            url "https://github.com/mcs-cli/mcs/releases/download/${TAG_NAME}/mcs-${TAG_NAME}-macos-universal.tar.gz"
             sha256 "${SHA}"
             version "${TAG_NAME}"
             license "MIT"
@@ -142,15 +142,14 @@ jobs:
             def install
               libexec.install "mcs"
               bin.install_symlink libexec/"mcs"
-              bin.install_symlink libexec/"mcs" => "managed-claude-stack"
             end
 
             test do
-              assert_match "Managed Claude Stack", shell_output("#{bin}/mcs --help")
+              assert_match version.to_s, shell_output("#{bin}/mcs --version")
             end
           end
           FORMULA
 
-          git add Formula/managed-claude-stack.rb
-          git commit -m "Update managed-claude-stack to ${TAG_NAME}"
+          git add Formula/mcs.rb
+          git commit -m "Update mcs to ${TAG_NAME}"
           git push

@@ -7,8 +7,8 @@
 [![Swift 6.0+](https://img.shields.io/badge/Swift-6.0+-F05138.svg?logo=swift&logoColor=white)](https://swift.org)
 [![macOS](https://img.shields.io/badge/macOS-13+-000000.svg?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040.svg?logo=homebrew&logoColor=white)](https://github.com/bguidolim/homebrew-tap)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/bguidolim/mcs)
+[![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040.svg?logo=homebrew&logoColor=white)](https://github.com/mcs-cli/homebrew-tap)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/mcs-cli/mcs)
 
 </div>
 
@@ -17,7 +17,7 @@
 ### 1. Install
 
 ```bash
-brew install bguidolim/tap/managed-claude-stack
+brew install mcs-cli/tap/mcs
 ```
 
 ### 2. Add tech packs
@@ -25,7 +25,7 @@ brew install bguidolim/tap/managed-claude-stack
 ```bash
 # this is a real tech pack as example
 # more info about tech packs below
-mcs pack add bguidolim/mcs-continuous-learning
+mcs pack add mcs-cli/memory
 ```
 
 ### 3. Sync a project
@@ -88,9 +88,9 @@ Packs are modular — mix and match what you need instead of one monolith:
 
 | Pack | Description | Highlights |
 |------|-------------|------------|
-| [**mcs-core-pack**](https://github.com/bguidolim/mcs-core-pack) | Foundational settings, plugins, git workflows, and code navigation | Serena (LSP), plan mode, `/commit`, PR review agents, session-start git status |
-| [**mcs-continuous-learning**](https://github.com/bguidolim/mcs-continuous-learning) | Persistent memory and knowledge management across sessions | Ollama embeddings, semantic search via `docs-mcp-server`, auto-extracted learnings |
-| [**mcs-ios-pack**](https://github.com/bguidolim/mcs-ios-pack) | Xcode integration, simulator management, and Apple documentation | XcodeBuildMCP, Sosumi docs, auto-detected project config, simulator hooks |
+| [**dev**](https://github.com/mcs-cli/dev) | Foundational settings, plugins, git workflows, and code navigation | Serena (LSP), plan mode, `/commit`, PR review agents, session-start git status |
+| [**memory**](https://github.com/mcs-cli/memory) | Persistent memory and knowledge management across sessions | Ollama embeddings, semantic search via `docs-mcp-server`, auto-extracted learnings |
+| [**ios**](https://github.com/mcs-cli/ios) | Xcode integration, simulator management, and Apple documentation | XcodeBuildMCP, Sosumi docs, auto-detected project config, simulator hooks |
 
 > 💡 Use these as a starting point — fork one to build your own, or combine all three with `mcs pack add` for a complete setup.
 
@@ -192,6 +192,6 @@ For building new packs, start with [Creating Tech Packs](docs/creating-tech-pack
 
 If `mcs` saves you time, consider [sponsoring the project](https://github.com/sponsors/bguidolim).
 
-**MIT License** · Made with ❤️ by [Bruno Guidolim](https://github.com/bguidolim)
+**MIT License** · Made with ❤️ by [Bruno Guidolim](https://github.com/bguidolim) · [mcs-cli](https://github.com/mcs-cli)
 
 </div>

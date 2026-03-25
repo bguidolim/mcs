@@ -134,25 +134,25 @@ The export wizard discovers MCP servers, hooks, skills, commands, agents, plugin
 Check for available tech pack and CLI updates. Designed to be lightweight and non-intrusive.
 
 ```bash
-mcs check-updates                # Check for updates (always runs)
-mcs check-updates --hook         # Run as SessionStart hook (respects 7-day cooldown and config)
+mcs check-updates                # Check for updates (always fetches from remote)
+mcs check-updates --hook         # Run as SessionStart hook (respects 24-hour cooldown and config)
 mcs check-updates --json         # Machine-readable JSON output
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--hook` | Run as a Claude Code SessionStart hook. Respects the 7-day cooldown and config keys. Without this flag, checks always run. |
+| `--hook` | Run as a Claude Code SessionStart hook. Respects the 24-hour cooldown and config keys. Without this flag, always fetches from remote. |
 | `--json` | Output results as JSON instead of human-readable text. |
 
 **How it works:**
 - **Pack checks**: Runs `git ls-remote` per pack to compare the remote HEAD against the local commit SHA. Local packs are skipped.
 - **CLI version check**: Queries `git ls-remote --tags` on the mcs repository and compares the latest CalVer tag against the installed version.
-- **Cache**: Results are cached in `~/.mcs/update-check.json` (timestamp + results). In `--hook` mode, the hook serves cached results if the cache is less than 7 days old (no network request). When the cache is stale, a fresh network check runs and the results are cached for subsequent sessions. User-invoked checks always refresh the cache.
+- **Cache**: Results are cached in `~/.mcs/update-check.json` (timestamp + results). Cached results are served if less than 24 hours old (no network request). When the cache is stale, a fresh network check runs and the results are cached. `mcs check-updates` (without `--hook`) always forces a fresh check; `mcs sync` and `mcs doctor` respect the cache.
 - **Cache invalidation**: `mcs pack update` deletes the cache so the next hook re-checks. CLI version cache self-invalidates when the user upgrades mcs.
 - **Scope**: Checks global packs plus packs configured in the current project (detected via project root). Packs not relevant to the current context are skipped.
 - **Offline resilience**: Network failures are silently ignored — the command never errors on connectivity issues.
 
-**Note:** `mcs sync` and `mcs doctor` always check for updates regardless of config — they are user-initiated commands. The config keys below only control the **automatic** `SessionStart` hook that runs in the background when you start a Claude Code session.
+**Note:** `mcs sync` and `mcs doctor` check for updates at the end of execution, respecting the 24-hour cache. The config keys below only control the **automatic** `SessionStart` hook that runs when you start a Claude Code session.
 
 ## `mcs config`
 
@@ -173,8 +173,8 @@ mcs config set <key> <value>     # Set a value (true/false)
 
 These keys control a `SessionStart` hook in `~/.claude/settings.json` that runs `mcs check-updates` when you start a Claude Code session. The hook's output is injected into Claude's context so Claude can inform you about available updates.
 
-- **Enabled (either key `true`)**: A synchronous `SessionStart` hook is registered. It respects the 7-day cooldown.
-- **Disabled (both keys `false`)**: No hook is registered. You can still check manually with `mcs check-updates` or rely on `mcs sync` / `mcs doctor` which always check.
+- **Enabled (either key `true`)**: A synchronous `SessionStart` hook is registered. It respects the 24-hour cooldown.
+- **Disabled (both keys `false`)**: No hook is registered. You can still check manually with `mcs check-updates` or rely on `mcs sync` / `mcs doctor` which check using the 24-hour cache.
 
 When either key changes, `mcs config set` immediately adds or removes the hook from `~/.claude/settings.json` — no re-sync needed. The same hook is also converged during `mcs sync`.
 

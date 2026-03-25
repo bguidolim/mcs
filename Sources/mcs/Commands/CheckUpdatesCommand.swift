@@ -7,7 +7,7 @@ struct CheckUpdatesCommand: ParsableCommand {
         abstract: "Check for tech pack and CLI updates"
     )
 
-    @Flag(name: .long, help: "Run as a Claude Code SessionStart hook (respects 7-day cooldown and config)")
+    @Flag(name: .long, help: "Run as a Claude Code SessionStart hook (respects 24-hour cooldown and config)")
     var hook: Bool = false
 
     @Flag(name: .long, help: "Output results as JSON")
@@ -47,15 +47,15 @@ struct CheckUpdatesCommand: ParsableCommand {
         let checker = UpdateChecker(environment: env, shell: shell)
         let result = checker.performCheck(
             entries: relevantEntries,
-            isHook: hook,
+            forceRefresh: !hook,
             checkPacks: checkPacks,
             checkCLI: checkCLI
         )
 
         if json {
             printJSON(result)
-        } else {
-            UpdateChecker.printResult(result, output: output, isHook: hook)
+        } else if !UpdateChecker.printResult(result, output: output, isHook: hook), !hook {
+            output.success("Everything is up to date.")
         }
     }
 

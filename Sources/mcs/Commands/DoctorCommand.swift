@@ -41,7 +41,7 @@ struct DoctorCommand: LockedCommand {
         )
         try runner.run()
 
-        // Always check for updates in doctor — it's a diagnostic tool
+        // Check for updates (respects 24-hour cache)
         UpdateChecker.checkAndPrint(env: env, shell: shell, output: output)
     }
 }

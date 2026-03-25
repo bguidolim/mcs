@@ -149,8 +149,8 @@ struct UpdateCheckerPerformCheckTests {
         try data.write(to: env.updateCheckCacheFile, options: .atomic)
     }
 
-    @Test("Hook mode returns cached result when cache is fresh")
-    func hookModeReturnsCachedResult() throws {
+    @Test("Returns cached result when cache is fresh")
+    func cachedResultReturnedByDefault() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
@@ -164,15 +164,15 @@ struct UpdateCheckerPerformCheckTests {
         try writeFreshCache(at: env, result: cachedResult)
 
         let checker = makeChecker(home: tmpDir)
-        let result = checker.performCheck(entries: [], isHook: true, checkPacks: true, checkCLI: false)
+        let result = checker.performCheck(entries: [], checkPacks: true, checkCLI: false)
 
         // Should return cached result, not do network calls (entries is empty so network would return nothing)
         #expect(result.packUpdates.count == 1)
         #expect(result.packUpdates.first?.identifier == "cached-pack")
     }
 
-    @Test("User mode always does fresh check regardless of cache")
-    func userModeIgnoresCache() throws {
+    @Test("forceRefresh bypasses cache and does fresh check")
+    func forceRefreshBypassesCache() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
@@ -186,10 +186,39 @@ struct UpdateCheckerPerformCheckTests {
         try writeFreshCache(at: env, result: cachedResult)
 
         let checker = makeChecker(home: tmpDir)
-        // User mode (isHook: false, default) with no entries — should do fresh check, returning empty
-        let result = checker.performCheck(entries: [], checkPacks: true, checkCLI: false)
+        let result = checker.performCheck(entries: [], forceRefresh: true, checkPacks: true, checkCLI: false)
 
         // Should NOT return cached "stale" pack — should do fresh check with empty entries
+        #expect(result.packUpdates.isEmpty)
+    }
+
+    @Test("Stale cache triggers fresh check")
+    func staleCacheTriggersFreshCheck() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        let staleResult = UpdateChecker.CheckResult(
+            packUpdates: [UpdateChecker.PackUpdate(
+                identifier: "old-pack", displayName: "Old", localSHA: "aaa", remoteSHA: "bbb"
+            )],
+            cliUpdate: nil
+        )
+        // Write cache with timestamp older than 24 hours
+        let staleTimestamp = Date().addingTimeInterval(-90000)
+        let cached = UpdateChecker.CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: staleTimestamp),
+            result: staleResult
+        )
+        let dir = env.updateCheckCacheFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(cached)
+        try data.write(to: env.updateCheckCacheFile, options: .atomic)
+
+        let checker = makeChecker(home: tmpDir)
+        let result = checker.performCheck(entries: [], checkPacks: true, checkCLI: false)
+
+        // Cache is stale (>24h), so should do fresh check with empty entries → empty result
         #expect(result.packUpdates.isEmpty)
     }
 

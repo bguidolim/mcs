@@ -9,8 +9,15 @@ struct UpdateChecker {
     let environment: Environment
     let shell: ShellRunner
 
-    /// Default cooldown interval: 7 days.
-    static let cooldownInterval: TimeInterval = 604_800
+    /// Default cooldown interval: 24 hours.
+    static let cooldownInterval: TimeInterval = 86400
+
+    /// Environment variables to suppress credential prompts during read-only git checks.
+    /// GIT_TERMINAL_PROMPT=0 prevents terminal-based prompts; GIT_ASKPASS="" disables GUI credential helpers.
+    private static let gitNoPromptEnv: [String: String] = [
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "",
+    ]
 
     // MARK: - SessionStart Hook (single source of truth)
 
@@ -51,7 +58,8 @@ struct UpdateChecker {
         }
     }
 
-    /// Run an update check and print results. Used by sync and doctor (user-invoked, no cooldown).
+    /// Run an update check and print results. Used by sync and doctor.
+    /// Respects the 24-hour cache cooldown — only does network checks when cache is stale.
     static func checkAndPrint(env: Environment, shell: ShellRunner, output: CLIOutput) {
         let packRegistry = PackRegistryFile(path: env.packsRegistry)
         let allEntries: [PackRegistryFile.PackEntry]
@@ -160,36 +168,41 @@ struct UpdateChecker {
     // MARK: - Pack Checks
 
     /// Check each git pack for remote updates via `git ls-remote`.
-    /// Local packs are skipped. Network failures are silently ignored per-pack.
+    /// Local packs are skipped. Checks run in parallel. Network failures are silently ignored per-pack.
     func checkPackUpdates(entries: [PackRegistryFile.PackEntry]) -> [PackUpdate] {
-        var updates: [PackUpdate] = []
+        let gitEntries = entries.filter { !$0.isLocalPack }
+        guard !gitEntries.isEmpty else { return [] }
 
-        for entry in entries {
-            if entry.isLocalPack { continue }
+        // Each index is written by exactly one iteration — no data race.
+        // nonisolated(unsafe) is needed because concurrentPerform's closure is @Sendable.
+        nonisolated(unsafe) var results = [PackUpdate?](repeating: nil, count: gitEntries.count)
 
+        DispatchQueue.concurrentPerform(iterations: gitEntries.count) { index in
+            let entry = gitEntries[index]
             let ref = entry.ref ?? "HEAD"
             let result = shell.run(
                 environment.gitPath,
-                arguments: ["ls-remote", entry.sourceURL, ref]
+                arguments: ["ls-remote", entry.sourceURL, ref],
+                additionalEnvironment: Self.gitNoPromptEnv
             )
 
             guard result.succeeded,
                   let remoteSHA = Self.parseRemoteSHA(from: result.stdout)
             else {
-                continue
+                return
             }
 
             if remoteSHA != entry.commitSHA {
-                updates.append(PackUpdate(
+                results[index] = PackUpdate(
                     identifier: entry.identifier,
                     displayName: entry.displayName,
                     localSHA: entry.commitSHA,
                     remoteSHA: remoteSHA
-                ))
+                )
             }
         }
 
-        return updates
+        return results.compactMap(\.self)
     }
 
     // MARK: - CLI Version Check
@@ -199,7 +212,8 @@ struct UpdateChecker {
     func checkCLIVersion(currentVersion: String) -> CLIUpdate? {
         let result = shell.run(
             environment.gitPath,
-            arguments: ["ls-remote", "--tags", "--refs", Constants.MCSRepo.url]
+            arguments: ["ls-remote", "--tags", "--refs", Constants.MCSRepo.url],
+            additionalEnvironment: Self.gitNoPromptEnv
         )
 
         guard result.succeeded,
@@ -218,16 +232,16 @@ struct UpdateChecker {
     // MARK: - Combined Check
 
     /// Run all enabled checks.
-    /// - `isHook: true` — SessionStart hook: returns cached results if fresh, otherwise checks + caches
-    /// - `isHook: false` (default) — user-invoked: always does network checks + updates cache
+    /// - `forceRefresh: false` (default) — returns cached results if fresh (within 24h), otherwise network + cache
+    /// - `forceRefresh: true` — always does network checks + updates cache (for explicit `mcs check-updates`)
     func performCheck(
         entries: [PackRegistryFile.PackEntry],
-        isHook: Bool = false,
+        forceRefresh: Bool = false,
         checkPacks: Bool,
         checkCLI: Bool
     ) -> CheckResult {
-        // Hook mode: serve cached results if still fresh (single disk read)
-        if isHook, let cached = loadCache(),
+        // Serve cached results if still fresh (single disk read), unless explicitly forced
+        if !forceRefresh, let cached = loadCache(),
            let lastCheck = ISO8601DateFormatter().date(from: cached.timestamp),
            Date().timeIntervalSince(lastCheck) < Self.cooldownInterval {
             return cached.result
@@ -279,8 +293,14 @@ struct UpdateChecker {
                 )
             }
             if !result.packUpdates.isEmpty {
-                let noun = result.packUpdates.count == 1 ? "pack has" : "packs have"
-                output.info("\(result.packUpdates.count) \(noun) updates available. Run 'mcs pack update' to update.")
+                let noun = result.packUpdates.count == 1 ? "pack update" : "pack updates"
+                output.info("\(result.packUpdates.count) \(noun) available:")
+                for pack in result.packUpdates {
+                    let local = String(pack.localSHA.prefix(7))
+                    let remote = String(pack.remoteSHA.prefix(7))
+                    output.plain("         \u{2022} \(pack.displayName) (\(local) \u{2192} \(remote))")
+                }
+                output.plain("       Run 'mcs pack update' to update.")
             }
         }
 

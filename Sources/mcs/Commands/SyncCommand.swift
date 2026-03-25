@@ -64,7 +64,7 @@ struct SyncCommand: LockedCommand {
             try performProject(env: env, output: output, shell: shell, registry: registry)
         }
 
-        // Always check for updates after sync — user explicitly ran the command
+        // Check for updates after sync (respects 24-hour cache)
         if !dryRun {
             UpdateChecker.checkAndPrint(env: env, shell: shell, output: output)
         }

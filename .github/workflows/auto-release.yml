@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 23 * * *'
   workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Preview what would happen without pushing'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: auto-release
@@ -73,14 +79,21 @@ jobs:
           echo "Updated MCSVersion.current to ${VERSION}:"
           grep 'static let current' Sources/mcs/CLI.swift
 
+      - name: Dry-run summary
+        if: env.SKIP == 'false' && inputs.dry-run
+        run: |
+          echo "::notice::Dry run — would release ${VERSION}"
+          echo "Changes that would be included:"
+          git diff Sources/mcs/CLI.swift
+
       - name: Commit version bump
-        if: env.SKIP == 'false'
+        if: env.SKIP == 'false' && !inputs.dry-run
         run: |
           git add Sources/mcs/CLI.swift
           git commit -m "Bump version to ${VERSION}"
 
       - name: Push commit and tag
-        if: env.SKIP == 'false'
+        if: env.SKIP == 'false' && !inputs.dry-run
         run: |
           git push origin main
           git tag "${VERSION}"

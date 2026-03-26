@@ -70,6 +70,14 @@ protocol SyncStrategy {
         output: CLIOutput
     ) throws -> Set<String>?
 
+    /// Build a filesystem context for collision resolution.
+    ///
+    /// Returns a `CollisionFilesystemContext` that enables the resolver to detect
+    /// pre-existing user files at `copyPackFile` destinations.
+    /// Every conformance must implement this — returning `nil` disables user-file protection
+    /// and hook namespacing (only cross-pack collisions are resolved).
+    func makeCollisionContext(trackedFiles: Set<String>) -> (any CollisionFilesystemContext)?
+
     /// Derive the relative file path that artifact tracking records for a `copyPackFile` component.
     ///
     /// Global scope computes relative to `~/.claude/`.

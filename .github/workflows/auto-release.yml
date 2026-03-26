@@ -131,6 +131,8 @@ jobs:
       - name: Commit version bump
         if: env.SKIP == 'false' && !inputs.dry-run
         run: |
+          git config --global user.email "autorelease@mcs-cli.dev"
+          git config --global user.name "MCS Auto Release"
           git add Sources/mcs/CLI.swift
           git commit -m "Bump version to ${VERSION}"
 

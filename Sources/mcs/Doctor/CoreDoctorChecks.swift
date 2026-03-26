@@ -68,13 +68,22 @@ struct MCPServerCheck: DoctorCheck {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return .fail("~/.claude.json contains invalid JSON")
         }
-        // Check project-scoped servers first (stored under projects[path].mcpServers)
+        // Walk up to the git root: Claude CLI keys local-scope servers by the git root,
+        // which may differ from the mcs project root in subdirectory projects.
         if let root = projectRoot,
-           let projects = json[Constants.JSONKeys.projects] as? [String: Any],
-           let projectEntry = projects[root.path] as? [String: Any],
-           let projectMCP = projectEntry[Constants.JSONKeys.mcpServers] as? [String: Any],
-           projectMCP[serverName] != nil {
-            return .pass("registered")
+           let projects = json[Constants.JSONKeys.projects] as? [String: Any] {
+            var candidate: URL? = root
+            while let path = candidate, path.path != "/" {
+                if let projectEntry = projects[path.path] as? [String: Any],
+                   let projectMCP = projectEntry[Constants.JSONKeys.mcpServers] as? [String: Any],
+                   projectMCP[serverName] != nil {
+                    return .pass("registered")
+                }
+                if FileManager.default.fileExists(atPath: path.appendingPathComponent(".git").path) {
+                    break
+                }
+                candidate = path.deletingLastPathComponent()
+            }
         }
         // Fall back to global/user-scoped servers
         if let mcpServers = json[Constants.JSONKeys.mcpServers] as? [String: Any],

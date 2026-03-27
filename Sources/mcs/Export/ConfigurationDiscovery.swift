@@ -156,7 +156,7 @@ struct ConfigurationDiscovery {
             if let servers = json[Constants.JSONKeys.mcpServers] as? [String: Any] {
                 for (name, value) in servers {
                     if let serverDict = value as? [String: Any] {
-                        config.mcpServers.append(parseMCPServer(name: name, dict: serverDict, scope: "user"))
+                        config.mcpServers.append(parseMCPServer(name: name, dict: serverDict, scope: Constants.MCPScope.user))
                     }
                 }
             }
@@ -167,7 +167,7 @@ struct ConfigurationDiscovery {
                let servers = projectEntry[Constants.JSONKeys.mcpServers] as? [String: Any] {
                 for (name, value) in servers {
                     if let serverDict = value as? [String: Any] {
-                        config.mcpServers.append(parseMCPServer(name: name, dict: serverDict, scope: "local"))
+                        config.mcpServers.append(parseMCPServer(name: name, dict: serverDict, scope: Constants.MCPScope.local))
                     }
                 }
             }

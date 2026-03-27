@@ -158,9 +158,9 @@ struct ProjectSyncStrategy: SyncStrategy {
         if hasContent {
             do {
                 try settings.save(to: scope.settingsPath, dropKeys: dropKeys)
-                output.success("Composed settings.local.json")
+                output.success("Composed \(scope.settingsPath.lastPathComponent)")
             } catch {
-                output.error("Could not write settings.local.json: \(error.localizedDescription)")
+                output.error("Could not write \(scope.settingsPath.lastPathComponent): \(error.localizedDescription)")
                 output.error("Hooks and plugins will not be active. Re-run '\(scope.syncHint)' after fixing the issue.")
                 throw MCSError.fileOperationFailed(
                     path: Constants.FileNames.settingsLocal,
@@ -170,9 +170,9 @@ struct ProjectSyncStrategy: SyncStrategy {
         } else if FileManager.default.fileExists(atPath: scope.settingsPath.path) {
             do {
                 try FileManager.default.removeItem(at: scope.settingsPath)
-                output.dimmed("Removed empty settings.local.json")
+                output.dimmed("Removed empty \(scope.settingsPath.lastPathComponent)")
             } catch {
-                output.warn("Could not remove stale settings.local.json: \(error.localizedDescription)")
+                output.warn("Could not remove stale \(scope.settingsPath.lastPathComponent): \(error.localizedDescription)")
             }
         }
 

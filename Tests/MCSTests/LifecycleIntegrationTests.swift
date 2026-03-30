@@ -1129,10 +1129,10 @@ struct HookMetadataLifecycleTests {
         #expect(!rawJSON.contains("\"statusMessage\""))
     }
 
-    // MARK: - Update check hook injection
+    // MARK: - Update check hook (global-only)
 
-    @Test("Project sync injects update check hook when config enabled")
-    func projectSyncInjectsUpdateHook() throws {
+    @Test("Project sync does not inject update check hook into settings.local.json")
+    func projectSyncDoesNotInjectUpdateHookLocally() throws {
         let bed = try LifecycleTestBed()
         defer { bed.cleanup() }
 
@@ -1147,15 +1147,25 @@ struct HookMetadataLifecycleTests {
         let configurator = bed.makeConfigurator(registry: registry)
         try configurator.configure(packs: [pack], confirmRemovals: false, excludedComponents: [:])
 
-        // Verify the hook is in settings.local.json
-        let settings = try Settings.load(from: bed.settingsLocalPath)
-        let sessionStartGroups = settings.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? []
-        let commands = sessionStartGroups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
-        #expect(commands.contains(UpdateChecker.hookCommand))
+        // Hook must NOT be in project-scoped settings.local.json
+        let fm = FileManager.default
+        if fm.fileExists(atPath: bed.settingsLocalPath.path) {
+            let settings = try Settings.load(from: bed.settingsLocalPath)
+            let sessionStartGroups = settings.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? []
+            let commands = sessionStartGroups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
+            #expect(!commands.contains(UpdateChecker.hookCommand))
+        }
+
+        // syncHook puts it in global settings.json instead
+        UpdateChecker.syncHook(config: config, env: bed.env, output: CLIOutput(colorsEnabled: false))
+        let globalSettings = try Settings.load(from: bed.env.claudeSettings)
+        let globalGroups = globalSettings.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? []
+        let globalCommands = globalGroups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
+        #expect(globalCommands.contains(UpdateChecker.hookCommand))
     }
 
-    @Test("Project sync omits update check hook when config disabled")
-    func projectSyncOmitsHookWhenDisabled() throws {
+    @Test("Update check hook not injected anywhere when config disabled")
+    func updateHookAbsentWhenDisabled() throws {
         let bed = try LifecycleTestBed()
         defer { bed.cleanup() }
 
@@ -1170,7 +1180,7 @@ struct HookMetadataLifecycleTests {
         let configurator = bed.makeConfigurator(registry: registry)
         try configurator.configure(packs: [pack], confirmRemovals: false, excludedComponents: [:])
 
-        // Verify no update check hook in settings
+        // Not in project-scoped settings
         let fm = FileManager.default
         if fm.fileExists(atPath: bed.settingsLocalPath.path) {
             let settings = try Settings.load(from: bed.settingsLocalPath)
@@ -1178,43 +1188,43 @@ struct HookMetadataLifecycleTests {
             let commands = sessionStartGroups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
             #expect(!commands.contains(UpdateChecker.hookCommand))
         }
+
+        // syncHook with disabled config must not add to global either
+        UpdateChecker.syncHook(config: config, env: bed.env, output: CLIOutput(colorsEnabled: false))
+        let globalSettings = try Settings.load(from: bed.env.claudeSettings)
+        let globalGroups = globalSettings.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? []
+        let globalCommands = globalGroups.flatMap { $0.hooks ?? [] }.compactMap(\.command)
+        #expect(!globalCommands.contains(UpdateChecker.hookCommand))
     }
 
-    @Test("Project sync converges hook on re-sync: enable then disable")
-    func projectSyncConvergesHook() throws {
+    @Test("syncHook converges global settings: enable then disable")
+    func syncHookConvergesGlobalSettings() throws {
         let bed = try LifecycleTestBed()
         defer { bed.cleanup() }
 
-        let pack = MockTechPack(identifier: "test-pack", displayName: "Test Pack", components: [])
-        let registry = TechPackRegistry(packs: [pack])
+        let output = CLIOutput(colorsEnabled: false)
 
-        // First sync: enabled
+        // Enable → hook appears in global settings.json
         var config = MCSConfig()
         config.updateCheckPacks = true
         try config.save(to: bed.env.mcsConfigFile)
 
-        var configurator = bed.makeConfigurator(registry: registry)
-        try configurator.configure(packs: [pack], confirmRemovals: false, excludedComponents: [:])
+        UpdateChecker.syncHook(config: config, env: bed.env, output: output)
 
-        let settings1 = try Settings.load(from: bed.settingsLocalPath)
+        let settings1 = try Settings.load(from: bed.env.claudeSettings)
         let commands1 = (settings1.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? [])
             .flatMap { $0.hooks ?? [] }.compactMap(\.command)
         #expect(commands1.contains(UpdateChecker.hookCommand))
 
-        // Second sync: disabled
+        // Disable → hook removed from global settings.json
         config.updateCheckPacks = false
         config.updateCheckCLI = false
-        try config.save(to: bed.env.mcsConfigFile)
 
-        configurator = bed.makeConfigurator(registry: registry)
-        try configurator.configure(packs: [pack], confirmRemovals: false, excludedComponents: [:])
+        UpdateChecker.syncHook(config: config, env: bed.env, output: output)
 
-        // Project strategy rebuilds from scratch — hook should be absent
-        if FileManager.default.fileExists(atPath: bed.settingsLocalPath.path) {
-            let settings2 = try Settings.load(from: bed.settingsLocalPath)
-            let commands2 = (settings2.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? [])
-                .flatMap { $0.hooks ?? [] }.compactMap(\.command)
-            #expect(!commands2.contains(UpdateChecker.hookCommand))
-        }
+        let settings2 = try Settings.load(from: bed.env.claudeSettings)
+        let commands2 = (settings2.hooks?[Constants.HookEvent.sessionStart.rawValue] ?? [])
+            .flatMap { $0.hooks ?? [] }.compactMap(\.command)
+        #expect(!commands2.contains(UpdateChecker.hookCommand))
     }
 }

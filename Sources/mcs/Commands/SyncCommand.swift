@@ -45,7 +45,7 @@ struct SyncCommand: LockedCommand {
         }
 
         // First-run: prompt for update notification preference
-        promptForUpdateCheckIfNeeded(env: env, output: output)
+        let config = promptForUpdateCheckIfNeeded(env: env, output: output)
 
         // Handle --update: fetch latest for all packs before loading
         if update {
@@ -64,8 +64,11 @@ struct SyncCommand: LockedCommand {
             try performProject(env: env, output: output, shell: shell, registry: registry)
         }
 
-        // Check for updates after sync (respects 24-hour cache)
         if !dryRun {
+            // Ensure the update check hook lives in global settings.json (not project-scoped)
+            UpdateChecker.syncHook(config: config, env: env, output: output)
+
+            // Check for updates after sync (respects 24-hour cache)
             UpdateChecker.checkAndPrint(env: env, shell: shell, output: output)
         }
     }

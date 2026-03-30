@@ -140,7 +140,7 @@ struct ProjectSyncStrategy: SyncStrategy {
         let allPreviousKeys = previousSettingsKeys.values.flatMap(\.self)
         let dropKeys = Set(allPreviousKeys.filter { !$0.contains(".") })
 
-        var (hasContent, contributedKeys) = ConfiguratorSupport.mergePackComponentsIntoSettings(
+        let (hasContent, contributedKeys) = ConfiguratorSupport.mergePackComponentsIntoSettings(
             packs: packs,
             excludedComponents: excludedComponents,
             settings: &settings,
@@ -148,12 +148,6 @@ struct ProjectSyncStrategy: SyncStrategy {
             resolvedValues: resolvedValues,
             output: output
         )
-
-        // Inject first-party update check hook if enabled
-        let config = MCSConfig.load(from: environment.mcsConfigFile, output: output)
-        if config.isUpdateCheckEnabled {
-            if UpdateChecker.addHook(to: &settings) { hasContent = true }
-        }
 
         if hasContent {
             do {

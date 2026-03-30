@@ -406,3 +406,94 @@ struct UserFileConflictTests {
         }
     }
 }
+
+// MARK: - ProjectCollisionContext Tests
+
+struct ProjectCollisionContextTests {
+    @Test("Skill directory tracked via child file path — isTrackedByPack returns true")
+    func skillDirectoryTrackedByChildFile() {
+        let projectPath = URL(fileURLWithPath: "/tmp/test-project")
+        // installProjectFile records child file paths (e.g. .claude/skills/my-skill/SKILL.md)
+        // isTrackedByPack queries the directory-level path (my-skill)
+        let ctx = ProjectCollisionContext(
+            projectPath: projectPath,
+            trackedFiles: [".claude/skills/my-skill/SKILL.md"]
+        )
+
+        #expect(ctx.isTrackedByPack(destination: "my-skill", fileType: .skill))
+    }
+
+    @Test("Skill tracked as exact directory path — isTrackedByPack returns true")
+    func skillDirectoryTrackedExactly() {
+        let projectPath = URL(fileURLWithPath: "/tmp/test-project")
+        let ctx = ProjectCollisionContext(
+            projectPath: projectPath,
+            trackedFiles: [".claude/skills/my-skill"]
+        )
+
+        #expect(ctx.isTrackedByPack(destination: "my-skill", fileType: .skill))
+    }
+
+    @Test("Untracked skill directory — isTrackedByPack returns false")
+    func untrackedSkillDirectory() {
+        let projectPath = URL(fileURLWithPath: "/tmp/test-project")
+        let ctx = ProjectCollisionContext(
+            projectPath: projectPath,
+            trackedFiles: [".claude/skills/other-skill/SKILL.md"]
+        )
+
+        #expect(!ctx.isTrackedByPack(destination: "my-skill", fileType: .skill))
+    }
+
+    @Test("Prefix match does not false-positive on similar names")
+    func prefixMatchNoFalsePositive() {
+        let projectPath = URL(fileURLWithPath: "/tmp/test-project")
+        // "my-skill-extra/SKILL.md" should NOT match "my-skill"
+        let ctx = ProjectCollisionContext(
+            projectPath: projectPath,
+            trackedFiles: [".claude/skills/my-skill-extra/SKILL.md"]
+        )
+
+        #expect(!ctx.isTrackedByPack(destination: "my-skill", fileType: .skill))
+    }
+
+    @Test("Skill directory with multiple tracked children — isTrackedByPack returns true")
+    func skillDirectoryMultipleChildren() {
+        let projectPath = URL(fileURLWithPath: "/tmp/test-project")
+        let ctx = ProjectCollisionContext(
+            projectPath: projectPath,
+            trackedFiles: [
+                ".claude/skills/my-skill/SKILL.md",
+                ".claude/skills/my-skill/helper.py",
+            ]
+        )
+
+        #expect(ctx.isTrackedByPack(destination: "my-skill", fileType: .skill))
+    }
+}
+
+// MARK: - GlobalCollisionContext Tests
+
+struct GlobalCollisionContextTests {
+    @Test("Skill directory tracked via child file path — isTrackedByPack returns true")
+    func skillDirectoryTrackedByChildFile() {
+        let env = Environment(home: URL(fileURLWithPath: "/tmp/test-home"))
+        let ctx = GlobalCollisionContext(
+            environment: env,
+            trackedFiles: ["skills/my-skill/SKILL.md"]
+        )
+
+        #expect(ctx.isTrackedByPack(destination: "my-skill", fileType: .skill))
+    }
+
+    @Test("Untracked skill directory — isTrackedByPack returns false")
+    func untrackedSkillDirectory() {
+        let env = Environment(home: URL(fileURLWithPath: "/tmp/test-home"))
+        let ctx = GlobalCollisionContext(
+            environment: env,
+            trackedFiles: ["skills/other-skill/SKILL.md"]
+        )
+
+        #expect(!ctx.isTrackedByPack(destination: "my-skill", fileType: .skill))
+    }
+}

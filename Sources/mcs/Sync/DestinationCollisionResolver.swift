@@ -27,6 +27,7 @@ struct ProjectCollisionContext: CollisionFilesystemContext {
         let destURL = baseDir.appendingPathComponent(destination)
         let relPath = PathContainment.relativePath(of: destURL.path, within: projectPath.path)
         return trackedFiles.contains(relPath)
+            || trackedFiles.contains { PathContainment.isContained(path: $0, within: relPath) }
     }
 }
 
@@ -46,6 +47,7 @@ struct GlobalCollisionContext: CollisionFilesystemContext {
             of: destURL.path, within: environment.claudeDirectory.path
         )
         return trackedFiles.contains(relPath)
+            || trackedFiles.contains { PathContainment.isContained(path: $0, within: relPath) }
     }
 }
 

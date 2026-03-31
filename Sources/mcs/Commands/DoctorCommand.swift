@@ -26,6 +26,8 @@ struct DoctorCommand: LockedCommand {
     func perform() throws {
         let env = Environment()
         let output = CLIOutput()
+        MCSAnalytics.initialize(env: env, output: output)
+        defer { MCSAnalytics.trackCommand(.doctor) }
         let shell = ShellRunner(environment: env)
         let registry = TechPackRegistry.loadWithExternalPacks(
             environment: env,

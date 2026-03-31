@@ -29,6 +29,8 @@ struct ExportCommand: ParsableCommand {
     func run() throws {
         let env = Environment()
         let output = CLIOutput()
+        MCSAnalytics.initialize(env: env, output: output)
+        defer { MCSAnalytics.trackCommand(.export) }
 
         output.header("Export Configuration")
 

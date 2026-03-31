@@ -15,7 +15,7 @@ line_length:
   error: 200
 
 function_body_length:
-  warning: 150
+  warning: 160
   error: 200
 
 function_parameter_count:

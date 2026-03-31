@@ -6,10 +6,17 @@ import Yams
 struct MCSConfig: Codable {
     var updateCheckPacks: Bool?
     var updateCheckCLI: Bool?
+    var telemetry: Bool?
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case updateCheckPacks = "update-check-packs"
         case updateCheckCLI = "update-check-cli"
+        case telemetry
+    }
+
+    /// Whether telemetry is enabled. Defaults to `true` when unconfigured (`nil`).
+    var isTelemetryEnabled: Bool {
+        telemetry != false
     }
 
     /// Whether any update check is enabled (at least one key is true).
@@ -40,6 +47,11 @@ struct MCSConfig: Codable {
             key: CodingKeys.updateCheckCLI.rawValue,
             description: "Automatically check for new mcs versions on Claude Code session start",
             defaultValue: "false"
+        ),
+        ConfigKey(
+            key: CodingKeys.telemetry.rawValue,
+            description: "Enable anonymous usage telemetry",
+            defaultValue: "true"
         ),
     ]
 
@@ -89,6 +101,7 @@ struct MCSConfig: Codable {
         switch key {
         case CodingKeys.updateCheckPacks.rawValue: updateCheckPacks
         case CodingKeys.updateCheckCLI.rawValue: updateCheckCLI
+        case CodingKeys.telemetry.rawValue: telemetry
         default: nil
         }
     }
@@ -101,6 +114,9 @@ struct MCSConfig: Codable {
             return true
         case CodingKeys.updateCheckCLI.rawValue:
             updateCheckCLI = value
+            return true
+        case CodingKeys.telemetry.rawValue:
+            telemetry = value
             return true
         default:
             return false

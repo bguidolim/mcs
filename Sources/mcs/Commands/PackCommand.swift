@@ -12,6 +12,7 @@ struct PackCommandContext {
         output = CLIOutput()
         shell = ShellRunner(environment: env)
         registry = PackRegistryFile(path: env.packsRegistry)
+        MCSAnalytics.initialize(env: env, output: output)
     }
 
     func loadRegistry() throws -> PackRegistryFile.RegistryData {
@@ -55,6 +56,7 @@ struct AddPack: LockedCommand {
 
     func perform() throws {
         let ctx = PackCommandContext()
+        defer { MCSAnalytics.trackCommand(.packAdd) }
 
         let resolver = PackSourceResolver()
         let packSource: PackSource
@@ -433,7 +435,7 @@ struct RemovePack: LockedCommand {
 
     func perform() throws {
         let ctx = PackCommandContext()
-
+        defer { MCSAnalytics.trackCommand(.packRemove) }
         let fetcher = PackFetcher(
             shell: ctx.shell,
             output: ctx.output,
@@ -621,6 +623,7 @@ struct UpdatePack: LockedCommand {
 
     func perform() throws {
         let ctx = PackCommandContext()
+        defer { MCSAnalytics.trackCommand(.packUpdate) }
 
         let updater = PackUpdater(
             fetcher: PackFetcher(shell: ctx.shell, output: ctx.output, packsDirectory: ctx.env.packsDirectory),
@@ -708,6 +711,7 @@ struct ListPacks: ParsableCommand {
 
     func run() throws {
         let ctx = PackCommandContext()
+        defer { MCSAnalytics.trackCommand(.packList) }
 
         ctx.output.header("Tech Packs")
 

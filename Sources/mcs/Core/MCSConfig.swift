@@ -14,6 +14,11 @@ struct MCSConfig: Codable {
         case telemetry
     }
 
+    /// Whether telemetry is enabled. Defaults to `true` when unconfigured (`nil`).
+    var isTelemetryEnabled: Bool {
+        telemetry != false
+    }
+
     /// Whether any update check is enabled (at least one key is true).
     var isUpdateCheckEnabled: Bool {
         (updateCheckPacks ?? false) || (updateCheckCLI ?? false)

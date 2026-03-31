@@ -7,7 +7,7 @@ import TelemetryDeck
 /// Sends anonymous usage signals (command name + version) to understand
 /// how many users are using the CLI. No PII is collected.
 ///
-/// - Opt-in by default; disable with `mcs config set telemetry false`.
+/// - Enabled by default (opt-out); disable with `mcs config set telemetry false`.
 /// - User identity is derived from the hardware UUID (IOPlatformUUID), salted
 ///   and SHA-256 hashed — never stored on disk, cannot be tampered with.
 /// - All methods silently no-op on failure; telemetry must never break a command.
@@ -29,6 +29,7 @@ enum MCSAnalytics {
         case configSet = "config.set"
     }
 
+    /// Single-threaded CLI — no synchronization needed.
     private nonisolated(unsafe) static var enabled = false
 
     // MARK: - Public API
@@ -37,8 +38,10 @@ enum MCSAnalytics {
     /// Loads config to check opt-out, derives anonymous ID, initializes TelemetryDeck SDK.
     /// Shows a one-time notice on first use.
     static func initialize(env: Environment, output: CLIOutput) {
-        let config = MCSConfig.load(from: env.mcsConfigFile)
-        guard config.telemetry != false else { return }
+        guard !enabled else { return }
+
+        let config = MCSConfig.load(from: env.mcsConfigFile, output: output)
+        guard config.isTelemetryEnabled else { return }
 
         showFirstRunNoticeIfNeeded(env: env, output: output)
 
@@ -109,7 +112,14 @@ enum MCSAnalytics {
 
         // Create the marker file so the notice is only shown once.
         let dir = markerPath.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: markerPath.path, contents: nil)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            output.warn("Could not create telemetry marker directory: \(error.localizedDescription)")
+            return
+        }
+        if !FileManager.default.createFile(atPath: markerPath.path, contents: nil) {
+            output.warn("Could not write telemetry marker file — notice will repeat next run")
+        }
     }
 }

@@ -12,6 +12,7 @@ struct ValidatePack: ParsableCommand {
 
     func run() throws {
         let ctx = PackCommandContext()
+        defer { MCSAnalytics.trackCommand(.packValidate) }
         let packPath = try resolvePackPath(ctx: ctx)
 
         ctx.output.info("Validating pack at \(packPath.path)...")
@@ -47,8 +48,6 @@ struct ValidatePack: ParsableCommand {
             let passed = errors.isEmpty ? 1 : 0
             ctx.output.doctorSummary(passed: passed, fixed: 0, warnings: warnings.count, issues: errors.count)
         }
-
-        MCSAnalytics.trackCommand(.packValidate)
 
         if !errors.isEmpty {
             throw ExitCode.failure

@@ -19,6 +19,7 @@ struct CheckUpdatesCommand: ParsableCommand {
         if !hook {
             MCSAnalytics.initialize(env: env, output: output)
         }
+        defer { MCSAnalytics.trackCommand(.checkUpdates) }
         let shell = ShellRunner(environment: env)
 
         let registry = PackRegistryFile(path: env.packsRegistry)
@@ -59,10 +60,6 @@ struct CheckUpdatesCommand: ParsableCommand {
             printJSON(result)
         } else if !UpdateChecker.printResult(result, output: output, isHook: hook), !hook {
             output.success("Everything is up to date.")
-        }
-
-        if !hook {
-            MCSAnalytics.trackCommand(.checkUpdates)
         }
     }
 

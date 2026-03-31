@@ -30,6 +30,7 @@ struct ExportCommand: ParsableCommand {
         let env = Environment()
         let output = CLIOutput()
         MCSAnalytics.initialize(env: env, output: output)
+        defer { MCSAnalytics.trackCommand(.export) }
 
         output.header("Export Configuration")
 
@@ -108,8 +109,6 @@ struct ExportCommand: ParsableCommand {
             output.success("Pack exported successfully!")
             printPostExportHints(config: config, output: output)
         }
-
-        MCSAnalytics.trackCommand(.export)
     }
 
     // MARK: - Discovery Summary

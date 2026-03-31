@@ -21,6 +21,7 @@ struct MCSConfigTests {
         let config = MCSConfig.load(from: path)
         #expect(config.updateCheckPacks == nil)
         #expect(config.updateCheckCLI == nil)
+        #expect(config.telemetry == nil)
     }
 
     @Test("Load parses valid YAML")
@@ -32,12 +33,14 @@ struct MCSConfigTests {
         let yaml = """
         update-check-packs: true
         update-check-cli: false
+        telemetry: false
         """
         try yaml.write(to: path, atomically: true, encoding: .utf8)
 
         let config = MCSConfig.load(from: path)
         #expect(config.updateCheckPacks == true)
         #expect(config.updateCheckCLI == false)
+        #expect(config.telemetry == false)
     }
 
     @Test("Load returns empty config for corrupt YAML")
@@ -76,11 +79,13 @@ struct MCSConfigTests {
         var config = MCSConfig()
         config.updateCheckPacks = true
         config.updateCheckCLI = false
+        config.telemetry = false
         try config.save(to: path)
 
         let reloaded = MCSConfig.load(from: path)
         #expect(reloaded.updateCheckPacks == true)
         #expect(reloaded.updateCheckCLI == false)
+        #expect(reloaded.telemetry == false)
     }
 
     @Test("Save creates parent directories")
@@ -140,6 +145,26 @@ struct MCSConfigTests {
         #expect(!config.isUnconfigured)
     }
 
+    @Test("isTelemetryEnabled defaults to true when nil")
+    func isTelemetryEnabledNil() {
+        let config = MCSConfig()
+        #expect(config.isTelemetryEnabled)
+    }
+
+    @Test("isTelemetryEnabled returns true when explicitly true")
+    func isTelemetryEnabledTrue() {
+        var config = MCSConfig()
+        config.telemetry = true
+        #expect(config.isTelemetryEnabled)
+    }
+
+    @Test("isTelemetryEnabled returns false when explicitly false")
+    func isTelemetryEnabledFalse() {
+        var config = MCSConfig()
+        config.telemetry = false
+        #expect(!config.isTelemetryEnabled)
+    }
+
     // MARK: - Key Access
 
     @Test("value(forKey:) returns correct values")
@@ -147,9 +172,11 @@ struct MCSConfigTests {
         var config = MCSConfig()
         config.updateCheckPacks = true
         config.updateCheckCLI = false
+        config.telemetry = true
 
         #expect(config.value(forKey: "update-check-packs") == true)
         #expect(config.value(forKey: "update-check-cli") == false)
+        #expect(config.value(forKey: "telemetry") == true)
         #expect(config.value(forKey: "unknown-key") == nil)
     }
 
@@ -164,6 +191,10 @@ struct MCSConfigTests {
         let cliSet = config.setValue(false, forKey: "update-check-cli")
         #expect(cliSet)
         #expect(config.updateCheckCLI == false)
+
+        let telemetrySet = config.setValue(false, forKey: "telemetry")
+        #expect(telemetrySet)
+        #expect(config.telemetry == false)
 
         let unknownSet = config.setValue(true, forKey: "unknown-key")
         #expect(!unknownSet)

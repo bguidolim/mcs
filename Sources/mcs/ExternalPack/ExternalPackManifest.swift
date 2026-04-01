@@ -319,7 +319,7 @@ struct ExternalComponentDefinition: Codable {
     /// Standard keys matching stored properties (used by encode).
     enum CodingKeys: String, CodingKey {
         case id, displayName, description, type, dependencies, isRequired
-        case hookEvent, hookTimeout, hookAsync, hookStatusMessage
+        case hookEvent, hookMatcher, hookTimeout, hookAsync, hookStatusMessage
         case installAction, doctorChecks
     }
 
@@ -372,6 +372,7 @@ struct ExternalComponentDefinition: Codable {
         dependencies = try container.decodeIfPresent([String].self, forKey: .dependencies)
         isRequired = try container.decodeIfPresent(Bool.self, forKey: .isRequired)
         let hookEventRaw = try container.decodeIfPresent(String.self, forKey: .hookEvent)
+        let hookMatcher = try container.decodeIfPresent(String.self, forKey: .hookMatcher)
         let hookTimeout = try container.decodeIfPresent(Int.self, forKey: .hookTimeout)
         let hookAsync = try container.decodeIfPresent(Bool.self, forKey: .hookAsync)
         let hookStatusMessage = try container.decodeIfPresent(String.self, forKey: .hookStatusMessage)
@@ -385,16 +386,17 @@ struct ExternalComponentDefinition: Codable {
                 )
             }
             hookRegistration = HookRegistration(
-                event: hookEvent, timeout: hookTimeout, isAsync: hookAsync, statusMessage: hookStatusMessage
+                event: hookEvent, matcher: hookMatcher, timeout: hookTimeout, isAsync: hookAsync, statusMessage: hookStatusMessage
             )
         } else {
             hookRegistration = nil
-            // Reject orphaned hook metadata (timeout/async/statusMessage without hookEvent)
-            if hookTimeout != nil || hookAsync != nil || hookStatusMessage != nil {
+            // Reject orphaned hook metadata (matcher/timeout/async/statusMessage without hookEvent)
+            if hookMatcher != nil || hookTimeout != nil || hookAsync != nil || hookStatusMessage != nil {
                 throw DecodingError.dataCorrupted(
                     DecodingError.Context(
                         codingPath: container.codingPath,
-                        debugDescription: "Component '\(id)': hookTimeout/hookAsync/hookStatusMessage require hookEvent to be set"
+                        debugDescription:
+                        "Component '\(id)': hookMatcher/hookTimeout/hookAsync/hookStatusMessage require hookEvent to be set"
                     )
                 )
             }
@@ -423,6 +425,7 @@ struct ExternalComponentDefinition: Codable {
         try container.encodeIfPresent(dependencies, forKey: .dependencies)
         try container.encodeIfPresent(isRequired, forKey: .isRequired)
         try container.encodeIfPresent(hookRegistration?.event.rawValue, forKey: .hookEvent)
+        try container.encodeIfPresent(hookRegistration?.matcher, forKey: .hookMatcher)
         try container.encodeIfPresent(hookRegistration?.timeout, forKey: .hookTimeout)
         try container.encodeIfPresent(hookRegistration?.isAsync, forKey: .hookAsync)
         try container.encodeIfPresent(hookRegistration?.statusMessage, forKey: .hookStatusMessage)

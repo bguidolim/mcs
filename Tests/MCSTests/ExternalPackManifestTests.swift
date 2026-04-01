@@ -2345,6 +2345,103 @@ struct ExternalPackManifestTests {
         #expect(comp.type == .hookFile)
     }
 
+    @Test("Shorthand hook with matcher: hookMatcher decoded into HookRegistration")
+    func shorthandHookWithMatcher() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: My Pack
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.lint-hook
+            description: Lint on Edit/Write
+            hookEvent: PostToolUse
+            hookMatcher: "Edit|Write"
+            hookTimeout: 30
+            hook:
+              source: hooks/lint.sh
+              destination: lint.sh
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        let comp = try #require(manifest.components?.first)
+
+        #expect(comp.hookRegistration?.event == .postToolUse)
+        #expect(comp.hookRegistration?.matcher == "Edit|Write")
+        #expect(comp.hookRegistration?.timeout == 30)
+    }
+
+    @Test("hookMatcher is nil when not specified in YAML")
+    func hookMatcherNilWhenAbsent() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: My Pack
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.session-start
+            description: Session start hook
+            hookEvent: SessionStart
+            hook:
+              source: hooks/session_start.sh
+              destination: session_start.sh
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        let comp = try #require(manifest.components?.first)
+
+        #expect(comp.hookRegistration?.matcher == nil)
+    }
+
+    @Test("Decode rejects hookMatcher without hookEvent")
+    func rejectOrphanedHookMatcher() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: My Pack
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.node
+            description: Node.js
+            type: brewPackage
+            hookMatcher: "Edit"
+            installAction:
+              type: brewInstall
+              package: node
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try ExternalPackManifest.load(from: file)
+            Issue.record("Expected DecodingError for orphaned hookMatcher")
+        } catch let DecodingError.dataCorrupted(context) {
+            #expect(context.debugDescription.contains("hookMatcher"))
+            #expect(context.debugDescription.contains("require hookEvent"))
+        } catch {
+            Issue.record("Expected DecodingError.dataCorrupted, got \(type(of: error)): \(error)")
+        }
+    }
+
     @Test("Hook handler metadata fields are nil when not specified")
     func hookMetadataFieldsNilWhenAbsent() throws {
         let yaml = """

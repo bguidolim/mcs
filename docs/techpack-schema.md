@@ -36,6 +36,7 @@ These fields are available on every component, regardless of which shorthand key
 | `dependencies` | `[String]` | No | Component IDs this depends on. Short form auto-prefixed |
 | `isRequired` | `Boolean` | No | If `true`, cannot be deselected in `--customize` mode |
 | `hookEvent` | `String` | No | Claude Code event for hook components |
+| `hookMatcher` | `String` | No | Regex to filter when hook fires (e.g., tool name for `PreToolUse`). Requires `hookEvent` |
 | `hookTimeout` | `Integer` | No | Seconds before canceling the hook (defaults: 600 command, 30 prompt, 60 agent) |
 | `hookAsync` | `Boolean` | No | If `true`, runs the hook in the background without blocking |
 | `hookStatusMessage` | `String` | No | Custom spinner message displayed while the hook runs |
@@ -120,6 +121,7 @@ Infers: `type: plugin`, `installAction: plugin`
 - id: session-hook
   description: Session start hook
   hookEvent: SessionStart
+  hookMatcher: "startup"
   hookTimeout: 30
   hookAsync: true
   hookStatusMessage: "Initializing session..."
@@ -133,7 +135,7 @@ Infers: `type: plugin`, `installAction: plugin`
 | `source` | `String` | Yes | Path to script in the pack repo |
 | `destination` | `String` | Yes | Filename in `<project>/.claude/hooks/` |
 
-Use with `hookEvent` to register the hook in `settings.local.json`. The optional `hookTimeout`, `hookAsync`, and `hookStatusMessage` fields map directly to Claude Code's hook handler fields (`timeout`, `async`, `statusMessage`).
+Use with `hookEvent` to register the hook in `settings.local.json`. The optional `hookMatcher`, `hookTimeout`, `hookAsync`, and `hookStatusMessage` fields map directly to Claude Code's hook handler fields (`matcher`, `timeout`, `async`, `statusMessage`).
 
 If two packs declare the same `destination`, both are automatically namespaced with a `<pack-id>/` subdirectory prefix to prevent collisions.
 
@@ -536,6 +538,7 @@ components:
   - id: session-hook
     description: Shows npm outdated on session start
     hookEvent: SessionStart
+    hookMatcher: "startup"
     hookTimeout: 15
     hookStatusMessage: "Checking outdated packages..."
     hook:

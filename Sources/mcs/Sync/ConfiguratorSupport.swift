@@ -202,6 +202,7 @@ enum ConfiguratorSupport {
                     if settings.addHookEntry(
                         event: reg.event,
                         command: command,
+                        matcher: reg.matcher,
                         timeout: reg.timeout,
                         isAsync: reg.isAsync,
                         statusMessage: reg.statusMessage

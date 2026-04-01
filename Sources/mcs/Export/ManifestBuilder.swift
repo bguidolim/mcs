@@ -460,6 +460,9 @@ struct ManifestBuilder {
         // hookRegistration fields
         if let reg = comp.hookRegistration {
             yaml.line("    hookEvent: \(yamlQuote(reg.event.rawValue))")
+            if let matcher = reg.matcher {
+                yaml.line("    hookMatcher: \(yamlQuote(matcher))")
+            }
             if let timeout = reg.timeout {
                 yaml.line("    hookTimeout: \(timeout)")
             }

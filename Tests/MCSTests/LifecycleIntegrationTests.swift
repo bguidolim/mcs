@@ -1098,6 +1098,45 @@ struct HookMetadataLifecycleTests {
         try bed.runDoctor(registry: registry)
     }
 
+    @Test("Hook matcher flows end-to-end into settings.local.json")
+    func hookMatcherEndToEnd() throws {
+        let bed = try LifecycleTestBed()
+        defer { bed.cleanup() }
+
+        let hookSource = try bed.makeHookSource(name: "lint.sh")
+
+        let pack = MockTechPack(
+            identifier: "matcher-pack",
+            displayName: "Matcher Pack",
+            components: [
+                bed.hookComponent(
+                    pack: "matcher-pack", id: "lint",
+                    source: hookSource, destination: "lint.sh",
+                    hookRegistration: HookRegistration(
+                        event: .preToolUse, matcher: "Edit|Write",
+                        timeout: 30
+                    )
+                ),
+            ]
+        )
+        let registry = TechPackRegistry(packs: [pack])
+        let configurator = bed.makeConfigurator(registry: registry)
+
+        try configurator.configure(packs: [pack], confirmRemovals: false)
+
+        let data = try Data(contentsOf: bed.settingsLocalPath)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let hooks = try #require(json["hooks"] as? [String: Any])
+        let preToolGroups = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        let firstGroup = try #require(preToolGroups.first)
+
+        #expect(firstGroup["matcher"] as? String == "Edit|Write")
+
+        let hookEntries = try #require(firstGroup["hooks"] as? [[String: Any]])
+        let entry = try #require(hookEntries.first)
+        #expect(entry["timeout"] as? Int == 30)
+    }
+
     @Test("Hook without metadata produces clean entries (no null fields)")
     func hookWithoutMetadataNoNulls() throws {
         let bed = try LifecycleTestBed()

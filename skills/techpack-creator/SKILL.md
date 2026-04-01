@@ -172,7 +172,7 @@ Generate the pack directory:
 5. **YAML field ordering**:
    - Root: schemaVersion → identifier → displayName → description → author → prompts → components → templates → supplementaryDoctorChecks → configureProject
    - Components grouped: brew first → MCP servers → hooks → skills → commands → agents → settings → gitignore
-   - Each component: id → displayName → description → dependencies → isRequired → hookEvent/hookTimeout/hookAsync/hookStatusMessage → shorthand key
+   - Each component: id → displayName → description → dependencies → isRequired → hookEvent/hookMatcher/hookTimeout/hookAsync/hookStatusMessage → shorthand key
 6. **Dependencies**: Always declare them. `npx` MCP servers depend on `node`. `uvx`/`python` servers depend on `python`. Hooks using `jq` depend on `jq`.
 7. **isRequired: true** for settings and gitignore components
 8. **MCP scope**: default to `local` (per-user, per-project isolation)
@@ -269,7 +269,7 @@ After generating, perform a self-check:
 3. **Dependencies**: Every ID in `dependencies` exists as a component
 4. **Placeholders**: Every `__KEY__` in templates/settings has a corresponding prompt
 5. **ID uniqueness**: No duplicate component IDs or prompt keys
-6. **Hook metadata**: `hookTimeout`/`hookAsync`/`hookStatusMessage` require `hookEvent`
+6. **Hook metadata**: `hookMatcher`/`hookTimeout`/`hookAsync`/`hookStatusMessage` require `hookEvent`
 7. **Shell shorthand**: Any `shell:` component has an explicit `type:` field
 8. **No dots in IDs**: Component IDs and template sectionIdentifiers contain no dots
 

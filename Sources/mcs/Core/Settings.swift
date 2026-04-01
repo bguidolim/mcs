@@ -80,6 +80,7 @@ struct Settings: Codable {
     mutating func addHookEntry(
         event: String,
         command: String,
+        matcher: String? = nil,
         timeout: Int? = nil,
         isAsync: Bool? = nil,
         statusMessage: String? = nil
@@ -88,7 +89,7 @@ struct Settings: Codable {
             type: "command", command: command,
             timeout: timeout, isAsync: isAsync, statusMessage: statusMessage
         )
-        let group = HookGroup(matcher: nil, hooks: [entry])
+        let group = HookGroup(matcher: matcher, hooks: [entry])
         var existing = hooks ?? [:]
         var groups = existing[event] ?? []
         if let index = groups.firstIndex(where: { $0.hooks?.first?.command == command }) {
@@ -96,6 +97,7 @@ struct Settings: Codable {
             let metadataChanged = old?.timeout != timeout
                 || old?.isAsync != isAsync
                 || old?.statusMessage != statusMessage
+                || groups[index].matcher != matcher
             if metadataChanged {
                 groups[index] = group
                 existing[event] = groups
@@ -115,12 +117,14 @@ struct Settings: Codable {
     mutating func addHookEntry(
         event: Constants.HookEvent,
         command: String,
+        matcher: String? = nil,
         timeout: Int? = nil,
         isAsync: Bool? = nil,
         statusMessage: String? = nil
     ) -> Bool {
         addHookEntry(
             event: event.rawValue, command: command,
+            matcher: matcher,
             timeout: timeout, isAsync: isAsync, statusMessage: statusMessage
         )
     }

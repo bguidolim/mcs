@@ -30,12 +30,14 @@ extension ComponentType {
 /// in `settings.local.json` with the specified handler fields.
 struct HookRegistration: Equatable {
     let event: Constants.HookEvent
+    let matcher: String?
     let timeout: Int?
     let isAsync: Bool?
     let statusMessage: String?
 
-    init(event: Constants.HookEvent, timeout: Int? = nil, isAsync: Bool? = nil, statusMessage: String? = nil) {
+    init(event: Constants.HookEvent, matcher: String? = nil, timeout: Int? = nil, isAsync: Bool? = nil, statusMessage: String? = nil) {
         self.event = event
+        self.matcher = matcher
         self.timeout = timeout
         self.isAsync = isAsync
         self.statusMessage = statusMessage

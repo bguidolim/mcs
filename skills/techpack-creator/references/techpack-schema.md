@@ -56,6 +56,7 @@ Each component represents something MCS can install, verify, and uninstall.
 | `dependencies` | [String] | No | Component IDs. Short IDs auto-prefixed for intra-pack. Use `other-pack.id` for cross-pack |
 | `isRequired` | Boolean | No | If `true`, cannot be deselected in `--customize` mode |
 | `hookEvent` | String | No | Claude Code lifecycle event for hook registration |
+| `hookMatcher` | String | No | Regex to filter when hook fires (e.g., tool name). Requires `hookEvent` |
 | `hookTimeout` | Integer | No | Seconds before cancel. Requires `hookEvent` |
 | `hookAsync` | Boolean | No | Run hook in background. Requires `hookEvent` |
 | `hookStatusMessage` | String | No | Custom spinner message. Requires `hookEvent` |
@@ -143,6 +144,7 @@ Copies a hook script file. Infers `type: hookFile`. Combine with `hookEvent` to 
 - id: session-hook
   description: Session start hook
   hookEvent: SessionStart
+  hookMatcher: "startup"
   hookTimeout: 30
   hookAsync: true
   hookStatusMessage: "Initializing..."
@@ -154,6 +156,7 @@ Copies a hook script file. Infers `type: hookFile`. Combine with `hookEvent` to 
 - `source`: path to script in the pack repo
 - `destination`: filename in `<project>/.claude/hooks/`
 - MUST set `hookEvent` at component level to register the hook in settings
+- `hookMatcher` is a regex that filters when the hook fires (e.g., tool name for `PreToolUse`)
 
 ### `command: {source, destination}`
 
@@ -422,7 +425,7 @@ The script receives environment variables:
 - Prompt `key` values must be unique
 - Doctor check required fields must be present and non-empty
 - `hookTimeout` must be a positive integer
-- `hookTimeout`, `hookAsync`, `hookStatusMessage` all require `hookEvent` to be set
+- `hookMatcher`, `hookTimeout`, `hookAsync`, `hookStatusMessage` all require `hookEvent` to be set
 - `shell:` shorthand requires explicit `type:` field
 
 ### File References

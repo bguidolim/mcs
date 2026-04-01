@@ -241,6 +241,7 @@ struct ConfigurationDiscovery {
                     if let hookEvent = Constants.HookEvent(rawValue: event) {
                         commandToReg[command] = HookRegistration(
                             event: hookEvent,
+                            matcher: group.matcher,
                             timeout: entry.timeout,
                             isAsync: entry.isAsync,
                             statusMessage: entry.statusMessage

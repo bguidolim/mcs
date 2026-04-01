@@ -717,6 +717,62 @@ struct SettingsMergeTests {
         #expect(settings.hooks?["PostToolUse"]?.count == 1)
     }
 
+    @Test("addHookEntry passes through matcher to HookGroup")
+    func addHookEntryWithMatcher() throws {
+        var settings = Settings()
+        settings.addHookEntry(
+            event: "PreToolUse", command: "bash lint.sh",
+            matcher: "Edit|Write", timeout: 30
+        )
+
+        let groups = settings.hooks?["PreToolUse"] ?? []
+        let group = try #require(groups.first)
+        #expect(group.matcher == "Edit|Write")
+        #expect(group.hooks?.first?.command == "bash lint.sh")
+        #expect(group.hooks?.first?.timeout == 30)
+    }
+
+    @Test("addHookEntry detects matcher drift and updates group")
+    func addHookEntryMatcherDrift() {
+        var settings = Settings()
+        settings.addHookEntry(
+            event: "PreToolUse", command: "bash lint.sh"
+        )
+        // Same command, add a matcher
+        let updated = settings.addHookEntry(
+            event: "PreToolUse", command: "bash lint.sh",
+            matcher: "Edit"
+        )
+        #expect(updated == true)
+
+        let groups = settings.hooks?["PreToolUse"] ?? []
+        #expect(groups.count == 1)
+        #expect(groups.first?.matcher == "Edit")
+    }
+
+    @Test("addHookEntry round-trips matcher through save/load")
+    func addHookEntryMatcherRoundTrip() throws {
+        var settings = Settings()
+        settings.addHookEntry(
+            event: "PreToolUse", command: "bash lint.sh",
+            matcher: "mcp__.*"
+        )
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcs-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("settings.json")
+        try settings.save(to: file)
+        let reloaded = try Settings.load(from: file)
+
+        let groups = reloaded.hooks?["PreToolUse"] ?? []
+        let group = try #require(groups.first)
+        #expect(group.matcher == "mcp__.*")
+        #expect(group.hooks?.first?.command == "bash lint.sh")
+    }
+
     @Test("merge preserves existing hook metadata (existing-wins semantics)")
     func mergeHookExistingWins() throws {
         var base = Settings(hooks: [

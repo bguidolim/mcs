@@ -1,0 +1,323 @@
+name: '[AUTO] Week Rollover'
+
+on:
+  # schedule:
+  #   - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Rollover mode'
+        required: false
+        default: 'milestones'
+        type: choice
+        options:
+          - milestones
+          - iterations
+
+env:
+  REPO: mcs-cli/mcs
+  PROJECT_ORG: mcs-cli
+  PROJECT_NUMBER: 1
+  # Only used in iterations mode
+  ITERATION_FIELD: Calendar Week
+  DONE_STATUS: Done
+
+jobs:
+  rollover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    timeout-minutes: 10
+    outputs:
+      telegram_message: ${{ steps.rollover.outputs.telegram_message }}
+
+    steps:
+      - name: Week Rollover
+        id: rollover
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
+          MODE: ${{ github.event.inputs.mode || 'milestones' }}
+        run: |
+          set -e
+
+          echo "=== Week Rollover (mode: $MODE) ==="
+
+          if [ "$MODE" = "milestones" ]; then
+            # =============================================================
+            # MILESTONES MODE
+            # Milestone format: "YY CW WW" (e.g., "26 CW 14")
+            # =============================================================
+
+            # Determine this week and last week
+            YEAR=$(date -u +%y)
+            THIS_WEEK_NUM=$((10#$(date -u +%V)))
+            LAST_WEEK_NUM=$((THIS_WEEK_NUM - 1))
+
+            # Handle year boundary (week 0 → week 52 of previous year)
+            if [ "$LAST_WEEK_NUM" -lt 1 ]; then
+              LAST_WEEK_NUM=52
+              LAST_YEAR=$(printf "%02d" $(( 10#$YEAR - 1 )))
+            else
+              LAST_YEAR=$YEAR
+            fi
+
+            THIS_TITLE="${YEAR} CW ${THIS_WEEK_NUM}"
+            LAST_TITLE="${LAST_YEAR} CW ${LAST_WEEK_NUM}"
+
+            # Due date = end of this week (Sunday)
+            DOW=$(date -u +%u)  # 1=Monday, 7=Sunday
+            DAYS_TO_SUNDAY=$((7 - DOW))
+            THIS_DUE=$(date -u -d "+${DAYS_TO_SUNDAY} days" +%Y-%m-%dT12:00:00Z)
+
+            echo "This week: $THIS_TITLE (due: $THIS_DUE)"
+            echo "Last week: $LAST_TITLE"
+
+            # Upsert this week's milestone
+            THIS_MS_NUMBER=$(gh api "repos/$REPO/milestones" --jq \
+              '.[] | select(.title == "'"$THIS_TITLE"'") | .number')
+
+            if [ -n "$THIS_MS_NUMBER" ]; then
+              echo "Milestone exists: #$THIS_MS_NUMBER  - updating due date"
+              gh api "repos/$REPO/milestones/$THIS_MS_NUMBER" \
+                -X PATCH \
+                -f due_on="$THIS_DUE" \
+                --silent
+            else
+              echo "Creating milestone: $THIS_TITLE (due: $THIS_DUE)"
+              THIS_MS_NUMBER=$(gh api "repos/$REPO/milestones" \
+                -X POST \
+                -f title="$THIS_TITLE" \
+                -f due_on="$THIS_DUE" \
+                -f state="open" \
+                --jq '.number')
+              echo "Created milestone: $THIS_TITLE (#$THIS_MS_NUMBER)"
+            fi
+
+            # Roll over last week's open issues (if any)
+            LAST_MILESTONE=$(gh api "repos/$REPO/milestones" --jq \
+              '.[] | select(.title == "'"$LAST_TITLE"'") | {number, open_issues}')
+
+            if [ -z "$LAST_MILESTONE" ]; then
+              echo "Last week milestone '$LAST_TITLE' not found (already closed). Nothing to roll over."
+            else
+              LAST_MS_NUMBER=$(echo "$LAST_MILESTONE" | jq -r '.number')
+              OPEN_COUNT=$(echo "$LAST_MILESTONE" | jq -r '.open_issues')
+
+              echo "Found: $LAST_TITLE (milestone #$LAST_MS_NUMBER, $OPEN_COUNT open issues)"
+
+              if [ "$OPEN_COUNT" -gt 0 ]; then
+                while read -r ISSUE; do
+                    ISSUE_NUM=$(echo "$ISSUE" | jq -r '.number')
+                    ISSUE_TITLE=$(echo "$ISSUE" | jq -r '.title')
+
+                    gh api "repos/$REPO/issues/$ISSUE_NUM" \
+                      -X PATCH \
+                      -F milestone="$THIS_MS_NUMBER" \
+                      --silent
+
+                    echo "  #$ISSUE_NUM → $THIS_TITLE  - $ISSUE_TITLE"
+                  done < <(gh issue list --repo "$REPO" --milestone "$LAST_TITLE" --state open --json number,title --jq '.[]' | jq -c '.')
+
+                echo "Moved $OPEN_COUNT issues from $LAST_TITLE → $THIS_TITLE"
+
+                # Telegram notification
+                ISSUES_TEXT=$(gh issue list --repo "$REPO" --milestone "$THIS_TITLE" --state open --json number,title \
+                  --jq '.[] | "• #\(.number)  - \(.title)"')
+
+                {
+                  echo 'telegram_message<<EOF'
+                  echo "Week Rollover: ${LAST_TITLE} → ${THIS_TITLE}"
+                  echo "Moved ${OPEN_COUNT} open issues:"
+                  echo "$ISSUES_TEXT"
+                  echo 'EOF'
+                } >> "$GITHUB_OUTPUT"
+              fi
+
+              # Close last week's milestone if no open issues remain
+              REMAINING=$(gh api "repos/$REPO/milestones/$LAST_MS_NUMBER" --jq '.open_issues')
+              if [ "$REMAINING" -eq 0 ]; then
+                gh api "repos/$REPO/milestones/$LAST_MS_NUMBER" \
+                  -X PATCH \
+                  -f state="closed" \
+                  --silent
+                echo "Closed milestone: $LAST_TITLE"
+              fi
+            fi
+
+          else
+            # =============================================================
+            # ITERATIONS MODE (Project board iteration field)
+            # Uses GitHub Projects V2 iteration fields instead of milestones
+            # =============================================================
+
+            # Fetch project metadata
+            PROJECT_DATA=$(gh api graphql -f query='
+              query {
+                organization(login: "'"$PROJECT_ORG"'") {
+                  projectV2(number: '"$PROJECT_NUMBER"') {
+                    id
+                    field(name: "'"$ITERATION_FIELD"'") {
+                      ... on ProjectV2IterationField {
+                        id
+                        configuration {
+                          iterations { id title startDate duration }
+                          completedIterations { id title startDate duration }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ')
+
+            PROJECT_ID=$(echo "$PROJECT_DATA" | jq -r '.data.organization.projectV2.id')
+            FIELD_ID=$(echo "$PROJECT_DATA" | jq -r '.data.organization.projectV2.field.id')
+
+            ALL_ITERATIONS=$(echo "$PROJECT_DATA" | jq '[
+              .data.organization.projectV2.field.configuration.iterations[],
+              .data.organization.projectV2.field.configuration.completedIterations[]
+            ] | sort_by(.startDate) | reverse')
+
+            # Current CW = latest iteration
+            CURRENT_CW=$(echo "$ALL_ITERATIONS" | jq '.[0]')
+            CURRENT_CW_ID=$(echo "$CURRENT_CW" | jq -r '.id')
+            CURRENT_CW_TITLE=$(echo "$CURRENT_CW" | jq -r '.title')
+            CURRENT_CW_START=$(echo "$CURRENT_CW" | jq -r '.startDate')
+            CURRENT_CW_DURATION=$(echo "$CURRENT_CW" | jq -r '.duration')
+
+            echo "Current: $CURRENT_CW_TITLE (start: $CURRENT_CW_START)"
+
+            # Calculate next iteration
+            NEXT_CW_START=$(date -d "$CURRENT_CW_START + ${CURRENT_CW_DURATION} days" "+%Y-%m-%d")
+
+            CURRENT_CW_NUM=$(echo "$CURRENT_CW_TITLE" | grep -oE '[0-9]+$')
+            NEXT_CW_NUM=$((CURRENT_CW_NUM + 1))
+            NEXT_CW_TITLE="Calendar Week $NEXT_CW_NUM"
+
+            echo "Next: $NEXT_CW_TITLE (start: $NEXT_CW_START)"
+
+            # Create next iteration if needed
+            NEXT_CW_ID=$(echo "$ALL_ITERATIONS" | jq -r --arg title "$NEXT_CW_TITLE" '.[] | select(.title == $title) | .id')
+
+            if [ -n "$NEXT_CW_ID" ]; then
+              echo "Next iteration already exists: $NEXT_CW_ID"
+            else
+              NEXT_CW_ID=$(gh api graphql -f query='
+                mutation {
+                  updateProjectV2IterationFieldConfiguration(input: {
+                    projectId: "'"$PROJECT_ID"'"
+                    fieldId: "'"$FIELD_ID"'"
+                    iterations: [
+                      { startDate: "'"$NEXT_CW_START"'", duration: '"$CURRENT_CW_DURATION"', title: "'"$NEXT_CW_TITLE"'" }
+                    ]
+                  }) {
+                    field {
+                      ... on ProjectV2IterationField {
+                        configuration {
+                          iterations { id title startDate }
+                        }
+                      }
+                    }
+                  }
+                }
+              ' --jq '.data.updateProjectV2IterationFieldConfiguration.field.configuration.iterations[] | select(.title == "'"$NEXT_CW_TITLE"'") | .id')
+
+              if [ -z "$NEXT_CW_ID" ]; then
+                echo "::error::Failed to create next iteration"
+                exit 1
+              fi
+              echo "Created iteration: $NEXT_CW_TITLE ($NEXT_CW_ID)"
+            fi
+
+            # Find items in current CW that are NOT Done
+            ITEMS=$(gh api graphql -f query='
+              query {
+                organization(login: "'"$PROJECT_ORG"'") {
+                  projectV2(number: '"$PROJECT_NUMBER"') {
+                    items(first: 100) {
+                      nodes {
+                        id
+                        fieldValueByName(name: "'"$ITERATION_FIELD"'") {
+                          ... on ProjectV2ItemFieldIterationValue {
+                            iterationId
+                          }
+                        }
+                        status: fieldValueByName(name: "Status") {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            name
+                          }
+                        }
+                        content {
+                          ... on Issue {
+                            number
+                            title
+                            state
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ')
+
+            ROLLOVER_ITEMS=$(echo "$ITEMS" | jq --arg cwId "$CURRENT_CW_ID" --arg done "$DONE_STATUS" '[
+              .data.organization.projectV2.items.nodes[]
+              | select(.fieldValueByName.iterationId == $cwId)
+              | select(.status.name != $done)
+              | select(.content.state == "OPEN")
+              | { itemId: .id, number: .content.number, title: .content.title, status: .status.name }
+            ]')
+
+            ROLLOVER_COUNT=$(echo "$ROLLOVER_ITEMS" | jq 'length')
+            echo "Items to roll over: $ROLLOVER_COUNT"
+
+            if [ "$ROLLOVER_COUNT" -eq 0 ]; then
+              echo "Nothing to roll over."
+              exit 0
+            fi
+
+            # Move each item to next iteration
+            for ITEM_ID in $(echo "$ROLLOVER_ITEMS" | jq -r '.[].itemId'); do
+              ISSUE_NUM=$(echo "$ROLLOVER_ITEMS" | jq -r --arg id "$ITEM_ID" '.[] | select(.itemId == $id) | .number')
+
+              gh api graphql -f query='
+                mutation {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: "'"$PROJECT_ID"'"
+                    itemId: "'"$ITEM_ID"'"
+                    fieldId: "'"$FIELD_ID"'"
+                    value: { iterationId: "'"$NEXT_CW_ID"'" }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }
+              ' > /dev/null
+
+              echo "  #$ISSUE_NUM → $NEXT_CW_TITLE"
+            done
+
+            echo "Moved $ROLLOVER_COUNT items from $CURRENT_CW_TITLE → $NEXT_CW_TITLE"
+
+            ISSUES_TEXT=$(echo "$ROLLOVER_ITEMS" | jq -r '.[] | "• #\(.number)  - \(.title)"')
+            {
+              echo 'telegram_message<<EOF'
+              echo "Week Rollover (iterations): ${CURRENT_CW_TITLE} → ${NEXT_CW_TITLE}"
+              echo "Moved ${ROLLOVER_COUNT} items:"
+              echo "$ISSUES_TEXT"
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "=== Rollover complete ==="
+
+  notify:
+    needs: rollover
+    if: needs.rollover.outputs.telegram_message != ''
+    uses: ./.github/workflows/telegram.yml
+    with:
+      message: ${{ needs.rollover.outputs.telegram_message }}
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

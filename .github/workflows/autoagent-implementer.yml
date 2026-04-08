@@ -1,0 +1,408 @@
+# NOTE: These workflows use AGENT_PAT (Personal Access Token). Consider migrating
+# to a GitHub App token (actions/create-github-app-token@v3) for scoped, auditable,
+# short-lived credentials — consistent with auto-release.yml.
+name: '[AUTOAGENT] Implementer'
+
+on:
+  # schedule:
+  #   - cron: '0 * * * *'  # Every hour
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'GitHub issue number to implement'
+        required: true
+        type: string
+      base_branch:
+        description: 'Base branch (default: main, or a dependency branch)'
+        required: false
+        default: 'main'
+        type: string
+      model:
+        description: 'Claude model to use'
+        required: false
+        default: 'claude-opus-4-6'
+        type: choice
+        options:
+          - claude-opus-4-6
+          - claude-sonnet-4-6
+
+concurrency:
+  group: autoagent-implementer
+  cancel-in-progress: false
+
+env:
+  PROJECT_ORG: mcs-cli
+  REPO: mcs-cli/mcs
+  PROJECT_NUMBER: 1
+  # Milestone format: "YY CW WW" (e.g., "26 CW 14") — must match auto-week-rollover.yml
+
+jobs:
+  prepare:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.resolve.outputs.skip }}
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      issue_title: ${{ steps.resolve.outputs.issue_title }}
+      base_branch: ${{ steps.resolve.outputs.base_branch }}
+      model: ${{ steps.resolve.outputs.model }}
+      start_message: ${{ steps.msg.outputs.start_message }}
+
+    steps:
+      - name: Resolve issue to implement
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+          INPUT_MODEL: ${{ github.event.inputs.model }}
+          INPUT_BASE_BRANCH: ${{ github.event.inputs.base_branch }}
+        run: |
+          set -e
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Manual dispatch  - use provided inputs
+            ISSUE_NUM="$INPUT_ISSUE_NUMBER"
+            MODEL="$INPUT_MODEL"
+            BASE="$INPUT_BASE_BRANCH"
+            ISSUE_TITLE=$(gh issue view "$ISSUE_NUM" --repo "${{ github.repository }}" --json title -q '.title' 2>/dev/null || echo "Unknown")
+
+            echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+            echo "issue_title=$ISSUE_TITLE" >> $GITHUB_OUTPUT
+            echo "base_branch=$BASE" >> $GITHUB_OUTPUT
+            echo "model=$MODEL" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Schedule  - scan project board for TODO issues
+          YEAR=$(date -u +%y)
+          THIS_WEEK_NUM=$((10#$(date -u +%V)))
+          CURRENT_MILESTONE="${YEAR} CW ${THIS_WEEK_NUM}"
+          echo "=== Scanning for TODO issues in milestone: ${CURRENT_MILESTONE} ==="
+
+          TODO_ITEMS=$(gh api graphql -f query='
+            query {
+              organization(login: "'"$PROJECT_ORG"'") {
+                projectV2(number: '"$PROJECT_NUMBER"') {
+                  items(first: 100) {
+                    nodes {
+                      id
+                      fieldValueByName(name: "Status") {
+                        ... on ProjectV2ItemFieldSingleSelectValue {
+                          name
+                        }
+                      }
+                      content {
+                        ... on Issue {
+                          number
+                          title
+                          state
+                          milestone {
+                            title
+                          }
+                          labels(first: 20) {
+                            nodes { name }
+                          }
+                          body
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' --jq '
+            .data.organization.projectV2.items.nodes[]
+            | select(.fieldValueByName.name == "Todo")
+            | select(.content.state == "OPEN")
+            | select(.content.milestone.title == "'"$CURRENT_MILESTONE"'")
+            | {
+                itemId: .id,
+                number: .content.number,
+                title: .content.title,
+                labels: [.content.labels.nodes[].name],
+                bodyLength: (.content.body | length)
+              }
+          ')
+
+          if [ -z "$TODO_ITEMS" ]; then
+            echo "No TODO issues found in milestone ${CURRENT_MILESTONE}. Standing by."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Found TODO issues:"
+          echo "$TODO_ITEMS" | jq -c '.'
+
+          # Check for already running implementer workflows
+          RUNNING=$(gh run list --workflow=autoagent-implementer.yml --status in_progress --json databaseId --jq 'length')
+          if [ "$RUNNING" -gt 1 ]; then
+            echo "Implementer already running. Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Priority ranking: p0=0, p1=1, ..., p5=5, no priority=6
+          # Secondary sort: prefer longer issue bodies (more detailed specs)
+          BEST_ISSUE=$(echo "$TODO_ITEMS" | jq -s '
+            sort_by(
+              (if (.labels | index("P0")) then 0
+               elif (.labels | index("P1")) then 1
+               elif (.labels | index("P2")) then 2
+               elif (.labels | index("P3")) then 3
+               elif (.labels | index("P4")) then 4
+               elif (.labels | index("P5")) then 5
+               else 6 end),
+              (-.bodyLength)
+            ) | .[0]
+          ')
+
+          ISSUE_NUM=$(echo "$BEST_ISSUE" | jq -r '.number')
+          ISSUE_TITLE=$(echo "$BEST_ISSUE" | jq -r '.title')
+          ITEM_ID=$(echo "$BEST_ISSUE" | jq -r '.itemId')
+
+          if [ -z "$ISSUE_NUM" ] || [ "$ISSUE_NUM" = "null" ]; then
+            echo "No suitable issue found."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Selected: #${ISSUE_NUM}  - ${ISSUE_TITLE}"
+
+          # Check if issue already has an open PR
+          EXISTING_PR=$(gh pr list --search "head:autoagent/${ISSUE_NUM}" --state open --json number --jq 'length')
+          if [ "$EXISTING_PR" -gt 0 ]; then
+            echo "Issue #${ISSUE_NUM} already has an open PR. Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check for dependency branches
+          ISSUE_BODY=$(gh issue view "$ISSUE_NUM" --json body -q '.body')
+          BASE_BRANCH="main"
+
+          DEP_NUM=$(echo "$ISSUE_BODY" | sed -n 's/.*Depends on:*\s*#*\([0-9]\+\).*/\1/p' | head -1)
+          if [ -n "$DEP_NUM" ]; then
+            DEP_BRANCH=$(gh pr list --search "head:autoagent/${DEP_NUM}" --state open --json headRefName --jq '.[0].headRefName // empty')
+            if [ -n "$DEP_BRANCH" ]; then
+              BASE_BRANCH="$DEP_BRANCH"
+              echo "Dependency detected: #${DEP_NUM} → base branch: ${BASE_BRANCH}"
+            fi
+          fi
+
+          # Move to IN PROGRESS on the board (single query for project + field + options)
+          BOARD_DATA=$(gh api graphql -f query='
+            query {
+              organization(login: "'"$PROJECT_ORG"'") {
+                projectV2(number: '"$PROJECT_NUMBER"') {
+                  id
+                  field(name: "Status") {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      options { id name }
+                    }
+                  }
+                }
+              }
+            }
+          ')
+
+          PROJECT_ID=$(echo "$BOARD_DATA" | jq -r '.data.organization.projectV2.id')
+          STATUS_FIELD_ID=$(echo "$BOARD_DATA" | jq -r '.data.organization.projectV2.field.id')
+          IN_PROGRESS_ID=$(echo "$BOARD_DATA" | jq -r '.data.organization.projectV2.field.options[] | select(.name == "In Progress") | .id')
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "::error::Could not resolve project ID for $PROJECT_ORG project #$PROJECT_NUMBER"
+            exit 1
+          fi
+          if [ -z "$STATUS_FIELD_ID" ] || [ "$STATUS_FIELD_ID" = "null" ]; then
+            echo "::error::Could not resolve Status field ID on project board"
+            exit 1
+          fi
+          if [ -z "$IN_PROGRESS_ID" ] || [ "$IN_PROGRESS_ID" = "null" ]; then
+            echo "::error::Could not resolve 'In Progress' option ID (check field option names)"
+            exit 1
+          fi
+
+          gh api graphql -f query="
+            mutation {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: \"${PROJECT_ID}\"
+                itemId: \"${ITEM_ID}\"
+                fieldId: \"${STATUS_FIELD_ID}\"
+                value: { singleSelectOptionId: \"${IN_PROGRESS_ID}\" }
+              }) {
+                projectV2Item { id }
+              }
+            }
+          "
+
+          echo "Moved #${ISSUE_NUM} to IN PROGRESS"
+
+          echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+          echo "issue_title=$ISSUE_TITLE" >> $GITHUB_OUTPUT
+          echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+          echo "model=claude-opus-4-6" >> $GITHUB_OUTPUT
+          echo "skip=false" >> $GITHUB_OUTPUT
+
+      - name: Build start message
+        id: msg
+        if: steps.resolve.outputs.skip != 'true'
+        env:
+          ISSUE_NUM: ${{ steps.resolve.outputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.resolve.outputs.issue_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo 'start_message<<EOF'
+            echo "🏗️ [AUTOAGENT] Implementer  - #${ISSUE_NUM} ${ISSUE_TITLE}"
+            echo "${RUN_URL}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  notify-start:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    uses: ./.github/workflows/telegram.yml
+    with:
+      message: ${{ needs.prepare.outputs.start_message }}
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+  implement:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+    timeout-minutes: 90
+    outputs:
+      after_message: ${{ steps.summary.outputs.after_message }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.base_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.AGENT_PAT }}
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Fetch issue details
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ needs.prepare.outputs.issue_number }}
+        run: |
+          gh issue view "$ISSUE_NUM" --json title,body,labels > /tmp/issue.json
+
+      - name: Implement with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUM: ${{ needs.prepare.outputs.issue_number }}
+          BASE: ${{ needs.prepare.outputs.base_branch }}
+          MODEL: ${{ needs.prepare.outputs.model }}
+        run: |
+          ISSUE_BODY=$(jq -r '.body' /tmp/issue.json)
+          ISSUE_TITLE=$(jq -r '.title' /tmp/issue.json)
+
+          export ISSUE_NUM ISSUE_TITLE ISSUE_BODY BASE
+          git show origin/main:.github/prompts/implementer.md | envsubst '$ISSUE_NUM $ISSUE_TITLE $ISSUE_BODY $BASE' | \
+            claude -p --verbose --output-format stream-json --model "$MODEL" --max-turns 500 \
+              --permission-mode auto
+
+      - name: Comment on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ needs.prepare.outputs.issue_number }}
+        run: |
+          PR_URL=$(gh pr list --search "head:autoagent/${ISSUE_NUM}" --state open --json url -q '.[0].url' 2>/dev/null || echo "")
+          if [ -n "$PR_URL" ]; then
+            gh issue comment "$ISSUE_NUM" --body "Implementation complete. PR: ${PR_URL}"
+          fi
+
+      - name: Comment on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ needs.prepare.outputs.issue_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUM" \
+            --body "Autoagent failed. [Workflow run](${RUN_URL})"
+
+      - name: Capture summary
+        id: summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ needs.prepare.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.prepare.outputs.issue_title }}
+          BASE_BRANCH: ${{ needs.prepare.outputs.base_branch }}
+          MODEL: ${{ needs.prepare.outputs.model }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          STATUS="${{ job.status }}"
+
+          PR_URL=$(gh pr list --search "head:autoagent/${ISSUE_NUM}" --state open --json url -q '.[0].url' 2>/dev/null || echo "")
+
+          BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+          COMMITS=$(git log --pretty="- %s" origin/${BASE_BRANCH}..HEAD 2>/dev/null | head -20 || echo "- No commits")
+          FILES_CHANGED=$(git diff --name-only origin/${BASE_BRANCH}..HEAD 2>/dev/null | wc -l | tr -d ' ')
+
+          # Job summary
+          {
+            echo "## [AUTOAGENT] Implementer"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Issue** | #${ISSUE_NUM} - ${ISSUE_TITLE} |"
+            echo "| **Status** | ${STATUS} |"
+            echo "| **Model** | ${MODEL} |"
+            echo "| **Branch** | \`${BRANCH}\` |"
+            echo "| **Base** | \`${BASE_BRANCH}\` |"
+            echo "| **Files changed** | ${FILES_CHANGED} |"
+            if [ -n "$PR_URL" ]; then
+              echo "| **PR** | ${PR_URL} |"
+            fi
+            echo ""
+            echo "### Commits"
+            echo "${COMMITS}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Telegram message
+          if [ "$STATUS" = "success" ]; then
+            MSG="[AUTOAGENT] Implementer done - #${ISSUE_NUM} ${ISSUE_TITLE}"
+            [ -n "$PR_URL" ] && MSG="${MSG}
+          PR: ${PR_URL}"
+          else
+            MSG="[AUTOAGENT] Implementer failed - #${ISSUE_NUM} ${ISSUE_TITLE}
+          ${RUN_URL}"
+          fi
+
+          {
+            echo 'after_message<<EOF'
+            echo "$MSG"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  notify-done:
+    needs: implement
+    if: always() && needs.implement.outputs.after_message != ''
+    uses: ./.github/workflows/telegram.yml
+    with:
+      message: ${{ needs.implement.outputs.after_message }}
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

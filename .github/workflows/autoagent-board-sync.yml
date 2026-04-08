@@ -1,0 +1,193 @@
+name: '[AUTOAGENT] Board Sync'
+
+on:
+  pull_request:
+    types: [opened, closed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PROJECT_ORG: mcs-cli
+  PROJECT_NUMBER: 1
+
+jobs:
+  sync:
+    # Only for autoagent branches
+    if: startsWith(github.head_ref, 'autoagent/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    timeout-minutes: 5
+
+    steps:
+      - name: Extract issue number from branch
+        id: issue
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          # Extract issue number from branch name: autoagent/353-wire-categorization-rules → 353
+          ISSUE_NUM=$(echo "$BRANCH" | sed 's|autoagent/||' | grep -oE '^[0-9]+')
+          if [ -z "$ISSUE_NUM" ]; then
+            echo "::error::Could not extract issue number from branch: $BRANCH"
+            exit 1
+          fi
+          echo "number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+          echo "Issue: #$ISSUE_NUM from branch: $BRANCH"
+
+      - name: Get project item ID
+        id: project
+        run: |
+          ISSUE_NUM="${{ steps.issue.outputs.number }}"
+
+          # Get project item ID for this issue
+          ITEM_DATA=$(gh api graphql -f query="
+            query {
+              organization(login: \"$PROJECT_ORG\") {
+                projectV2(number: $PROJECT_NUMBER) {
+                  id
+                  items(first: 100) {
+                    nodes {
+                      id
+                      content {
+                        ... on Issue {
+                          number
+                        }
+                      }
+                    }
+                  }
+                  field(name: \"Status\") {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      options { id name }
+                    }
+                  }
+                }
+              }
+            }
+          ")
+
+          PROJECT_ID=$(echo "$ITEM_DATA" | jq -r '.data.organization.projectV2.id')
+          FIELD_ID=$(echo "$ITEM_DATA" | jq -r '.data.organization.projectV2.field.id')
+          ITEM_ID=$(echo "$ITEM_DATA" | jq -r ".data.organization.projectV2.items.nodes[] | select(.content.number == ${ISSUE_NUM}) | .id")
+
+          READY_FOR_QA_ID=$(echo "$ITEM_DATA" | jq -r '.data.organization.projectV2.field.options[] | select(.name == "Ready For QA") | .id')
+          DONE_ID=$(echo "$ITEM_DATA" | jq -r '.data.organization.projectV2.field.options[] | select(.name == "Done") | .id')
+          TODO_ID=$(echo "$ITEM_DATA" | jq -r '.data.organization.projectV2.field.options[] | select(.name == "Todo") | .id')
+
+          # Validate all critical IDs
+          for VAR_NAME in PROJECT_ID FIELD_ID ITEM_ID READY_FOR_QA_ID DONE_ID TODO_ID; do
+            VAL=$(eval echo \$$VAR_NAME)
+            if [ -z "$VAL" ] || [ "$VAL" = "null" ]; then
+              echo "::error::$VAR_NAME is empty — check project board configuration"
+              exit 1
+            fi
+          done
+
+          echo "projectId=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "fieldId=$FIELD_ID" >> $GITHUB_OUTPUT
+          echo "itemId=$ITEM_ID" >> $GITHUB_OUTPUT
+          echo "readyForQaId=$READY_FOR_QA_ID" >> $GITHUB_OUTPUT
+          echo "doneId=$DONE_ID" >> $GITHUB_OUTPUT
+          echo "todoId=$TODO_ID" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
+
+      - name: Move to READY FOR QA (on PR opened)
+        if: github.event.action == 'opened'
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          ISSUE_NUM="${{ steps.issue.outputs.number }}"
+          echo "PR opened for #${ISSUE_NUM}  - moving to READY FOR QA"
+
+          gh api graphql -f query="
+            mutation {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: \"${{ steps.project.outputs.projectId }}\"
+                itemId: \"${{ steps.project.outputs.itemId }}\"
+                fieldId: \"${{ steps.project.outputs.fieldId }}\"
+                value: { singleSelectOptionId: \"${{ steps.project.outputs.readyForQaId }}\" }
+              }) {
+                projectV2Item { id }
+              }
+            }
+          "
+
+          echo "#${ISSUE_NUM} → READY FOR QA"
+
+          # Notify via Telegram
+          TELEGRAM_MSG="PR ready for QA: #${ISSUE_NUM} - ${PR_TITLE}
+          ${PR_URL}"
+          curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT}" \
+            --data-urlencode "text=${TELEGRAM_MSG}" > /dev/null 2>&1 || true
+
+      - name: Move to DONE (on PR merged)
+        if: github.event.action == 'closed' && github.event.pull_request.merged == true
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          ISSUE_NUM="${{ steps.issue.outputs.number }}"
+          echo "PR merged for #${ISSUE_NUM}  - moving to DONE"
+
+          gh api graphql -f query="
+            mutation {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: \"${{ steps.project.outputs.projectId }}\"
+                itemId: \"${{ steps.project.outputs.itemId }}\"
+                fieldId: \"${{ steps.project.outputs.fieldId }}\"
+                value: { singleSelectOptionId: \"${{ steps.project.outputs.doneId }}\" }
+              }) {
+                projectV2Item { id }
+              }
+            }
+          "
+
+          echo "#${ISSUE_NUM} → DONE"
+
+          # Notify via Telegram
+          TELEGRAM_MSG="Merged and done: #${ISSUE_NUM}  - ${PR_TITLE}"
+          curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT}" \
+            --data-urlencode "text=${TELEGRAM_MSG}" > /dev/null 2>&1 || true
+
+      - name: Move back to TODO (on PR closed without merge)
+        if: github.event.action == 'closed' && github.event.pull_request.merged == false
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          ISSUE_NUM="${{ steps.issue.outputs.number }}"
+          echo "PR closed without merge for #${ISSUE_NUM}  - moving back to TODO"
+
+          gh api graphql -f query="
+            mutation {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: \"${{ steps.project.outputs.projectId }}\"
+                itemId: \"${{ steps.project.outputs.itemId }}\"
+                fieldId: \"${{ steps.project.outputs.fieldId }}\"
+                value: { singleSelectOptionId: \"${{ steps.project.outputs.todoId }}\" }
+              }) {
+                projectV2Item { id }
+              }
+            }
+          "
+
+          echo "#${ISSUE_NUM} → TODO"
+
+          # Notify via Telegram
+          TELEGRAM_MSG="PR closed without merge: #${ISSUE_NUM}  - back to TODO"
+          curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT}" \
+            --data-urlencode "text=${TELEGRAM_MSG}" > /dev/null 2>&1 || true

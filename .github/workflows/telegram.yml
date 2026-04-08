@@ -1,0 +1,32 @@
+name: Telegram Notification
+
+on:
+  workflow_call:
+    inputs:
+      message:
+        required: true
+        type: string
+    secrets:
+      TELEGRAM_BOT_TOKEN:
+        required: true
+      TELEGRAM_CHAT_ID:
+        required: true
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Send Telegram Message
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT}" \
+            --data-urlencode "text=${MESSAGE}")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::Telegram notification failed (HTTP $HTTP_CODE)"
+          fi

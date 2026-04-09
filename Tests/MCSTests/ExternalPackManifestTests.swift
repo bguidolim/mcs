@@ -454,6 +454,117 @@ struct ExternalPackManifestTests {
         }
     }
 
+    @Test("Validation rejects duplicate copyPackFile destinations within a pack")
+    func rejectDuplicateCopyPackFileDestinations() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: Test
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.lint-hook
+            description: Lint hook
+            hook:
+              source: hooks/lint.sh
+              destination: lint.sh
+          - id: my-pack.format-hook
+            description: Format hook
+            hook:
+              source: hooks/format.sh
+              destination: lint.sh
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        #expect(throws: ManifestError.duplicateDestination(
+            destination: "lint.sh",
+            fileType: "hook",
+            componentIDs: ["my-pack.lint-hook", "my-pack.format-hook"]
+        )) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("Validation allows same destination with different file types")
+    func allowSameDestinationDifferentFileTypes() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: Test
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.lint-hook
+            description: Lint hook
+            hook:
+              source: hooks/lint.sh
+              destination: lint.sh
+          - id: my-pack.lint-command
+            description: Lint command
+            command:
+              source: commands/lint.sh
+              destination: lint.sh
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        try manifest.validate()
+    }
+
+    @Test("Validation rejects duplicate copyPackFile destinations with generic fileType")
+    func rejectDuplicateGenericFileTypeDestinations() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: Test
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.file-a
+            displayName: First file
+            description: First file
+            type: configuration
+            installAction:
+              type: copyPackFile
+              source: files/config.yaml
+              destination: config.yaml
+          - id: my-pack.file-b
+            displayName: Second file
+            description: Second file
+            type: configuration
+            installAction:
+              type: copyPackFile
+              source: files/other-config.yaml
+              destination: config.yaml
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        #expect(throws: ManifestError.duplicateDestination(
+            destination: "config.yaml",
+            fileType: "generic",
+            componentIDs: ["my-pack.file-a", "my-pack.file-b"]
+        )) {
+            try manifest.validate()
+        }
+    }
+
     @Test("Validation accepts valid identifier with hyphens and numbers")
     func acceptValidIdentifier() throws {
         let yaml = """

@@ -88,6 +88,32 @@ extension ExternalPackManifest {
                     }
                 }
             }
+
+            // Validate no duplicate copyPackFile destinations within the pack
+            struct DestKey: Hashable {
+                let destination: String
+                let fileType: String
+            }
+            var seenDestinations: [DestKey: [String]] = [:]
+            for component in components {
+                if case let .copyPackFile(config) = component.installAction {
+                    let key = DestKey(
+                        destination: config.destination,
+                        fileType: config.fileType?.rawValue ?? "generic"
+                    )
+                    seenDestinations[key, default: []].append(component.id)
+                }
+            }
+            for key in seenDestinations.keys.sorted(by: { ($0.destination, $0.fileType) < ($1.destination, $1.fileType) }) {
+                let componentIDs = seenDestinations[key]!
+                if componentIDs.count > 1 {
+                    throw ManifestError.duplicateDestination(
+                        destination: key.destination,
+                        fileType: key.fileType,
+                        componentIDs: componentIDs
+                    )
+                }
+            }
         }
 
         // Template section identifiers must be prefixed with pack identifier
@@ -242,6 +268,7 @@ enum ManifestError: Error, Equatable, LocalizedError {
     case templateDependencyMismatch(sectionIdentifier: String, componentID: String)
     case unresolvedDependency(componentID: String, dependency: String)
     case invalidHookMetadata(componentID: String, reason: String)
+    case duplicateDestination(destination: String, fileType: String, componentIDs: [String])
 
     var errorDescription: String? {
         switch self {
@@ -269,6 +296,9 @@ enum ManifestError: Error, Equatable, LocalizedError {
             "Component '\(componentID)' depends on '\(dependency)' which does not exist in the pack"
         case let .invalidHookMetadata(componentID, reason):
             "Component '\(componentID)': \(reason)"
+        case let .duplicateDestination(destination, fileType, componentIDs):
+            "Duplicate copyPackFile destination '\(destination)' (fileType: \(fileType))"
+                + " in components: \(componentIDs.joined(separator: ", "))"
         }
     }
 }

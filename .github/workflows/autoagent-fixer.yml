@@ -268,7 +268,7 @@ jobs:
           export PR_NUM BRANCH BASE CONTEXT
           git show origin/main:.github/prompts/fixer.md | envsubst '$PR_NUM $BRANCH $BASE $CONTEXT' | \
             claude -p --verbose --output-format stream-json --model "$MODEL" --max-turns 500 \
-              --permission-mode auto
+              --permission-mode bypassPermissions
 
       - name: Re-trigger CI if no changes were made
         env:

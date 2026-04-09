@@ -315,7 +315,7 @@ jobs:
           export ISSUE_NUM ISSUE_TITLE ISSUE_BODY BASE
           git show origin/main:.github/prompts/implementer.md | envsubst '$ISSUE_NUM $ISSUE_TITLE $ISSUE_BODY $BASE' | \
             claude -p --verbose --output-format stream-json --model "$MODEL" --max-turns 500 \
-              --permission-mode auto
+              --permission-mode bypassPermissions
 
       - name: Comment on success
         if: success()

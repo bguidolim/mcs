@@ -90,21 +90,29 @@ extension ExternalPackManifest {
             }
 
             // Validate no duplicate copyPackFile destinations within the pack
-            var seenDestinations: [String: [String]] = [:]
+            struct DestKey: Hashable {
+                let destination: String
+                let fileType: String
+            }
+            var seenDestinations: [DestKey: [String]] = [:]
             for component in components {
                 if case let .copyPackFile(config) = component.installAction {
-                    let fileType = config.fileType?.rawValue ?? "generic"
-                    let key = "\(config.destination)|\(fileType)"
+                    let key = DestKey(
+                        destination: config.destination,
+                        fileType: config.fileType?.rawValue ?? "generic"
+                    )
                     seenDestinations[key, default: []].append(component.id)
                 }
             }
-            for (key, componentIDs) in seenDestinations where componentIDs.count > 1 {
-                let parts = key.split(separator: "|", maxSplits: 1)
-                throw ManifestError.duplicateDestination(
-                    destination: String(parts[0]),
-                    fileType: String(parts[1]),
-                    componentIDs: componentIDs
-                )
+            for key in seenDestinations.keys.sorted(by: { ($0.destination, $0.fileType) < ($1.destination, $1.fileType) }) {
+                let componentIDs = seenDestinations[key]!
+                if componentIDs.count > 1 {
+                    throw ManifestError.duplicateDestination(
+                        destination: key.destination,
+                        fileType: key.fileType,
+                        componentIDs: componentIDs
+                    )
+                }
             }
         }
 

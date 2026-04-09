@@ -308,24 +308,36 @@ struct UpdateChecker {
     }
 
     /// Build a context string for Claude from check results.
-    /// Uses strong directive language to ensure Claude relays the notification.
+    /// Uses strong directive language to ensure Claude stops and asks the user before proceeding.
     private static func buildContextString(_ result: CheckResult) -> String {
         var lines: [String] = []
         lines.append(
-            "STOP. Before doing ANY work, you MUST relay the following update notifications to the user."
+            "STOP. Before doing ANY work, you MUST relay the following update notifications to the user"
+                + " and ask if they want to skip the updates and proceed with their task."
                 + " This is non-negotiable even if the user's message is a task request."
         )
         lines.append("")
         if let cli = result.cliUpdate {
             lines.append(
-                "- New mcs version \(cli.latestVersion) is available (installed: \(cli.currentVersion)). "
-                    + "The user should run: brew upgrade \(Constants.MCSRepo.brewFormula)"
+                "- New mcs version \(cli.latestVersion) is available (installed: \(cli.currentVersion))."
+                    + " Update command: brew upgrade \(Constants.MCSRepo.brewFormula)"
             )
         }
         if !result.packUpdates.isEmpty {
             let noun = result.packUpdates.count == 1 ? "tech pack has" : "tech packs have"
-            lines.append("- \(result.packUpdates.count) \(noun) updates available. The user should run: mcs pack update")
+            lines.append(
+                "- \(result.packUpdates.count) \(noun) updates available."
+                    + " Update command: mcs pack update"
+            )
         }
+        lines.append("")
+        lines.append(
+            "If the user does NOT want to skip:"
+                + " run `brew upgrade \(Constants.MCSRepo.brewFormula)` for CLI updates."
+                + " For pack updates, tell the user to run `mcs pack update` in a separate terminal"
+                + " (pack updates may prompt for interactive trust approval and cannot run inside Claude Code)."
+                + " If the user wants to skip, proceed immediately with their original request."
+        )
         return lines.joined(separator: "\n")
     }
 

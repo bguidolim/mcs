@@ -211,6 +211,87 @@ struct DoctorRunnerIntegrationTests {
         try runner.run()
     }
 
+    @Test("runner resolves colliding hook destinations via collision resolver")
+    func collidingHookDestinationsResolvedByDoctor() throws {
+        let (home, project) = try makeSandboxProject(label: "runner-collision")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        // Two packs declaring the same hook destination "lint.sh"
+        let hookComponentA = ComponentDefinition(
+            id: "pack-a.lint",
+            displayName: "Lint Hook",
+            description: "Lint hook from pack A",
+            type: .hookFile,
+            packIdentifier: "pack-a",
+            dependencies: [],
+            isRequired: true,
+            installAction: .copyPackFile(
+                source: URL(fileURLWithPath: "/tmp/dummy-a"),
+                destination: "lint.sh",
+                fileType: .hook
+            )
+        )
+        let hookComponentB = ComponentDefinition(
+            id: "pack-b.lint",
+            displayName: "Lint Hook",
+            description: "Lint hook from pack B",
+            type: .hookFile,
+            packIdentifier: "pack-b",
+            dependencies: [],
+            isRequired: true,
+            installAction: .copyPackFile(
+                source: URL(fileURLWithPath: "/tmp/dummy-b"),
+                destination: "lint.sh",
+                fileType: .hook
+            )
+        )
+
+        let packA = MockTechPack(
+            identifier: "pack-a", displayName: "Pack A",
+            components: [hookComponentA]
+        )
+        let packB = MockTechPack(
+            identifier: "pack-b", displayName: "Pack B",
+            components: [hookComponentB]
+        )
+        let registry = TechPackRegistry(packs: [packA, packB])
+
+        // Write hook files at the namespaced paths (as configure would)
+        let hooksDir = project.appendingPathComponent(".claude/hooks")
+        let namespacedDirA = hooksDir.appendingPathComponent("pack-a")
+        let namespacedDirB = hooksDir.appendingPathComponent("pack-b")
+        try FileManager.default.createDirectory(at: namespacedDirA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: namespacedDirB, withIntermediateDirectories: true)
+        try "#!/bin/bash\necho a".write(
+            to: namespacedDirA.appendingPathComponent("lint.sh"),
+            atomically: true, encoding: .utf8
+        )
+        try "#!/bin/bash\necho b".write(
+            to: namespacedDirB.appendingPathComponent("lint.sh"),
+            atomically: true, encoding: .utf8
+        )
+
+        // Record both packs in project state with namespaced file paths
+        var state = try ProjectState(projectRoot: project)
+        state.recordPack("pack-a")
+        state.recordPack("pack-b")
+        state.setArtifacts(
+            PackArtifactRecord(files: [".claude/hooks/pack-a/lint.sh"]),
+            for: "pack-a"
+        )
+        state.setArtifacts(
+            PackArtifactRecord(files: [".claude/hooks/pack-b/lint.sh"]),
+            for: "pack-b"
+        )
+        try state.save()
+
+        // Doctor should pass — the collision resolver namespaces the destinations
+        // so FileExistsCheck looks at pack-a/lint.sh and pack-b/lint.sh (which exist)
+        // rather than the flat lint.sh (which does not exist)
+        var runner = makeRunner(home: home, projectRoot: project, registry: registry)
+        try runner.run()
+    }
+
     @Test("MCPServerCheck passes via walk-up when project root is a subdirectory of git root")
     func mcpCheckWalksUpToGitRoot() throws {
         let home = try makeGlobalTmpDir(label: "runner-walkup")

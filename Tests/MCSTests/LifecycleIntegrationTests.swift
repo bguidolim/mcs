@@ -524,6 +524,100 @@ struct CrossPackCollisionTests {
     }
 }
 
+// MARK: - Scenario 2b-dry: Cross-Pack Collision Dry Run
+
+struct CrossPackCollisionDryRunTests {
+    @Test("dryRun with colliding hook destinations completes without error")
+    func dryRunWithCollidingHooks() throws {
+        let bed = try LifecycleTestBed()
+        defer { bed.cleanup() }
+
+        let hookSourceA = try bed.makeHookSource(name: "lint-a.sh", content: "#!/bin/bash\necho pack-a")
+        let hookSourceB = try bed.makeHookSource(name: "lint-b.sh", content: "#!/bin/bash\necho pack-b")
+
+        let packA = MockTechPack(
+            identifier: "pack-a",
+            displayName: "Pack A",
+            components: [
+                bed.hookComponent(
+                    pack: "pack-a", id: "lint",
+                    source: hookSourceA, destination: "lint.sh",
+                    hookRegistration: HookRegistration(event: .preToolUse)
+                ),
+            ],
+            templates: []
+        )
+        let packB = MockTechPack(
+            identifier: "pack-b",
+            displayName: "Pack B",
+            components: [
+                bed.hookComponent(
+                    pack: "pack-b", id: "lint",
+                    source: hookSourceB, destination: "lint.sh",
+                    hookRegistration: HookRegistration(event: .preToolUse)
+                ),
+            ],
+            templates: []
+        )
+        let registry = TechPackRegistry(packs: [packA, packB])
+        let configurator = bed.makeConfigurator(registry: registry)
+
+        // dryRun should complete without error — the collision resolver
+        // namespaces both hooks before the summary is printed.
+        try configurator.dryRun(packs: [packA, packB])
+
+        // Verify no artifacts were written to disk (dry-run is read-only)
+        let flatPath = bed.project.appendingPathComponent(".claude/hooks/lint.sh")
+        let namespacedA = bed.project.appendingPathComponent(".claude/hooks/pack-a/lint.sh")
+        let namespacedB = bed.project.appendingPathComponent(".claude/hooks/pack-b/lint.sh")
+        #expect(!FileManager.default.fileExists(atPath: flatPath.path))
+        #expect(!FileManager.default.fileExists(atPath: namespacedA.path))
+        #expect(!FileManager.default.fileExists(atPath: namespacedB.path))
+    }
+
+    @Test("dryRun after configure shows consistent namespaced paths")
+    func dryRunAfterConfigureConsistent() throws {
+        let bed = try LifecycleTestBed()
+        defer { bed.cleanup() }
+
+        let hookSourceA = try bed.makeHookSource(name: "dr-a.sh", content: "#!/bin/bash\necho pack-a")
+        let hookSourceB = try bed.makeHookSource(name: "dr-b.sh", content: "#!/bin/bash\necho pack-b")
+
+        let packA = MockTechPack(
+            identifier: "pack-a",
+            displayName: "Pack A",
+            components: [
+                bed.hookComponent(
+                    pack: "pack-a", id: "lint",
+                    source: hookSourceA, destination: "lint.sh",
+                    hookRegistration: HookRegistration(event: .postToolUse)
+                ),
+            ],
+            templates: []
+        )
+        let packB = MockTechPack(
+            identifier: "pack-b",
+            displayName: "Pack B",
+            components: [
+                bed.hookComponent(
+                    pack: "pack-b", id: "lint",
+                    source: hookSourceB, destination: "lint.sh",
+                    hookRegistration: HookRegistration(event: .postToolUse)
+                ),
+            ],
+            templates: []
+        )
+        let registry = TechPackRegistry(packs: [packA, packB])
+        let configurator = bed.makeConfigurator(registry: registry)
+
+        // Configure first so state exists
+        try configurator.configure(packs: [packA, packB], confirmRemovals: false)
+
+        // dryRun on already-configured packs should also complete without error
+        try configurator.dryRun(packs: [packA, packB])
+    }
+}
+
 // MARK: - Scenario 2b: Pre-existing User File Protection
 
 struct UserFileProtectionTests {

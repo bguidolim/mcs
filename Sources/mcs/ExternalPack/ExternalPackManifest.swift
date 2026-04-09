@@ -88,6 +88,24 @@ extension ExternalPackManifest {
                     }
                 }
             }
+
+            // Validate no duplicate copyPackFile destinations within the pack
+            var seenDestinations: [String: [String]] = [:]
+            for component in components {
+                if case let .copyPackFile(config) = component.installAction {
+                    let fileType = config.fileType?.rawValue ?? "generic"
+                    let key = "\(config.destination)|\(fileType)"
+                    seenDestinations[key, default: []].append(component.id)
+                }
+            }
+            for (key, componentIDs) in seenDestinations where componentIDs.count > 1 {
+                let parts = key.split(separator: "|", maxSplits: 1)
+                throw ManifestError.duplicateDestination(
+                    destination: String(parts[0]),
+                    fileType: String(parts[1]),
+                    componentIDs: componentIDs
+                )
+            }
         }
 
         // Template section identifiers must be prefixed with pack identifier
@@ -242,6 +260,7 @@ enum ManifestError: Error, Equatable, LocalizedError {
     case templateDependencyMismatch(sectionIdentifier: String, componentID: String)
     case unresolvedDependency(componentID: String, dependency: String)
     case invalidHookMetadata(componentID: String, reason: String)
+    case duplicateDestination(destination: String, fileType: String, componentIDs: [String])
 
     var errorDescription: String? {
         switch self {
@@ -269,6 +288,9 @@ enum ManifestError: Error, Equatable, LocalizedError {
             "Component '\(componentID)' depends on '\(dependency)' which does not exist in the pack"
         case let .invalidHookMetadata(componentID, reason):
             "Component '\(componentID)': \(reason)"
+        case let .duplicateDestination(destination, fileType, componentIDs):
+            "Duplicate copyPackFile destination '\(destination)' (fileType: \(fileType))"
+                + " in components: \(componentIDs.joined(separator: ", "))"
         }
     }
 }

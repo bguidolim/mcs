@@ -76,6 +76,19 @@ struct YAMLFileTests {
         }
     }
 
+    @Test("Load throws for schema mismatch")
+    func loadSchemaMismatch() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let path = tmpDir.appendingPathComponent("mismatch.yaml")
+        try "totally: different\nschema: true\n".write(to: path, atomically: true, encoding: .utf8)
+
+        #expect(throws: (any Error).self) {
+            try YAMLFile.load(Sample.self, from: path)
+        }
+    }
+
     // MARK: - Save
 
     @Test("Save creates parent directories")

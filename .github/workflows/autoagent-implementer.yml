@@ -4,8 +4,8 @@
 name: '[AUTOAGENT] Implementer'
 
 on:
-  # schedule:
-  #   - cron: '0 * * * *'  # Every hour
+  schedule:
+    - cron: '0 * * * *'  # Every hour
   workflow_dispatch:
     inputs:
       issue_number:

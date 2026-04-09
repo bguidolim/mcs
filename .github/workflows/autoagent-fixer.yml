@@ -1,8 +1,8 @@
 name: '[AUTOAGENT] Fixer'
 
 on:
-  schedule:
-    - cron: '15,45 1-22 * * *'  # Every 30 min at :15 and :45 during hours 01-22 UTC
+  # schedule:
+  #   - cron: '15,45 1-22 * * *'  # Every 30 min at :15 and :45 during hours 01-22 UTC
 
   # Auto-trigger on failed CI (check_suite doesn't work for GitHub Actions' own check suites)
   workflow_run:

@@ -1,8 +1,8 @@
 name: '[AUTOAGENT] Merger'
 
 on:
-  schedule:
-    - cron: '0 2-22/2 * * *'  # Every 2 hours from 02:00-22:00 UTC
+  # schedule:
+  #   - cron: '0 2-22/2 * * *'  # Every 2 hours from 02:00-22:00 UTC
   workflow_dispatch:
 
 concurrency:

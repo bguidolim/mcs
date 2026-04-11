@@ -89,30 +89,43 @@ extension ExternalPackManifest {
                 }
             }
 
-            // Validate no duplicate copyPackFile destinations within the pack
+            // Validate no conflicting copyPackFile destinations within the pack.
+            // Multiple components may legitimately share a (destination, fileType) when
+            // they copy the same source — e.g., one hook script registered against two
+            // hook events via two components. A real conflict is same destination with
+            // different sources.
             struct DestKey: Hashable {
                 let destination: String
                 let fileType: String
             }
-            var seenDestinations: [DestKey: [String]] = [:]
+            struct DestEntry {
+                let componentID: String
+                let source: String
+            }
+            var seenDestinations: [DestKey: [DestEntry]] = [:]
             for component in components {
                 if case let .copyPackFile(config) = component.installAction {
                     let key = DestKey(
                         destination: config.destination,
-                        fileType: config.fileType?.rawValue ?? "generic"
+                        fileType: config.fileType?.rawValue ?? ExternalCopyFileType.generic.rawValue
                     )
-                    seenDestinations[key, default: []].append(component.id)
+                    seenDestinations[key, default: []].append(
+                        DestEntry(componentID: component.id, source: config.source)
+                    )
                 }
             }
-            for key in seenDestinations.keys.sorted(by: { ($0.destination, $0.fileType) < ($1.destination, $1.fileType) }) {
-                let componentIDs = seenDestinations[key]!
-                if componentIDs.count > 1 {
-                    throw ManifestError.duplicateDestination(
-                        destination: key.destination,
-                        fileType: key.fileType,
-                        componentIDs: componentIDs
-                    )
-                }
+            let sortedDestinations = seenDestinations.sorted { lhs, rhs in
+                (lhs.key.destination, lhs.key.fileType) < (rhs.key.destination, rhs.key.fileType)
+            }
+            for (key, entries) in sortedDestinations {
+                guard entries.count > 1 else { continue }
+                // Identity case: every entry copies the same source file — benign.
+                if entries.dropFirst().allSatisfy({ $0.source == entries[0].source }) { continue }
+                throw ManifestError.duplicateDestination(
+                    destination: key.destination,
+                    fileType: key.fileType,
+                    componentIDs: entries.map(\.componentID)
+                )
             }
         }
 

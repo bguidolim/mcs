@@ -491,6 +491,39 @@ struct ExternalPackManifestTests {
         }
     }
 
+    @Test("Validation allows same source/destination across multiple hook events")
+    func allowSameSourceDestinationAcrossHookEvents() throws {
+        let yaml = """
+        schemaVersion: 1
+        identifier: my-pack
+        displayName: Test
+        description: Test
+        version: "1.0.0"
+        components:
+          - id: my-pack.sync-on-start
+            description: Sync on session start
+            hookEvent: SessionStart
+            hook:
+              source: hooks/sync.sh
+              destination: sync.sh
+          - id: my-pack.sync-on-prompt
+            description: Sync on user prompt
+            hookEvent: UserPromptSubmit
+            hook:
+              source: hooks/sync.sh
+              destination: sync.sh
+        """
+
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let file = tmpDir.appendingPathComponent("techpack.yaml")
+        try yaml.write(to: file, atomically: true, encoding: .utf8)
+
+        let manifest = try ExternalPackManifest.load(from: file)
+        try manifest.validate()
+    }
+
     @Test("Validation allows same destination with different file types")
     func allowSameDestinationDifferentFileTypes() throws {
         let yaml = """

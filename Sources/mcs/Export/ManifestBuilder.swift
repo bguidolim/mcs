@@ -532,9 +532,12 @@ struct ManifestBuilder {
                 yaml.line("      - \(yamlQuote(entry))")
             }
 
-        case let .shellCommand(command):
+        case let .shellCommand(command, interactive):
             yaml.line("    type: \(comp.type.rawValue)")
             yaml.line("    shell: \(yamlQuote(command))")
+            if interactive {
+                yaml.line("    shellInteractive: true")
+            }
 
         case .settingsMerge:
             break

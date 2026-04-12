@@ -109,7 +109,8 @@ final class MockShellRunner: ShellRunning, @unchecked Sendable {
         _ executable: String,
         arguments: [String],
         workingDirectory: String?,
-        additionalEnvironment: [String: String]
+        additionalEnvironment: [String: String],
+        interactive _: Bool
     ) -> ShellResult {
         runCalls.append(RunCall(
             executable: executable,
@@ -127,7 +128,8 @@ final class MockShellRunner: ShellRunning, @unchecked Sendable {
     func shell(
         _ command: String,
         workingDirectory: String?,
-        additionalEnvironment: [String: String]
+        additionalEnvironment: [String: String],
+        interactive _: Bool
     ) -> ShellResult {
         shellCalls.append(ShellCall(
             command: command,

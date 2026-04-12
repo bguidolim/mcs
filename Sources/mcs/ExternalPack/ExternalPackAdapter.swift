@@ -183,8 +183,8 @@ struct ExternalPackAdapter: TechPack {
         case let .brewInstall(package):
             return .brewInstall(package: package)
 
-        case let .shellCommand(command):
-            return .shellCommand(command: command)
+        case let .shellCommand(command, interactive):
+            return .shellCommand(command: command, interactive: interactive)
 
         case let .gitignoreEntries(entries):
             return .gitignoreEntries(entries: entries)

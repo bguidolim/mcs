@@ -372,6 +372,7 @@ struct ExternalComponentDefinition: Codable {
         case mcp // Map — MCPShorthand (name inferred from id)
         case plugin // String — plugin full name
         case shell // String — shell command (requires explicit `type`)
+        case shellInteractive // Bool — inherit stdin for sudo/interactive prompts
         case hook // Map — CopyFileShorthand (fileType: .hook)
         case command // Map — CopyFileShorthand (fileType: .command)
         case skill // Map — CopyFileShorthand (fileType: .skill)
@@ -502,7 +503,8 @@ struct ExternalComponentDefinition: Codable {
         }
         if shorthand.contains(.shell) {
             let command = try shorthand.decode(String.self, forKey: .shell)
-            return ResolvedShorthand(type: nil, action: .shellCommand(command: command))
+            let interactive = try shorthand.decodeIfPresent(Bool.self, forKey: .shellInteractive) ?? false
+            return ResolvedShorthand(type: nil, action: .shellCommand(command: command, interactive: interactive))
         }
         if shorthand.contains(.hook) {
             let config = try shorthand.decode(CopyFileShorthand.self, forKey: .hook)
@@ -616,7 +618,7 @@ enum ExternalInstallAction: Codable {
     case mcpServer(ExternalMCPServerConfig)
     case plugin(name: String)
     case brewInstall(package: String)
-    case shellCommand(command: String)
+    case shellCommand(command: String, interactive: Bool = false)
     case gitignoreEntries(entries: [String])
     case settingsMerge
     case settingsFile(source: String)
@@ -627,6 +629,7 @@ enum ExternalInstallAction: Codable {
         case name
         case package
         case command
+        case interactive
         case args
         case env
         case transport
@@ -654,7 +657,8 @@ enum ExternalInstallAction: Codable {
             self = .brewInstall(package: package)
         case .shellCommand:
             let command = try container.decode(String.self, forKey: .command)
-            self = .shellCommand(command: command)
+            let interactive = try container.decodeIfPresent(Bool.self, forKey: .interactive) ?? false
+            self = .shellCommand(command: command, interactive: interactive)
         case .gitignoreEntries:
             let entries = try container.decode([String].self, forKey: .entries)
             self = .gitignoreEntries(entries: entries)
@@ -682,9 +686,12 @@ enum ExternalInstallAction: Codable {
         case let .brewInstall(package):
             try container.encode(ExternalInstallActionType.brewInstall, forKey: .type)
             try container.encode(package, forKey: .package)
-        case let .shellCommand(command):
+        case let .shellCommand(command, interactive):
             try container.encode(ExternalInstallActionType.shellCommand, forKey: .type)
             try container.encode(command, forKey: .command)
+            if interactive {
+                try container.encode(interactive, forKey: .interactive)
+            }
         case let .gitignoreEntries(entries):
             try container.encode(ExternalInstallActionType.gitignoreEntries, forKey: .type)
             try container.encode(entries, forKey: .entries)

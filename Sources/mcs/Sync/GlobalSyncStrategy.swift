@@ -124,9 +124,13 @@ struct GlobalSyncStrategy: SyncStrategy {
                     artifacts.gitignoreEntries.append(contentsOf: entries)
                 }
 
-            case let .shellCommand(command):
-                output.dimmed("  Running \(component.displayName)...")
-                let result = shell.shell(command)
+            case let .shellCommand(command, interactive):
+                if interactive {
+                    output.plain("  Running \(component.displayName) (may prompt for your password)...")
+                } else {
+                    output.dimmed("  Running \(component.displayName)...")
+                }
+                let result = shell.shell(command, interactive: interactive)
                 if result.succeeded {
                     output.success("  \(component.displayName) installed")
                 } else {

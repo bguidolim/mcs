@@ -105,9 +105,12 @@ struct ProjectSyncStrategy: SyncStrategy {
             case .brewInstall, .plugin:
                 break
 
-            case let .shellCommand(command):
-                let result = shell.shell(command)
-                if !result.succeeded {
+            case let .shellCommand(command, interactive):
+                if interactive {
+                    output.plain("  Running \(component.displayName) (may prompt for your password)...")
+                }
+                let result = shell.shell(command, interactive: interactive)
+                if !result.succeeded, !interactive {
                     output.warn("  \(component.displayName) failed: \(String(result.stderr.prefix(200)))")
                 }
 

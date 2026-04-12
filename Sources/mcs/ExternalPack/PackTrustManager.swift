@@ -23,7 +23,7 @@ struct PackTrustManager {
         if let components = manifest.components {
             for component in components {
                 switch component.installAction {
-                case let .shellCommand(command):
+                case let .shellCommand(command, _):
                     items.append(TrustableItem(
                         type: .shellCommand,
                         relativePath: nil,

@@ -123,7 +123,7 @@ enum ComponentInstallAction {
     case mcpServer(MCPServerConfig)
     case plugin(name: String)
     case brewInstall(package: String)
-    case shellCommand(command: String)
+    case shellCommand(command: String, interactive: Bool = false)
     case settingsMerge(source: URL?)
     case gitignoreEntries(entries: [String])
     case copyPackFile(source: URL, destination: String, fileType: CopyFileType)

@@ -128,7 +128,7 @@ struct ExternalPackAdapterTests {
         ])
         let (adapter, _) = try makeAdapter(manifest: manifest)
         let component = adapter.components[0]
-        if case let .shellCommand(command) = component.installAction {
+        if case let .shellCommand(command, _) = component.installAction {
             #expect(command == "echo hello")
         } else {
             Issue.record("Expected .shellCommand action")

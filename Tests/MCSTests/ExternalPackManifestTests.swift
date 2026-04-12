@@ -903,7 +903,7 @@ struct ExternalPackManifestTests {
         try yaml.write(to: file, atomically: true, encoding: .utf8)
 
         let manifest = try ExternalPackManifest.load(from: file)
-        guard case let .shellCommand(command) = manifest.components?[0].installAction else {
+        guard case let .shellCommand(command, _) = manifest.components?[0].installAction else {
             Issue.record("Expected shellCommand install action")
             return
         }
@@ -2409,7 +2409,7 @@ struct ExternalPackManifestTests {
         let comp = try #require(manifest.components?.first)
 
         #expect(comp.type == .skill)
-        guard case let .shellCommand(command) = comp.installAction else {
+        guard case let .shellCommand(command, _) = comp.installAction else {
             Issue.record("Expected shellCommand"); return
         }
         #expect(command == "npx -y skills add xcodebuildmcp -g")

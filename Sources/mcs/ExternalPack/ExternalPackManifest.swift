@@ -372,7 +372,7 @@ struct ExternalComponentDefinition: Codable {
         case mcp // Map — MCPShorthand (name inferred from id)
         case plugin // String — plugin full name
         case shell // String — shell command (requires explicit `type`)
-        case shellInteractive // Bool — inherit stdin for sudo/interactive prompts
+        case shellInteractive // Bool — allocate PTY for commands needing terminal access (e.g. sudo)
         case hook // Map — CopyFileShorthand (fileType: .hook)
         case command // Map — CopyFileShorthand (fileType: .command)
         case skill // Map — CopyFileShorthand (fileType: .skill)

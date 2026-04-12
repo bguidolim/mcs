@@ -94,8 +94,12 @@ struct PackInstaller {
                 output.plain("  Running \(component.displayName) (may prompt for your password)...")
             }
             let result = shell.shell(command, interactive: interactive)
-            if !result.succeeded, !interactive {
-                output.warn(String(result.stderr.prefix(200)))
+            if !result.succeeded {
+                if interactive {
+                    output.warn("  \(component.displayName) failed (see output above)")
+                } else {
+                    output.warn(String(result.stderr.prefix(200)))
+                }
             }
             return result.succeeded
 

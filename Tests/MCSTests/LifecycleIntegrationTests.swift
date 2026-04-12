@@ -960,8 +960,8 @@ struct ShellCommandLifecycleTests {
         #expect(FileManager.default.fileExists(atPath: markerPath))
     }
 
-    @Test("shellCommand with interactive flag shows password prompt message")
-    func shellCommandInteractiveMessage() throws {
+    @Test("shellCommand with interactive flag is accepted and state is recorded")
+    func shellCommandInteractiveAccepted() throws {
         let bed = try LifecycleTestBed()
         defer { bed.cleanup() }
 

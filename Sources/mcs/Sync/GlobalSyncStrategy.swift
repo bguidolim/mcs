@@ -133,6 +133,8 @@ struct GlobalSyncStrategy: SyncStrategy {
                 let result = shell.shell(command, interactive: interactive)
                 if result.succeeded {
                     output.success("  \(component.displayName) installed")
+                } else if interactive {
+                    output.warn("  \(component.displayName) failed (see output above)")
                 } else {
                     output.warn("  \(component.displayName) requires manual installation:")
                     output.plain("    \(command)")

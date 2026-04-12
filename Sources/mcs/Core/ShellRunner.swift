@@ -84,7 +84,8 @@ struct ShellRunner: ShellRunning {
     ///
     /// - Parameter interactive: When `true`, uses `forkpty()` to allocate a
     ///   real pseudo-terminal so commands like `sudo` can prompt for passwords
-    ///   securely. Output goes directly to the terminal (not captured).
+    ///   securely. Output goes directly to the terminal (not captured); the
+    ///   returned `ShellResult` will have empty `stdout` and `stderr`.
     ///   Defaults to `false` (stdin `/dev/null`, stdout/stderr piped).
     @discardableResult
     func run(
@@ -175,6 +176,8 @@ struct ShellRunner: ShellRunning {
     /// This method uses `forkpty()` to create a real PTY pair and then
     /// bridges I/O between the parent terminal and the child's PTY so that
     /// `sudo` can properly disable echo and read passwords securely.
+    /// The returned `ShellResult` has empty `stdout` and `stderr` since
+    /// output goes directly to the terminal.
     private func runInteractive(
         executable: String,
         arguments: [String],
@@ -206,25 +209,35 @@ struct ShellRunner: ShellRunning {
         if pid == 0 {
             // ── Child process ──
             if let cwd = workingDirectory {
-                chdir(cwd)
+                if chdir(cwd) != 0 {
+                    let msg = "chdir failed: \(String(cString: strerror(errno)))\n"
+                    msg.withCString { _ = write(STDERR_FILENO, $0, strlen($0)) }
+                    _exit(126)
+                }
             }
             execve(executable, argv, envp)
-            _exit(127) // execve only returns on failure
+            let msg = "execve failed: \(String(cString: strerror(errno)))\n"
+            msg.withCString { _ = write(STDERR_FILENO, $0, strlen($0)) }
+            _exit(127)
         }
 
         // ── Parent process ──
-        // Put terminal in raw mode so keystrokes (including Enter for sudo)
-        // are forwarded immediately without local echo interference.
+        // Put terminal in raw-ish mode so keystrokes (including Enter for sudo)
+        // are forwarded immediately without local echo interference, while still
+        // allowing terminal-generated signals like Ctrl-C / Ctrl-Z.
         if hasTerminal {
             var raw = originalTermios
             cfmakeraw(&raw)
+            raw.c_lflag |= tcflag_t(ISIG)
             tcsetattr(STDIN_FILENO, TCSANOW, &raw)
         }
 
         // Ensure terminal is restored even if we exit early or the process is interrupted.
         defer {
             if hasTerminal {
-                tcsetattr(STDIN_FILENO, TCSANOW, &originalTermios)
+                if tcsetattr(STDIN_FILENO, TCSANOW, &originalTermios) != 0 {
+                    tcsetattr(STDIN_FILENO, TCSADRAIN, &originalTermios)
+                }
             }
             close(ptyFD)
         }
@@ -234,28 +247,29 @@ struct ShellRunner: ShellRunning {
         let stdinFD = STDIN_FILENO
         let stdoutFD = STDOUT_FILENO
         var buf = [UInt8](repeating: 0, count: 4096)
+        var stdinOpen = true
 
         bridgeLoop: while true {
             var readSet = fd_set()
             fdZero(&readSet)
-            fdSet(stdinFD, set: &readSet)
+            if stdinOpen { fdSet(stdinFD, set: &readSet) }
             fdSet(ptyFD, set: &readSet)
 
-            let maxFD = max(stdinFD, ptyFD) + 1
+            let maxFD = max(stdinOpen ? stdinFD : 0, ptyFD) + 1
             let ready = select(maxFD, &readSet, nil, nil, nil)
             if ready < 0 {
-                if errno == EINTR { continue } // Retry on signal (e.g. SIGWINCH)
+                if errno == EINTR { continue } // Retry on signal interruption
                 break
             }
             if ready == 0 { continue }
 
             // Terminal → PTY (user typing, including password input)
-            if fdIsSet(stdinFD, set: &readSet) {
+            if stdinOpen, fdIsSet(stdinFD, set: &readSet) {
                 let n = read(stdinFD, &buf, buf.count)
-                if n > 0 {
-                    _ = buf.withUnsafeBufferPointer { ptr in
-                        write(ptyFD, ptr.baseAddress!, n)
-                    }
+                if n <= 0 {
+                    stdinOpen = false // stdin EOF — stop monitoring
+                } else {
+                    writeAll(fd: ptyFD, buf: &buf, count: n)
                 }
             }
 
@@ -263,17 +277,17 @@ struct ShellRunner: ShellRunning {
             if fdIsSet(ptyFD, set: &readSet) {
                 let n = read(ptyFD, &buf, buf.count)
                 if n <= 0 { break bridgeLoop } // Child closed the PTY
-                _ = buf.withUnsafeBufferPointer { ptr in
-                    write(stdoutFD, ptr.baseAddress!, n)
-                }
+                writeAll(fd: stdoutFD, buf: &buf, count: n)
             }
         }
 
         // Wait for the child and extract exit status.
+        // Equivalent to WIFEXITED/WEXITSTATUS — Swift doesn't expose wait status macros.
         var status: Int32 = 0
-        waitpid(pid, &status, 0)
+        while waitpid(pid, &status, 0) < 0 {
+            if errno != EINTR { break }
+        }
         let exitCode: Int32 = if status & 0x7F == 0 {
-            // Normal exit — extract code from bits 8..15.
             (status >> 8) & 0xFF
         } else {
             // Killed by signal — report as 128 + signal (shell convention).
@@ -281,6 +295,21 @@ struct ShellRunner: ShellRunning {
         }
 
         return ShellResult(exitCode: exitCode, stdout: "", stderr: "")
+    }
+
+    /// Write all bytes to a file descriptor, retrying on partial writes and EINTR.
+    private func writeAll(fd: Int32, buf: inout [UInt8], count: Int) {
+        buf.withUnsafeBufferPointer { ptr in
+            var offset = 0
+            while offset < count {
+                let n = write(fd, ptr.baseAddress! + offset, count - offset)
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    break // EIO/EPIPE — fd closed
+                }
+                offset += n
+            }
+        }
     }
 
     // MARK: - fd_set Helpers

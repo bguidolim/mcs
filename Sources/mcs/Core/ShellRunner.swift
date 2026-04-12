@@ -193,6 +193,11 @@ struct ShellRunner: ShellRunning {
         let argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
         defer { argv.compactMap(\.self).forEach { free($0) } }
 
+        // Pre-convert workingDirectory to a C string before fork so the child
+        // doesn't need to invoke Swift's String-to-CString bridge (not fork-safe).
+        let cwdCStr = workingDirectory.map { strdup($0) }
+        defer { cwdCStr.map { free($0) } }
+
         // Save the terminal's current attributes so we can restore them after.
         var originalTermios = termios()
         let hasTerminal = tcgetattr(STDIN_FILENO, &originalTermios) == 0
@@ -211,9 +216,8 @@ struct ShellRunner: ShellRunning {
             // After fork, only async-signal-safe functions are safe. Avoid Swift
             // runtime calls (String interpolation, ARC) — they can deadlock on
             // locks held by other threads in the parent at fork time.
-            if let cwd = workingDirectory {
+            if let cwd = cwdCStr {
                 if chdir(cwd) != 0 {
-                    // Use only C functions — no Swift String operations.
                     let err = strerror(errno)
                     _ = write(STDERR_FILENO, "chdir failed: ", 14)
                     if let err { _ = write(STDERR_FILENO, err, strlen(err)) }
@@ -282,8 +286,6 @@ struct ShellRunner: ShellRunning {
                 let n = read(ptyFD, &buf, buf.count)
                 if n <= 0 { break bridgeLoop } // Child closed the PTY
                 writeAll(fd: STDOUT_FILENO, buf: buf, count: n)
-            } else if fds[1].revents & Int16(POLLHUP) != 0 {
-                break bridgeLoop
             }
         }
 

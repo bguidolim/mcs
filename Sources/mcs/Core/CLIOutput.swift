@@ -4,6 +4,7 @@ import Foundation
 struct CLIOutput {
     let colorsEnabled: Bool
     let isInteractiveTerminal: Bool
+    let style: ANSIStyle
 
     init(colorsEnabled: Bool? = nil) {
         if let explicit = colorsEnabled {
@@ -12,40 +13,41 @@ struct CLIOutput {
             self.colorsEnabled = isatty(STDOUT_FILENO) != 0
         }
         isInteractiveTerminal = self.colorsEnabled && isatty(STDIN_FILENO) != 0
+        style = ANSIStyle(enabled: self.colorsEnabled)
     }
 
-    // MARK: - ANSI Codes
+    // MARK: - ANSI Codes (delegate to `style`)
 
     private var red: String {
-        colorsEnabled ? "\u{1B}[0;31m" : ""
+        style.red
     }
 
     private var green: String {
-        colorsEnabled ? "\u{1B}[0;32m" : ""
+        style.green
     }
 
     private var yellow: String {
-        colorsEnabled ? "\u{1B}[1;33m" : ""
+        style.yellow
     }
 
     private var blue: String {
-        colorsEnabled ? "\u{1B}[0;34m" : ""
+        style.blue
     }
 
     private var cyan: String {
-        colorsEnabled ? "\u{1B}[0;36m" : ""
+        style.cyan
     }
 
     private var bold: String {
-        colorsEnabled ? "\u{1B}[1m" : ""
+        style.bold
     }
 
     private var dim: String {
-        colorsEnabled ? "\u{1B}[2m" : ""
+        style.dim
     }
 
     private var reset: String {
-        colorsEnabled ? "\u{1B}[0m" : ""
+        style.reset
     }
 
     // MARK: - Terminal Helpers
@@ -512,7 +514,6 @@ struct CLIOutput {
         columns: Int
     ) -> String {
         var output = ""
-        let style = ANSIStyle(enabled: colorsEnabled)
 
         var flatIndex = 0
         var cursorRowState: PickerDelta.RowState?
@@ -568,8 +569,7 @@ struct CLIOutput {
         if let cursorRowState {
             let verb = PickerDelta.footerVerb(state: cursorRowState)
             output += "  \(dim)\u{2191}/\u{2193} Move \u{00B7} \(verb) \u{00B7} Enter to apply\(reset)\n"
-            let counts = PickerDelta.DeltaCounts(additions: additions, removals: removals, unchanged: unchanged)
-            output += "  \(PickerDelta.counterString(counts: counts, style: style))\n"
+            output += "  \(PickerDelta.counterString(additions: additions, removals: removals, unchanged: unchanged, style: style))\n"
         } else {
             output += "  \(dim)\u{2191}/\u{2193} Move \u{00B7} Space Toggle \u{00B7} Enter Confirm\(reset)\n"
         }
@@ -754,6 +754,8 @@ struct SelectableItem {
     let name: String
     let description: String
     var isSelected: Bool
+    /// Only meaningful when the enclosing `SelectableGroup.showsDelta == true`;
+    /// otherwise ignored by the renderer.
     var baselineSelected: Bool = false
 }
 
@@ -765,6 +767,9 @@ struct SelectableGroup {
     let title: String
     var items: [SelectableItem]
     let requiredItems: [RequiredItem]
+    /// When true, items' `baselineSelected` drives delta-tag rendering and a
+    /// dynamic footer. Callers must populate `baselineSelected` on every item
+    /// or the renderer will treat pre-installed packs as brand-new.
     var showsDelta: Bool = false
 }
 
@@ -794,16 +799,17 @@ enum MultiSelectParser {
 
 // MARK: - ANSI Style
 
-/// Shared ANSI SGR codes used by rendering helpers that can't reach `CLIOutput`'s
-/// private computed color properties. Callers pass `enabled: false` in tests and
-/// non-TTY contexts to get plain text.
-/// Note: combined forms like `dimRed` use single SGR sequences (`\u{1B}[2;31m`);
+/// Combined forms like `dimRed` use single SGR sequences (`\u{1B}[2;31m`);
 /// stacking two separate SGRs would reset and cancel the dim attribute.
 struct ANSIStyle {
     let enabled: Bool
 
     var reset: String {
         enabled ? "\u{1B}[0m" : ""
+    }
+
+    var bold: String {
+        enabled ? "\u{1B}[1m" : ""
     }
 
     var dim: String {
@@ -822,6 +828,14 @@ struct ANSIStyle {
         enabled ? "\u{1B}[1;33m" : ""
     }
 
+    var blue: String {
+        enabled ? "\u{1B}[0;34m" : ""
+    }
+
+    var cyan: String {
+        enabled ? "\u{1B}[0;36m" : ""
+    }
+
     var dimRed: String {
         enabled ? "\u{1B}[2;31m" : ""
     }
@@ -833,9 +847,6 @@ struct ANSIStyle {
 
 // MARK: - Picker Delta Rendering
 
-/// Pure helpers that render delta-aware picker affordances (tags + footer verbs).
-/// The picker compares `isSelected` (user's current toggle) against `baselineSelected`
-/// (previously-configured state) to teach the convergent semantics of `mcs sync`.
 enum PickerDelta {
     enum RowState {
         case installedKept
@@ -851,12 +862,6 @@ enum PickerDelta {
             case (false, false): .notInstalled
             }
         }
-    }
-
-    struct DeltaCounts {
-        let additions: Int
-        let removals: Int
-        let unchanged: Int
     }
 
     static func tagString(state: RowState, isCursor: Bool, style: ANSIStyle) -> String {
@@ -885,10 +890,10 @@ enum PickerDelta {
         }
     }
 
-    static func counterString(counts: DeltaCounts, style: ANSIStyle) -> String {
-        let addPart = "\(style.green)+\(counts.additions) to add\(style.reset)"
-        let removePart = "\(style.red)-\(counts.removals) to remove\(style.reset)"
-        let keepPart = "\(style.dim)\(counts.unchanged) unchanged\(style.reset)"
+    static func counterString(additions: Int, removals: Int, unchanged: Int, style: ANSIStyle) -> String {
+        let addPart = "\(style.green)+\(additions) to add\(style.reset)"
+        let removePart = "\(style.red)-\(removals) to remove\(style.reset)"
+        let keepPart = "\(style.dim)\(unchanged) unchanged\(style.reset)"
         let sep = "\(style.dim)·\(style.reset)"
         return "\(addPart) \(sep) \(removePart) \(sep) \(keepPart)"
     }

@@ -92,19 +92,15 @@ struct PickerDeltaTests {
 
     // MARK: - counterString
 
-    @Test("counterString formats all three counts")
+    @Test("counterString plain output matches golden layout")
     func counterFormat() {
-        let counts = PickerDelta.DeltaCounts(additions: 2, removals: 1, unchanged: 3)
-        let rendered = PickerDelta.counterString(counts: counts, style: plain)
-        #expect(rendered.contains("+2 to add"))
-        #expect(rendered.contains("-1 to remove"))
-        #expect(rendered.contains("3 unchanged"))
+        let rendered = PickerDelta.counterString(additions: 2, removals: 1, unchanged: 3, style: plain)
+        #expect(rendered == "+2 to add · -1 to remove · 3 unchanged")
     }
 
     @Test("counterString emits ANSI when colors enabled")
     func counterColors() {
-        let counts = PickerDelta.DeltaCounts(additions: 1, removals: 1, unchanged: 1)
-        let rendered = PickerDelta.counterString(counts: counts, style: colored)
+        let rendered = PickerDelta.counterString(additions: 1, removals: 1, unchanged: 1, style: colored)
         #expect(rendered.contains("\u{1B}[0;32m"))
         #expect(rendered.contains("\u{1B}[0;31m"))
         #expect(rendered.contains("\u{1B}[2m"))

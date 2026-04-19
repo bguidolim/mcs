@@ -1,5 +1,7 @@
 import Foundation
 
+/// `additions`, `removals`, `keeps` form a disjoint partition of `previous ∪ selected` —
+/// the three-way split is the whole reason this type exists.
 struct SyncDeltaSummary {
     let additions: [String]
     let removals: [String]
@@ -19,18 +21,22 @@ struct SyncDeltaSummary {
         !additions.isEmpty || !removals.isEmpty
     }
 
-    /// Accepts `ANSIStyle` (not a bare `Bool`) so tests can assert plain text
-    /// via `ANSIStyle(enabled: false)` without leaking hardcoded escape codes.
-    static func renderReviewBlock(_ summary: SyncDeltaSummary, style: ANSIStyle) -> String {
+    /// True when the delta is "remove every previously configured pack with nothing to keep or add."
+    /// Callers use this to render a stronger warning before confirming a full wipe.
+    var isFullWipe: Bool {
+        !removals.isEmpty && additions.isEmpty && keeps.isEmpty
+    }
+
+    func renderReviewBlock(style: ANSIStyle) -> String {
         var lines: [String] = []
-        if !summary.additions.isEmpty {
-            lines.append("  \(style.green)+ add:\(style.reset)      \(summary.additions.joined(separator: ", "))")
+        if !additions.isEmpty {
+            lines.append("  \(style.green)+ add:\(style.reset)      \(additions.joined(separator: ", "))")
         }
-        if !summary.removals.isEmpty {
-            lines.append("  \(style.red)- remove:\(style.reset)   \(summary.removals.joined(separator: ", "))")
+        if !removals.isEmpty {
+            lines.append("  \(style.red)- remove:\(style.reset)   \(removals.joined(separator: ", "))")
         }
-        if !summary.keeps.isEmpty {
-            lines.append("  \(style.dim)= keep:\(style.reset)     \(summary.keeps.joined(separator: ", "))")
+        if !keeps.isEmpty {
+            lines.append("  \(style.dim)= keep:\(style.reset)     \(keeps.joined(separator: ", "))")
         }
         return lines.joined(separator: "\n")
     }

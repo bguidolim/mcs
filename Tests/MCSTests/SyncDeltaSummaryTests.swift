@@ -71,43 +71,54 @@ struct SyncDeltaSummaryTests {
         #expect(summary.removals == ["mike"])
     }
 
-    @Test("renderReviewBlock with plain style contains all pack names")
-    func renderPlain() {
+    @Test("renderReviewBlock plain output matches golden layout")
+    func renderPlainGolden() {
         let summary = SyncDeltaSummary(
             previous: ["android", "swift"],
             selected: ["swift", "kotlin"]
         )
-        let block = SyncDeltaSummary.renderReviewBlock(summary, style: ANSIStyle(enabled: false))
-
-        #expect(block.contains("+ add:"))
-        #expect(block.contains("- remove:"))
-        #expect(block.contains("= keep:"))
-        #expect(block.contains("kotlin"))
-        #expect(block.contains("android"))
-        #expect(block.contains("swift"))
-        #expect(!block.contains("\u{1B}["))
+        let block = summary.renderReviewBlock(style: ANSIStyle(enabled: false))
+        let expected = """
+          + add:      kotlin
+          - remove:   android
+          = keep:     swift
+        """
+        #expect(block == expected)
     }
 
-    @Test("renderReviewBlock with colored style emits ANSI codes")
+    @Test("renderReviewBlock colored output emits green, red, AND dim")
     func renderColored() {
         let summary = SyncDeltaSummary(
-            previous: ["android"],
-            selected: ["kotlin"]
+            previous: ["android", "shared"],
+            selected: ["kotlin", "shared"]
         )
-        let block = SyncDeltaSummary.renderReviewBlock(summary, style: ANSIStyle(enabled: true))
+        let block = summary.renderReviewBlock(style: ANSIStyle(enabled: true))
 
         #expect(block.contains("\u{1B}[0;32m"))
         #expect(block.contains("\u{1B}[0;31m"))
+        #expect(block.contains("\u{1B}[2m"))
         #expect(block.contains("\u{1B}[0m"))
     }
 
     @Test("renderReviewBlock omits sections that are empty")
     func renderOmitsEmpty() {
         let summary = SyncDeltaSummary(previous: [], selected: ["ios"])
-        let block = SyncDeltaSummary.renderReviewBlock(summary, style: ANSIStyle(enabled: false))
+        let block = summary.renderReviewBlock(style: ANSIStyle(enabled: false))
 
         #expect(block.contains("+ add:"))
         #expect(!block.contains("- remove:"))
         #expect(!block.contains("= keep:"))
+    }
+
+    @Test("isFullWipe true when removing every previous pack with nothing to keep or add")
+    func fullWipe() {
+        let wipe = SyncDeltaSummary(previous: ["ios", "swift"], selected: [])
+        #expect(wipe.isFullWipe)
+
+        let partialRemoval = SyncDeltaSummary(previous: ["ios", "swift"], selected: ["ios"])
+        #expect(!partialRemoval.isFullWipe)
+
+        let additionsOnly = SyncDeltaSummary(previous: [], selected: ["ios"])
+        #expect(!additionsOnly.isFullWipe)
     }
 }

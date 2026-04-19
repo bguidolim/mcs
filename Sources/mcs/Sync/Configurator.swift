@@ -1,3 +1,4 @@
+import ArgumentParser
 import Foundation
 
 /// Unified configuration engine for both project-scoped and global-scoped sync.
@@ -39,6 +40,15 @@ struct Configurator {
     ///
     /// - Parameter customize: When `true`, present per-pack component multi-select after pack selection.
     func interactiveConfigure(dryRun: Bool = false, customize: Bool = false) throws {
+        // The picker and confirmation require a TTY. Without it, piped/closed stdin
+        // silently returns the default (false on confirm), which would look like a
+        // successful sync but apply nothing. Fail loudly and point at non-interactive flags.
+        guard output.isInteractiveTerminal else {
+            output.error("Interactive sync requires a terminal.")
+            output.plain("  Use --pack <name> (repeatable) or --all for non-interactive sync.")
+            throw ExitCode.failure
+        }
+
         output.header("Sync \(scope.label)")
         output.plain("")
         if scope.isGlobalScope {
@@ -98,12 +108,15 @@ struct Configurator {
             if summary.hasRemovals {
                 output.plain("")
                 output.header("Review changes")
-                output.plain(SyncDeltaSummary.renderReviewBlock(summary, style: ANSIStyle(enabled: output.colorsEnabled)))
+                output.plain(summary.renderReviewBlock(style: output.style))
                 output.plain("")
-                // 'n' during the picker binds to "select none" (CLIOutput.swift interactiveMultiSelect);
-                // a user who hits 'n' thinking it means "cancel" lands on this confirmation with a full
-                // removal summary and default: false — Enter aborts safely.
-                guard output.askYesNo("Apply these changes?", default: false) else {
+                if summary.isFullWipe {
+                    output.warn("This will remove ALL configured packs from this \(scope.label).")
+                }
+                // 'n' in the picker binds to "select none"; default: false lets a user who hit it
+                // thinking "cancel" still abort safely from the confirmation.
+                let prompt = summary.isFullWipe ? "Remove all configured packs?" : "Apply these changes?"
+                guard output.askYesNo(prompt, default: false) else {
                     output.info("Sync cancelled.")
                     return
                 }
@@ -122,8 +135,7 @@ struct Configurator {
         if dryRun {
             try self.dryRun(packs: selectedPacks)
         } else {
-            // Interactive flow owns the removal confirmation via the "Review changes" screen above,
-            // so suppress the duplicate askYesNo inside configure() (gated by confirmRemovals: true).
+            // Interactive flow already confirmed via the "Review changes" screen above.
             try configure(packs: selectedPacks, confirmRemovals: false, excludedComponents: excludedComponents)
 
             output.header("Done")

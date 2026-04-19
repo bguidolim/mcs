@@ -107,6 +107,20 @@ struct Environment {
         mcsDirectory.appendingPathComponent(Constants.FileNames.mcsConfig)
     }
 
+    /// True when `candidate` is inside `claudeDirectory` or equal to `homeDirectory`,
+    /// gated on the `.claude.json` sibling existing (confirms a real Claude Code layout).
+    func isInsideClaudeHome(_ candidate: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: claudeJSON.path) else {
+            return false
+        }
+        if PathContainment.isContained(url: candidate, within: claudeDirectory) {
+            return true
+        }
+        let resolvedCandidate = candidate.resolvingSymlinksInPath().path
+        let resolvedHome = homeDirectory.resolvingSymlinksInPath().path
+        return resolvedCandidate == resolvedHome
+    }
+
     /// PATH string that includes the Homebrew bin directory.
     var pathWithBrew: String {
         let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"

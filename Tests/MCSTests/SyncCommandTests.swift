@@ -1,3 +1,5 @@
+import ArgumentParser
+import Foundation
 @testable import mcs
 import Testing
 
@@ -112,5 +114,146 @@ struct SyncCommandTests {
         let cmd = try SyncCommand.parse(["--global", "--customize"])
         #expect(cmd.global == true)
         #expect(cmd.customize == true)
+    }
+}
+
+// MARK: - Guard: cwd inside ~/.claude detection
+
+struct SyncCommandGuardTests {
+    private func silentOutput() -> CLIOutput {
+        CLIOutput(colorsEnabled: false)
+    }
+
+    @Test("Guard returns self.global unchanged when target is outside ~/.claude")
+    func guardSkipsWhenTargetOutsideHome() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let project = home.appendingPathComponent("some-project")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let bare = try SyncCommand.parse([project.path])
+        #expect(try bare.guardClaudeHomeCwd(env: env, output: silentOutput()) == false)
+
+        let withGlobal = try SyncCommand.parse([project.path, "--global"])
+        #expect(try withGlobal.guardClaudeHomeCwd(env: env, output: silentOutput()) == true)
+    }
+
+    @Test("Guard skips when .claude.json sibling is missing (fresh install edge case)")
+    func guardSkipsWhenSiblingMissing() throws {
+        let home = try makeClaudeHome(withJSON: false)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let cmd = try SyncCommand.parse([env.claudeDirectory.path, "--pack", "foo"])
+        #expect(try cmd.guardClaudeHomeCwd(env: env, output: silentOutput()) == false)
+    }
+
+    @Test("Guard throws when target is ~/.claude and --pack is set")
+    func guardThrowsOnNonInteractivePack() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let cmd = try SyncCommand.parse([env.claudeDirectory.path, "--pack", "foo"])
+        #expect(throws: ExitCode.self) {
+            _ = try cmd.guardClaudeHomeCwd(env: env, output: silentOutput())
+        }
+    }
+
+    @Test("Guard throws when target is ~/.claude and --all is set")
+    func guardThrowsOnNonInteractiveAll() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let cmd = try SyncCommand.parse([env.claudeDirectory.path, "--all"])
+        #expect(throws: ExitCode.self) {
+            _ = try cmd.guardClaudeHomeCwd(env: env, output: silentOutput())
+        }
+    }
+
+    @Test("Guard redirects to global and chdirs to home when --global + cwd in ~/.claude")
+    func guardSilentRedirectWithGlobalFlag() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let originalCwd = FileManager.default.currentDirectoryPath
+        defer { FileManager.default.changeCurrentDirectoryPath(originalCwd) }
+
+        let cmd = try SyncCommand.parse([env.claudeDirectory.path, "--global", "--pack", "foo"])
+        let effective = try cmd.guardClaudeHomeCwd(env: env, output: silentOutput())
+        #expect(effective == true)
+
+        let resultCwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .resolvingSymlinksInPath()
+        #expect(resultCwd == env.homeDirectory.resolvingSymlinksInPath())
+    }
+
+    @Test("Guard triggers for nested paths like ~/.claude/skills")
+    func guardTriggersOnNestedPath() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let nested = env.claudeDirectory.appendingPathComponent("skills")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+
+        let cmd = try SyncCommand.parse([nested.path, "--pack", "foo"])
+        #expect(throws: ExitCode.self) {
+            _ = try cmd.guardClaudeHomeCwd(env: env, output: silentOutput())
+        }
+    }
+
+    @Test("Guard triggers when target is $HOME itself (where .claude and .claude.json live)")
+    func guardTriggersOnHomeItself() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let cmd = try SyncCommand.parse([env.homeDirectory.path, "--pack", "foo"])
+        #expect(throws: ExitCode.self) {
+            _ = try cmd.guardClaudeHomeCwd(env: env, output: silentOutput())
+        }
+    }
+
+    @Test("Guard does NOT trigger for $HOME/subdir (legitimate project locations)")
+    func guardSkipsForHomeSubdir() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let project = home.appendingPathComponent("Projects/my-app")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let cmd = try SyncCommand.parse([project.path, "--pack", "foo"])
+        #expect(try cmd.guardClaudeHomeCwd(env: env, output: silentOutput()) == false)
+    }
+
+    @Test("Guard hard-errors on bare sync from ~/.claude when stdin is non-interactive")
+    func guardHardErrorsOnBareSyncNonInteractive() throws {
+        // Prevents CI/piped-stdin from silently accepting the askYesNo default.
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let cmd = try SyncCommand.parse([env.claudeDirectory.path])
+        #expect(throws: ExitCode.self) {
+            _ = try cmd.guardClaudeHomeCwd(env: env, output: silentOutput())
+        }
+    }
+
+    @Test("Guard hard-errors on --dry-run from ~/.claude (treats dry-run as non-interactive)")
+    func guardHardErrorsOnDryRun() throws {
+        let home = try makeClaudeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let cmd = try SyncCommand.parse([env.claudeDirectory.path, "--dry-run"])
+        #expect(throws: ExitCode.self) {
+            _ = try cmd.guardClaudeHomeCwd(env: env, output: silentOutput())
+        }
     }
 }

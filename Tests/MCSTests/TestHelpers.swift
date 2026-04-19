@@ -274,6 +274,19 @@ func makeGlobalTmpDir(label: String = "global") throws -> URL {
     return dir
 }
 
+/// Create a temp home pre-configured with the Claude Code canonical layout:
+/// `.claude/` directory plus (optional) `.claude.json` sibling file.
+func makeClaudeHome(label: String = "claude-home", withJSON: Bool = true) throws -> URL {
+    let home = try makeGlobalTmpDir(label: label)
+    if withJSON {
+        try "{}".write(
+            to: home.appendingPathComponent(".claude.json"),
+            atomically: true, encoding: .utf8
+        )
+    }
+    return home
+}
+
 /// Create a temp directory pre-configured as a project sandbox:
 /// home with `.claude/` + `.mcs/`, plus a nested project with `.git/` + `.claude/`.
 func makeSandboxProject(label: String = "project") throws -> (home: URL, project: URL) {

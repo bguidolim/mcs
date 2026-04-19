@@ -108,6 +108,26 @@ claude plugin install <plugin-name>@<org>
 
 ## Project Configuration
 
+### Running `mcs sync` from `~/.claude` or `$HOME`
+
+**Symptom**: `mcs sync` prompts "Did you mean `mcs sync --global`?" or errors with a message about refusing to sync project scope inside the Claude home directory.
+
+`mcs sync` without `--global` treats the current directory as a project. Running it from `~/.claude` or `$HOME` would create `~/.claude/.claude/` and write project-scope tracking state on top of the global Claude install — a silent corruption that `mcs doctor` could not recognize afterwards. The guard catches the three common forms:
+
+- **Bare interactive** (`cd ~/.claude && mcs sync`) — prompts `y/N` to promote the run to `--global`.
+- **Non-interactive** (`mcs sync --pack foo` or `mcs sync --all`) — hard-errors, no prompt.
+- **`cd ~/.claude && mcs sync --global`** — silently redirected to `$HOME` and proceeds (no prompt, no error).
+
+**Fix**: Either answer `y` at the prompt, pass `--global` explicitly, or `cd` into an actual project directory first:
+
+```bash
+mcs sync --global              # explicit global sync, works from anywhere
+cd ~/Developer/my-project      # or move into the project, then:
+mcs sync
+```
+
+The guard is gated on `~/.claude.json` existing as a sibling, so it never triggers in test fixtures or fresh installs that haven't run `claude` yet.
+
 ### No packs registered
 
 **Symptom**: `mcs sync` shows "No packs registered."

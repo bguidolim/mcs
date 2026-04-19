@@ -3,7 +3,13 @@ import Foundation
 /// Terminal output with ANSI color support and structured logging.
 struct CLIOutput {
     let colorsEnabled: Bool
+    /// True when stdin is a TTY — i.e. the user can answer prompts (raw or fallback).
+    /// Gate interactive-confirmation flows on this, not on `isInteractiveTerminal`.
+    let hasInteractiveStdin: Bool
+    /// True when both stdin and stdout are TTYs — the raw-terminal UI (cursor
+    /// manipulation, ANSI ornamentation) can render. Gate pickers on this.
     let isInteractiveTerminal: Bool
+    let style: ANSIStyle
 
     init(colorsEnabled: Bool? = nil) {
         if let explicit = colorsEnabled {
@@ -11,41 +17,43 @@ struct CLIOutput {
         } else {
             self.colorsEnabled = isatty(STDOUT_FILENO) != 0
         }
-        isInteractiveTerminal = self.colorsEnabled && isatty(STDIN_FILENO) != 0
+        hasInteractiveStdin = isatty(STDIN_FILENO) != 0
+        isInteractiveTerminal = hasInteractiveStdin && isatty(STDOUT_FILENO) != 0
+        style = ANSIStyle(enabled: self.colorsEnabled)
     }
 
-    // MARK: - ANSI Codes
+    // MARK: - ANSI Codes (delegate to `style`)
 
     private var red: String {
-        colorsEnabled ? "\u{1B}[0;31m" : ""
+        style.red
     }
 
     private var green: String {
-        colorsEnabled ? "\u{1B}[0;32m" : ""
+        style.green
     }
 
     private var yellow: String {
-        colorsEnabled ? "\u{1B}[1;33m" : ""
+        style.yellow
     }
 
     private var blue: String {
-        colorsEnabled ? "\u{1B}[0;34m" : ""
+        style.blue
     }
 
     private var cyan: String {
-        colorsEnabled ? "\u{1B}[0;36m" : ""
+        style.cyan
     }
 
     private var bold: String {
-        colorsEnabled ? "\u{1B}[1m" : ""
+        style.bold
     }
 
     private var dim: String {
-        colorsEnabled ? "\u{1B}[2m" : ""
+        style.dim
     }
 
     private var reset: String {
-        colorsEnabled ? "\u{1B}[0m" : ""
+        style.reset
     }
 
     // MARK: - Terminal Helpers
@@ -514,18 +522,41 @@ struct CLIOutput {
         var output = ""
 
         var flatIndex = 0
+        var cursorRowState: PickerDelta.RowState?
+        var additions = 0
+        var removals = 0
+        var unchanged = 0
+
         for group in groups where !group.items.isEmpty {
             output += "\n"
             output += sectionHeaderString(group.title)
             for item in group.items {
                 let isCursor = flatIndex == cursor
+                let state = PickerDelta.RowState.from(
+                    isSelected: item.isSelected,
+                    baselineSelected: item.baselineSelected
+                )
                 let marker = item.isSelected
                     ? "\(green)\u{25CF}\(reset)"
                     : "\(dim)\u{25CB}\(reset)"
                 let pointer = isCursor ? "\(cyan)\u{276F}\(reset)" : " "
                 let nameStyle = isCursor ? "\(bold)\(cyan)\(item.name)\(reset)" : "\(bold)\(item.name)\(reset)"
-                output += "  \(pointer) \(marker) \(nameStyle)\n"
+                let tag = group.showsDelta
+                    ? PickerDelta.tagString(state: state, isCursor: isCursor, style: style)
+                    : ""
+                output += "  \(pointer) \(marker) \(nameStyle)\(tag)\n"
                 output += "\(dim)\(wordWrap(item.description, indent: "      ", columns: columns))\(reset)\n"
+
+                if group.showsDelta {
+                    switch state {
+                    case .newInstall: additions += 1
+                    case .installedRemoved: removals += 1
+                    case .installedKept, .notInstalled: unchanged += 1
+                    }
+                }
+                if isCursor, group.showsDelta {
+                    cursorRowState = state
+                }
                 flatIndex += 1
             }
         }
@@ -540,7 +571,13 @@ struct CLIOutput {
         }
 
         output += "\n"
-        output += "  \(dim)\u{2191}/\u{2193} Move \u{00B7} Space Toggle \u{00B7} Enter Confirm\(reset)\n"
+        if let cursorRowState {
+            let verb = PickerDelta.footerVerb(state: cursorRowState)
+            output += "  \(dim)\u{2191}/\u{2193} Move \u{00B7} \(verb) \u{00B7} Enter to apply\(reset)\n"
+            output += "  \(PickerDelta.counterString(additions: additions, removals: removals, unchanged: unchanged, style: style))\n"
+        } else {
+            output += "  \(dim)\u{2191}/\u{2193} Move \u{00B7} Space Toggle \u{00B7} Enter Confirm\(reset)\n"
+        }
         return output
     }
 
@@ -722,6 +759,9 @@ struct SelectableItem {
     let name: String
     let description: String
     var isSelected: Bool
+    /// Only meaningful when the enclosing `SelectableGroup.showsDelta == true`;
+    /// otherwise ignored by the renderer.
+    var baselineSelected: Bool = false
 }
 
 struct RequiredItem {
@@ -732,6 +772,10 @@ struct SelectableGroup {
     let title: String
     var items: [SelectableItem]
     let requiredItems: [RequiredItem]
+    /// When true, items' `baselineSelected` drives delta-tag rendering and a
+    /// dynamic footer. Callers must populate `baselineSelected` on every item
+    /// or the renderer will treat pre-installed packs as brand-new.
+    var showsDelta: Bool = false
 }
 
 // MARK: - Multi-Select Parser
@@ -755,5 +799,107 @@ enum MultiSelectParser {
             .compactMap { Int($0) }
         guard !numbers.isEmpty else { return .confirm }
         return .toggle(numbers)
+    }
+}
+
+// MARK: - ANSI Style
+
+/// Combined forms like `dimRed` use single SGR sequences (`\u{1B}[2;31m`);
+/// stacking two separate SGRs would reset and cancel the dim attribute.
+struct ANSIStyle {
+    let enabled: Bool
+
+    var reset: String {
+        enabled ? "\u{1B}[0m" : ""
+    }
+
+    var bold: String {
+        enabled ? "\u{1B}[1m" : ""
+    }
+
+    var dim: String {
+        enabled ? "\u{1B}[2m" : ""
+    }
+
+    var red: String {
+        enabled ? "\u{1B}[0;31m" : ""
+    }
+
+    var green: String {
+        enabled ? "\u{1B}[0;32m" : ""
+    }
+
+    var yellow: String {
+        enabled ? "\u{1B}[1;33m" : ""
+    }
+
+    var blue: String {
+        enabled ? "\u{1B}[0;34m" : ""
+    }
+
+    var cyan: String {
+        enabled ? "\u{1B}[0;36m" : ""
+    }
+
+    var dimRed: String {
+        enabled ? "\u{1B}[2;31m" : ""
+    }
+
+    var dimYellow: String {
+        enabled ? "\u{1B}[2;33m" : ""
+    }
+}
+
+// MARK: - Picker Delta Rendering
+
+enum PickerDelta {
+    enum RowState {
+        case installedKept
+        case installedRemoved
+        case newInstall
+        case notInstalled
+
+        static func from(isSelected: Bool, baselineSelected: Bool) -> RowState {
+            switch (isSelected, baselineSelected) {
+            case (true, true): .installedKept
+            case (false, true): .installedRemoved
+            case (true, false): .newInstall
+            case (false, false): .notInstalled
+            }
+        }
+    }
+
+    static func tagString(state: RowState, isCursor: Bool, style: ANSIStyle) -> String {
+        let pad = "  "
+        let red = isCursor ? style.red : style.dimRed
+        let yellow = isCursor ? style.yellow : style.dimYellow
+
+        switch state {
+        case .installedKept:
+            return isCursor ? "\(pad)\(style.dim)[installed · uncheck to remove]\(style.reset)" : ""
+        case .notInstalled:
+            return isCursor ? "\(pad)\(style.dim)[not installed]\(style.reset)" : ""
+        case .installedRemoved:
+            return "\(pad)\(red)[installed · WILL REMOVE]\(style.reset)"
+        case .newInstall:
+            return "\(pad)\(yellow)[new · will install]\(style.reset)"
+        }
+    }
+
+    static func footerVerb(state: RowState) -> String {
+        switch state {
+        case .installedKept: "Space to remove"
+        case .installedRemoved: "Space to keep installed"
+        case .newInstall: "Space to cancel install"
+        case .notInstalled: "Space to install"
+        }
+    }
+
+    static func counterString(additions: Int, removals: Int, unchanged: Int, style: ANSIStyle) -> String {
+        let addPart = "\(style.green)+\(additions) to add\(style.reset)"
+        let removePart = "\(style.red)-\(removals) to remove\(style.reset)"
+        let keepPart = "\(style.dim)\(unchanged) unchanged\(style.reset)"
+        let sep = "\(style.dim)·\(style.reset)"
+        return "\(addPart) \(sep) \(removePart) \(sep) \(keepPart)"
     }
 }

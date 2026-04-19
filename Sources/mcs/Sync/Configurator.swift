@@ -1,3 +1,4 @@
+import ArgumentParser
 import Foundation
 
 /// Unified configuration engine for both project-scoped and global-scoped sync.
@@ -39,6 +40,17 @@ struct Configurator {
     ///
     /// - Parameter customize: When `true`, present per-pack component multi-select after pack selection.
     func interactiveConfigure(dryRun: Bool = false, customize: Bool = false) throws {
+        // Piped/closed stdin means the confirmation prompt silently returns its default,
+        // which would look like a successful sync while applying nothing. Fail loudly
+        // and point at non-interactive flags. Note: `hasInteractiveStdin` (not
+        // `isInteractiveTerminal`) — piped stdout with TTY stdin is still a valid
+        // flow that drops into the fallback picker/prompt.
+        guard output.hasInteractiveStdin else {
+            output.error("Interactive sync requires a terminal.")
+            output.plain("  Use --pack <name> (repeatable) or --all for non-interactive sync.")
+            throw ExitCode.failure
+        }
+
         output.header("Sync \(scope.label)")
         output.plain("")
         if scope.isGlobalScope {
@@ -57,20 +69,28 @@ struct Configurator {
         let previousPacks = previousState.configuredPacks
 
         let items = packs.enumerated().map { index, pack in
-            SelectableItem(
+            let installed = previousPacks.contains(pack.identifier)
+            return SelectableItem(
                 number: index + 1,
                 name: pack.displayName,
                 description: pack.description,
-                isSelected: previousPacks.contains(pack.identifier)
+                isSelected: installed,
+                baselineSelected: installed
             )
         }
 
-        let groupTitle = scope.isGlobalScope ? "Tech Packs (Global)" : "Tech Packs"
+        let groupTitle = scope.isGlobalScope
+            ? "Packs to install globally (selected = installed after sync)"
+            : "Packs to install in this project (selected = installed after sync)"
         var groups = [SelectableGroup(
             title: groupTitle,
             items: items,
-            requiredItems: []
+            requiredItems: [],
+            showsDelta: true
         )]
+
+        output.plain("")
+        output.plain("  Selected packs stay or get added. Deselected packs are removed.")
 
         let selectedNumbers = output.multiSelect(groups: &groups)
 
@@ -82,6 +102,27 @@ struct Configurator {
             output.plain("")
             output.info("No packs selected. Nothing to configure.")
             return
+        }
+
+        if !dryRun {
+            let selectedIDs = Set(selectedPacks.map(\.identifier))
+            let summary = SyncDeltaSummary(previous: previousPacks, selected: selectedIDs)
+            if summary.hasRemovals {
+                output.plain("")
+                output.header("Review changes")
+                output.plain(summary.renderReviewBlock(style: output.style))
+                output.plain("")
+                if summary.isFullWipe {
+                    output.warn("This will remove ALL configured packs from this \(scope.label).")
+                }
+                // 'n' in the picker binds to "select none"; default: false lets a user who hit it
+                // thinking "cancel" still abort safely from the confirmation.
+                let prompt = summary.isFullWipe ? "Remove all configured packs?" : "Apply these changes?"
+                guard output.askYesNo(prompt, default: false) else {
+                    output.info("Sync cancelled.")
+                    return
+                }
+            }
         }
 
         var excludedComponents: [String: Set<String>] = [:]
@@ -96,7 +137,8 @@ struct Configurator {
         if dryRun {
             try self.dryRun(packs: selectedPacks)
         } else {
-            try configure(packs: selectedPacks, excludedComponents: excludedComponents)
+            // Interactive flow already confirmed via the "Review changes" screen above.
+            try configure(packs: selectedPacks, confirmRemovals: false, excludedComponents: excludedComponents)
 
             output.header("Done")
             output.info("Run 'mcs doctor' to verify configuration")

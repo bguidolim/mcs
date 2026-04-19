@@ -64,7 +64,7 @@ mcs config set <key> <value>     # Set a configuration value (true/false)
 
 ### Core (`Sources/mcs/Core/`)
 - `Constants.swift` — centralized string constants (file names, CLI paths, JSON keys, external packs, plugins)
-- `Environment.swift` — paths, arch detection, brew path
+- `Environment.swift` — paths, arch detection, brew path, claude-home cwd detection (`isInsideClaudeHome(_:)`)
 - `CLIOutput.swift` — ANSI colors, logging, prompts, multi-select, doctor summary
 - `ShellRunner.swift` — Process execution wrapper
 - `Settings.swift` — Codable model for `settings.json` and `settings.local.json`, deep-merge
@@ -114,7 +114,7 @@ mcs config set <key> <value>     # Set a configuration value (true/false)
 - `SectionValidator.swift` — validation of CLAUDE.local.md section markers
 
 ### Commands (`Sources/mcs/Commands/`)
-- `SyncCommand.swift` — primary command (`mcs sync`), handles both project-scoped and global-scoped sync with `--pack`, `--all`, `--dry-run`, `--customize`, `--global`, `--lock`, `--update` flags
+- `SyncCommand.swift` — primary command (`mcs sync`), handles both project-scoped and global-scoped sync with `--pack`, `--all`, `--dry-run`, `--customize`, `--global`, `--lock`, `--update` flags. `guardClaudeHomeCwd()` at the top of `perform()` rejects/redirects runs from `~/.claude` or `$HOME` to prevent silent corruption of the global scope
 - `DoctorCommand.swift` — health checks with optional --fix and --pack filter
 - `CleanupCommand.swift` — backup file management with --force flag
 - `PackCommand.swift` — `mcs pack add/remove/list/update/validate` subcommands; uses `PackSourceResolver` for 3-tier input detection (URL schemes → filesystem paths → GitHub shorthand)
@@ -142,6 +142,7 @@ mcs config set <key> <value>     # Set a configuration value (true/false)
 - `PackUpdater.swift` — shared fetch → validate → trust cycle for updating a single git pack (used by `UpdatePack` and `LockfileOperations`)
 - `ResourceRefCounter.swift` — two-tier reference counting (global artifacts + project index manifests) for safe brew/plugin removal
 - `LockfileOperations.swift` — reads/writes `mcs.lock.yaml`, checks out locked versions, updates lockfile
+- `SyncDeltaSummary.swift` — computes add/remove/keep deltas between previous and selected pack sets and renders the review-changes summary shown before destructive sync operations
 
 ### Templates (`Sources/mcs/Templates/`)
 - `TemplateEngine.swift` — `__PLACEHOLDER__` substitution

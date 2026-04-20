@@ -87,11 +87,6 @@ struct PackFetcher {
             workingDirectory: workDir
         )
         guard fetchResult.succeeded else {
-            // Distinguish a missing ref (user typo / tag removed) from network/auth/transport
-            // failures, which should not be reported as "Ref not found".
-            if let ref, Self.stderrIndicatesMissingRef(fetchResult.stderr) {
-                throw PackFetchError.refNotFound(ref: ref, stderr: fetchResult.stderr)
-            }
             throw PackFetchError.fetchFailed(path: packPath.path, stderr: fetchResult.stderr)
         }
 
@@ -168,15 +163,6 @@ struct PackFetcher {
         }
     }
 
-    /// Heuristic: does this `git fetch` stderr indicate the ref is genuinely missing upstream,
-    /// rather than a network/auth/transport failure? Used to pick between `.refNotFound` and `.fetchFailed`.
-    static func stderrIndicatesMissingRef(_ stderr: String) -> Bool {
-        let lower = stderr.lowercased()
-        return lower.contains("couldn't find remote ref")
-            || lower.contains("remote branch")
-            || lower.contains("not found in upstream")
-    }
-
     private func ensureGitAvailable() throws {
         guard shell.commandExists("git") else {
             throw PackFetchError.gitNotInstalled
@@ -198,7 +184,6 @@ enum PackFetchError: Error, LocalizedError {
     case gitNotInstalled
     case cloneFailed(url: String, stderr: String)
     case fetchFailed(path: String, stderr: String)
-    case refNotFound(ref: String, stderr: String)
     case updateFailed(path: String, stderr: String)
     case commitResolutionFailed(path: String, stderr: String)
     case invalidIdentifier(String)
@@ -213,8 +198,6 @@ enum PackFetchError: Error, LocalizedError {
             "Failed to clone '\(url)': \(stderr)"
         case let .fetchFailed(path, stderr):
             "Failed to fetch updates for '\(path)': \(stderr)"
-        case let .refNotFound(ref, stderr):
-            "Ref '\(ref)' not found: \(stderr)"
         case let .updateFailed(path, stderr):
             "Failed to update '\(path)': \(stderr)"
         case let .commitResolutionFailed(path, stderr):

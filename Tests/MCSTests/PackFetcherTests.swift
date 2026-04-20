@@ -388,42 +388,18 @@ struct PackFetcherOperationTests {
         #expect(resetCall.arguments.contains("FETCH_HEAD"))
     }
 
-    @Test("update throws refNotFound when stderr indicates a missing ref")
-    func updateWithRefThrowsRefNotFoundOnMissingRefStderr() throws {
+    @Test("update throws fetchFailed when ref fetch fails")
+    func updateWithRefThrowsFetchFailed() throws {
         let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
-            ShellResult(exitCode: 1, stdout: "", stderr: "fatal: couldn't find remote ref refs/heads/nonexistent"),
+            ShellResult(exitCode: 128, stdout: "", stderr: "fatal: couldn't find remote ref refs/heads/nonexistent"),
         ]
 
         do {
             _ = try fetcher.update(packPath: packPath, ref: "nonexistent-tag")
-            Issue.record("Expected refNotFound to be thrown")
-        } catch let error as PackFetchError {
-            guard case .refNotFound = error else {
-                Issue.record("Expected .refNotFound, got \(error)")
-                return
-            }
-        }
-    }
-
-    @Test("update throws fetchFailed on network/transport errors with a ref")
-    func updateWithRefThrowsFetchFailedOnGenericFailure() throws {
-        let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        shell.runResults = [
-            ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
-            ShellResult(
-                exitCode: 128, stdout: "",
-                stderr: "fatal: unable to access 'https://example.test/repo.git/': Could not resolve host"
-            ),
-        ]
-
-        do {
-            _ = try fetcher.update(packPath: packPath, ref: "main")
             Issue.record("Expected fetchFailed to be thrown")
         } catch let error as PackFetchError {
             guard case .fetchFailed = error else {

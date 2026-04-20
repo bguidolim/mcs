@@ -117,7 +117,7 @@ struct UpdateCheckerCacheTests {
         let env = Environment(home: tmpDir)
         #expect(FileManager.default.fileExists(atPath: env.updateCheckCacheFile.path))
 
-        UpdateChecker.invalidateCache(environment: env)
+        #expect(UpdateChecker.invalidateCache(environment: env))
         #expect(!FileManager.default.fileExists(atPath: env.updateCheckCacheFile.path))
     }
 }

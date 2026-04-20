@@ -153,18 +153,17 @@ struct LockfileOperations {
     }
 
     /// Report drift between the on-disk lockfile and the current registry state without writing.
-    /// Used by `mcs sync` when lockfile generation is opt-out (nil config) or explicitly disabled
-    /// but the lockfile still exists. No-op if the lockfile is absent.
-    /// - Parameter includeMigrationHint: when true, appends a hint directing the user to either
-    ///   opt in via `mcs config set generate-lockfile true` or delete the stale file.
-    func reportDrift(at projectPath: URL, includeMigrationHint: Bool = false) throws {
+    /// Called on the upgrade path — user has never configured `generate-lockfile` and a stale
+    /// lockfile from the auto-generation era is still on disk. Always appends the migration hint.
+    /// No-op if the lockfile is absent.
+    func reportDrift(at projectPath: URL) throws {
         guard let existing = try Lockfile.load(projectRoot: projectPath) else { return }
         let registryFile = PackRegistryFile(path: environment.packsRegistry)
         let registryData = try registryFile.load()
         emitDriftWarnings(
             existing: existing,
             registryEntries: registryData.packs,
-            includeMigrationHint: includeMigrationHint
+            includeMigrationHint: true
         )
     }
 

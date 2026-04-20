@@ -185,19 +185,34 @@ struct MCSConfigTests {
         #expect(!config.isLockfileGenerationEnabled)
     }
 
-    @Test("generate-lockfile key round-trips through save/load")
+    @Test("isLockfileGenerationUnset is true only when nil")
+    func isLockfileGenerationUnsetTriState() {
+        var config = MCSConfig()
+        #expect(config.isLockfileGenerationUnset, "nil should be unset")
+
+        config.generateLockfile = false
+        #expect(!config.isLockfileGenerationUnset, "explicit false is a choice, not unset")
+
+        config.generateLockfile = true
+        #expect(!config.isLockfileGenerationUnset, "explicit true is a choice, not unset")
+    }
+
+    @Test("generate-lockfile key round-trips through save/load for all tri-state values")
     func lockfileKeyRoundtrip() throws {
         let tmpDir = try makeTmpDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let path = tmpDir.appendingPathComponent("config.yaml")
-        var config = MCSConfig()
-        config.generateLockfile = true
-        try config.save(to: path)
+        for value in [nil, true, false] as [Bool?] {
+            let path = tmpDir.appendingPathComponent("config-\(String(describing: value)).yaml")
+            var config = MCSConfig()
+            config.generateLockfile = value
+            try config.save(to: path)
 
-        let reloaded = MCSConfig.load(from: path)
-        #expect(reloaded.generateLockfile == true)
-        #expect(reloaded.isLockfileGenerationEnabled)
+            let reloaded = MCSConfig.load(from: path)
+            #expect(reloaded.generateLockfile == value, "value \(String(describing: value)) must survive round-trip")
+            #expect(reloaded.isLockfileGenerationUnset == (value == nil))
+            #expect(reloaded.isLockfileGenerationEnabled == (value == true))
+        }
     }
 
     // MARK: - Key Access

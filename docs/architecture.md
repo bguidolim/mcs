@@ -99,7 +99,7 @@ Before modifying files with user content (e.g., `CLAUDE.local.md`), a timestampe
 
 ### Lockfile (`Core/Lockfile.swift`)
 
-`mcs.lock.yaml` pins pack commits for reproducible builds. Generation is **opt-in** (default off) — enable persistently with `mcs config set generate-lockfile true` or write once with `mcs sync --update`. When disabled, `mcs sync` still reports SHA drift against any existing lockfile so opted-in teams aren't silently desynced. Used with `--lock` to checkout pinned commits.
+`mcs.lock.yaml` pins pack commits for reproducible builds. Generation is **opt-in** (default off) — enable persistently with `mcs config set generate-lockfile true` or write once with `mcs sync --update`. Tri-state on `generate-lockfile`: `true` writes on every sync; `false` is fully silent (explicit opt-out); `nil` (never configured) reports SHA drift against a pre-existing lockfile so users upgrading from the auto-generation era see their stale lockfile. Used with `--lock` to checkout pinned commits.
 
 ### ClaudeIntegration (`Core/ClaudeIntegration.swift`)
 
@@ -166,7 +166,7 @@ Verbose form is also supported — see [Tech Pack Schema](techpack-schema.md).
 10. **Run pack configure hooks**: pack-specific setup (e.g., generate config files)
 11. **Ensure gitignore entries**: add `.claude/` entries to global gitignore
 12. **Save project state**: write `.mcs-project` with artifact records for each pack
-13. **Write lockfile (opt-in)**: if `--update` was passed or `generate-lockfile: true`, save `mcs.lock.yaml` with current pack state; otherwise report SHA drift against any pre-existing lockfile without writing
+13. **Write lockfile (opt-in)**: if `--update` was passed or `generate-lockfile: true`, save `mcs.lock.yaml` with current pack state. When `generate-lockfile` is unset (upgrade path) and a stale lockfile exists, emit a drift warning with a migration hint. Explicit `generate-lockfile: false` is silent
 
 The `--pack` flag bypasses multi-select for CI use: `mcs sync --pack ios --pack web`.
 
@@ -335,7 +335,7 @@ The command (`Commands/ExportCommand.swift`) is a read-only `ParsableCommand` (n
 | **Non-Destructive** | User content in `CLAUDE.local.md` is preserved via `<!-- mcs:begin/end -->` section markers. Content outside markers is never touched. |
 | **Convergent** | Deselected packs are fully cleaned up — MCP servers removed, project files deleted, template sections stripped, settings keys cleaned. No orphaned artifacts. |
 | **Trust Verification** | Pack scripts are SHA-256 hashed at `mcs pack add` time and verified at load time. Modified scripts are detected and the user is prompted to re-trust before proceeding. Local packs skip verification since scripts change during development. |
-| **Lockfile (opt-in)** | `mcs.lock.yaml` pins pack commits for reproducible environments. Generation is off by default; enable with `mcs config set generate-lockfile true` or write once with `mcs sync --update`. Use `--lock` to check out pinned versions from an existing lockfile. |
+| **Lockfile (opt-in)** | `mcs.lock.yaml` pins pack commits for reproducible environments. Generation is off by default; enable with `mcs config set generate-lockfile true` or write once with `mcs sync --update`. Explicit `generate-lockfile: false` is silent; only the never-configured `nil` state surfaces drift warnings against a stale pre-existing lockfile. Use `--lock` to check out pinned versions from an existing lockfile. |
 
 ## Concurrency Model
 

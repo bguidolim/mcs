@@ -175,18 +175,31 @@ struct SyncCommand: LockedCommand {
             try configurator.interactiveConfigure(dryRun: dryRun, customize: customize)
         }
 
-        // Lockfile handling: write when --update or config opts in; otherwise surface drift
-        // on any pre-existing lockfile so opted-in teams still see SHA divergence.
-        if !dryRun {
-            if update || config.isLockfileGenerationEnabled {
-                try lockOps.writeLockfile(at: projectPath)
-            } else {
-                try lockOps.reportDrift(
-                    at: projectPath,
-                    includeMigrationHint: config.isLockfileGenerationUnset
-                )
-            }
+        switch Self.lockfileAction(dryRun: dryRun, update: update, config: config) {
+        case .write:
+            try lockOps.writeLockfile(at: projectPath)
+        case .reportDrift:
+            try lockOps.reportDrift(at: projectPath)
+        case .skip:
+            break
         }
+    }
+
+    /// Lockfile action at the end of a project sync.
+    /// Explicit opt-out (`generate-lockfile: false`) stays silent — the user has made a choice
+    /// and drift warnings would half-respect it. Only the never-configured (`nil`) state gets a
+    /// drift nudge, since those users likely have a stale lockfile from the auto-generation era.
+    enum LockfileAction: Equatable {
+        case write
+        case reportDrift
+        case skip
+    }
+
+    static func lockfileAction(dryRun: Bool, update: Bool, config: MCSConfig) -> LockfileAction {
+        guard !dryRun else { return .skip }
+        if update || config.isLockfileGenerationEnabled { return .write }
+        if config.isLockfileGenerationUnset { return .reportDrift }
+        return .skip
     }
 
     // MARK: - Shared Helpers

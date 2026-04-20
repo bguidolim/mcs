@@ -115,6 +115,48 @@ struct SyncCommandTests {
         #expect(cmd.global == true)
         #expect(cmd.customize == true)
     }
+
+    // MARK: - Lockfile Dispatch Matrix
+
+    @Test("Dispatch: dry-run always skips lockfile work")
+    func dispatchDryRunSkips() {
+        var config = MCSConfig()
+        for flag in [nil, true, false] as [Bool?] {
+            config.generateLockfile = flag
+            #expect(SyncCommand.lockfileAction(dryRun: true, update: false, config: config) == .skip)
+            #expect(SyncCommand.lockfileAction(dryRun: true, update: true, config: config) == .skip)
+        }
+    }
+
+    @Test("Dispatch: --update forces write regardless of config")
+    func dispatchUpdateForcesWrite() {
+        var config = MCSConfig()
+        for flag in [nil, true, false] as [Bool?] {
+            config.generateLockfile = flag
+            #expect(SyncCommand.lockfileAction(dryRun: false, update: true, config: config) == .write)
+        }
+    }
+
+    @Test("Dispatch: generate-lockfile=true writes without --update")
+    func dispatchConfigTrueWrites() {
+        var config = MCSConfig()
+        config.generateLockfile = true
+        #expect(SyncCommand.lockfileAction(dryRun: false, update: false, config: config) == .write)
+    }
+
+    @Test("Dispatch: generate-lockfile=nil (unset) reports drift — upgrade path")
+    func dispatchConfigNilReportsDrift() {
+        let config = MCSConfig()
+        #expect(config.generateLockfile == nil)
+        #expect(SyncCommand.lockfileAction(dryRun: false, update: false, config: config) == .reportDrift)
+    }
+
+    @Test("Dispatch: generate-lockfile=false stays silent — explicit opt-out")
+    func dispatchConfigFalseSkips() {
+        var config = MCSConfig()
+        config.generateLockfile = false
+        #expect(SyncCommand.lockfileAction(dryRun: false, update: false, config: config) == .skip)
+    }
 }
 
 // MARK: - Guard: cwd inside ~/.claude detection

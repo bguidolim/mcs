@@ -189,14 +189,14 @@ struct LockfileOperationsTests {
         )
 
         let ops = makeOperations(home: home)
-        try ops.reportDrift(at: project, includeMigrationHint: true)
+        try ops.reportDrift(at: project)
 
         let after = try Data(contentsOf: lockfilePath)
         #expect(before == after, "reportDrift must not rewrite the lockfile")
     }
 
-    @Test("reportDrift is a no-op when registry matches lockfile")
-    func reportDriftMatchingSHAs() throws {
+    @Test("reportDrift is silent when registry matches the lockfile")
+    func reportDriftStaysSilentOnMatch() throws {
         let home = try makeTmpDir()
         let project = try makeTmpDir()
         defer {
@@ -220,7 +220,7 @@ struct LockfileOperationsTests {
         )
 
         let ops = makeOperations(home: home)
-        try ops.reportDrift(at: project, includeMigrationHint: false)
+        try ops.reportDrift(at: project)
 
         let after = try Data(contentsOf: lockfilePath)
         #expect(before == after)

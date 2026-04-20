@@ -110,6 +110,9 @@ struct PackUpdater {
             isLocal: entry.isLocal
         )
 
+        // Placed here rather than updateGitPack so the stale-registry-recovery path also clears the cache.
+        UpdateChecker.invalidateCache(environment: environment)
+
         return .updated(updatedEntry)
     }
 }

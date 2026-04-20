@@ -61,6 +61,10 @@ struct PackFetcher {
 
     /// Update an existing pack checkout.
     /// Returns a `FetchResult` if updated, or `nil` if already at the latest commit.
+    ///
+    /// When `ref` is set, fetches that ref explicitly and resets to `FETCH_HEAD` — uniform for
+    /// branches and tags. A plain `checkout <branch>` would not advance the local branch past
+    /// whatever was captured at clone time, freezing branch-ref packs (see issue #334).
     func update(packPath: URL, ref: String?) throws -> FetchResult? {
         try ensureGitAvailable()
         if let ref { try validateRef(ref) }
@@ -68,47 +72,33 @@ struct PackFetcher {
         let beforeSHA = try currentCommit(at: packPath)
         let workDir = packPath.path
 
-        // Fetch latest from remote
+        let fetchArgs: [String]
+        let resetTarget: String
+        if let ref {
+            fetchArgs = ["fetch", "--depth", "1", "origin", ref]
+            resetTarget = "FETCH_HEAD"
+        } else {
+            fetchArgs = ["fetch", "--depth", "1", "origin"]
+            resetTarget = "origin/HEAD"
+        }
+
         let fetchResult = shell.run(
-            shell.environment.gitPath, arguments: ["fetch", "--depth", "1", "origin"],
+            shell.environment.gitPath, arguments: fetchArgs,
             workingDirectory: workDir
         )
         guard fetchResult.succeeded else {
+            if let ref {
+                throw PackFetchError.refNotFound(ref: ref, stderr: fetchResult.stderr)
+            }
             throw PackFetchError.fetchFailed(path: packPath.path, stderr: fetchResult.stderr)
         }
 
-        if let ref {
-            // Check out the specific ref
-            let checkoutResult = shell.run(
-                shell.environment.gitPath, arguments: ["checkout", ref],
-                workingDirectory: workDir
-            )
-            if !checkoutResult.succeeded {
-                // Try fetching the ref explicitly (e.g. a new tag)
-                let fetchTagResult = shell.run(
-                    shell.environment.gitPath, arguments: ["fetch", "--depth", "1", "origin", "tag", ref],
-                    workingDirectory: workDir
-                )
-                guard fetchTagResult.succeeded else {
-                    throw PackFetchError.refNotFound(ref: ref, stderr: checkoutResult.stderr)
-                }
-                let retryCheckout = shell.run(
-                    shell.environment.gitPath, arguments: ["checkout", ref],
-                    workingDirectory: workDir
-                )
-                guard retryCheckout.succeeded else {
-                    throw PackFetchError.refNotFound(ref: ref, stderr: retryCheckout.stderr)
-                }
-            }
-        } else {
-            // Tracking default branch — reset to remote HEAD
-            let resetResult = shell.run(
-                shell.environment.gitPath, arguments: ["reset", "--hard", "origin/HEAD"],
-                workingDirectory: workDir
-            )
-            guard resetResult.succeeded else {
-                throw PackFetchError.updateFailed(path: packPath.path, stderr: resetResult.stderr)
-            }
+        let resetResult = shell.run(
+            shell.environment.gitPath, arguments: ["reset", "--hard", resetTarget],
+            workingDirectory: workDir
+        )
+        guard resetResult.succeeded else {
+            throw PackFetchError.updateFailed(path: packPath.path, stderr: resetResult.stderr)
         }
 
         let afterSHA = try currentCommit(at: packPath)

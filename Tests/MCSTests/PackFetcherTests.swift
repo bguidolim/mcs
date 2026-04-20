@@ -339,8 +339,8 @@ struct PackFetcherOperationTests {
         }
     }
 
-    @Test("update with ref calls checkout with retry on tag fetch")
-    func updateWithRefCallsCheckout() throws {
+    @Test("update with tag ref fetches the ref and resets to FETCH_HEAD")
+    func updateWithRefFetchesAndResets() throws {
         let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
@@ -354,47 +354,58 @@ struct PackFetcherOperationTests {
         let result = try fetcher.update(packPath: packPath, ref: "v2.0.0")
 
         #expect(result?.commitSHA == "new-sha")
-        let checkoutCall = try #require(shell.runCalls.first { $0.arguments.contains("checkout") })
-        #expect(checkoutCall.arguments.contains("v2.0.0"))
+
+        let fetchCall = try #require(shell.runCalls.first { $0.arguments.contains("fetch") })
+        #expect(fetchCall.arguments.contains("v2.0.0"))
+
+        let resetCall = try #require(shell.runCalls.first { $0.arguments.contains("reset") })
+        #expect(resetCall.arguments.contains("FETCH_HEAD"))
+
+        #expect(!shell.runCalls.contains { $0.arguments.contains("checkout") })
     }
 
-    @Test("update with ref retries checkout after tag fetch on initial failure")
-    func updateWithRefRetriesCheckout() throws {
+    @Test("update with branch ref advances the checked-out commit SHA")
+    func updateWithBranchRefAdvancesCheckedOutCommit() throws {
         let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
-            ShellResult(exitCode: 0, stdout: "", stderr: ""),
-            ShellResult(exitCode: 1, stdout: "", stderr: "error: pathspec"),
             ShellResult(exitCode: 0, stdout: "", stderr: ""),
             ShellResult(exitCode: 0, stdout: "", stderr: ""),
             ShellResult(exitCode: 0, stdout: "new-sha", stderr: ""),
         ]
 
-        let result = try fetcher.update(packPath: packPath, ref: "v2.0.0")
+        let result = try fetcher.update(packPath: packPath, ref: "main")
+
+        #expect(result != nil)
         #expect(result?.commitSHA == "new-sha")
 
-        // Tag fetch is distinct from the initial fetch — it includes "tag" in the arguments
-        let tagFetchCall = try #require(shell.runCalls.first { $0.arguments.contains("tag") })
-        #expect(tagFetchCall.arguments.contains("v2.0.0"))
+        let fetchCall = try #require(shell.runCalls.first { $0.arguments.contains("fetch") })
+        #expect(fetchCall.arguments.contains("main"))
+
+        let resetCall = try #require(shell.runCalls.first { $0.arguments.contains("reset") })
+        #expect(resetCall.arguments.contains("FETCH_HEAD"))
     }
 
-    @Test("update throws refNotFound when both checkout and tag fetch fail")
-    func updateWithRefThrowsWhenTagFetchFails() throws {
+    @Test("update throws fetchFailed when ref fetch fails")
+    func updateWithRefThrowsFetchFailed() throws {
         let (tmpDir, packPath, fetcher, shell) = try makeUpdateFixture()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        // rev-parse, fetch, checkout fails, tag fetch fails
         shell.runResults = [
             ShellResult(exitCode: 0, stdout: "old-sha", stderr: ""),
-            ShellResult(exitCode: 0, stdout: "", stderr: ""),
-            ShellResult(exitCode: 1, stdout: "", stderr: "error: pathspec"),
-            ShellResult(exitCode: 1, stdout: "", stderr: "fatal: couldn't find remote ref"),
+            ShellResult(exitCode: 128, stdout: "", stderr: "fatal: couldn't find remote ref refs/heads/nonexistent"),
         ]
 
-        #expect(throws: PackFetchError.self) {
-            try fetcher.update(packPath: packPath, ref: "nonexistent-tag")
+        do {
+            _ = try fetcher.update(packPath: packPath, ref: "nonexistent-tag")
+            Issue.record("Expected fetchFailed to be thrown")
+        } catch let error as PackFetchError {
+            guard case .fetchFailed = error else {
+                Issue.record("Expected .fetchFailed, got \(error)")
+                return
+            }
         }
     }
 

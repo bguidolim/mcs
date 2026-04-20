@@ -11,6 +11,7 @@ struct PackUpdaterTests {
         let tmpDir: URL
         let remoteDir: URL
         let packsDir: URL
+        let env: Environment
         let fetcher: PackFetcher
         let updater: PackUpdater
         let registry: PackRegistryFile
@@ -86,9 +87,18 @@ struct PackUpdaterTests {
 
         return Fixture(
             tmpDir: tmpDir, remoteDir: remoteDir, packsDir: packsDir,
-            fetcher: fetcher, updater: updater, registry: registry,
+            env: env, fetcher: fetcher, updater: updater, registry: registry,
             initialSHA: initialSHA
         )
+    }
+
+    /// Seed a fresh update-check cache file. Throws if `saveCache` silently fails to write.
+    private func seedUpdateCheckCache(env: Environment) throws {
+        let checker = UpdateChecker(environment: env, shell: ShellRunner(environment: env))
+        checker.saveCache(UpdateChecker.CheckResult(packUpdates: [], cliUpdate: nil))
+        guard FileManager.default.fileExists(atPath: env.updateCheckCacheFile.path) else {
+            throw TestSetupError(message: "Failed to seed update-check cache at \(env.updateCheckCacheFile.path)")
+        }
     }
 
     private func makeEntry(
@@ -185,6 +195,9 @@ struct PackUpdaterTests {
         let newSHA = try pushNewCommit(fixture: fix)
         _ = try fix.fetcher.update(packPath: packPath, ref: nil)
 
+        // Seed the update-check cache so we can assert the stale-recovery path invalidates it too
+        try seedUpdateCheckCache(env: fix.env)
+
         // Registry entry still points to the OLD SHA
         let staleEntry = makeEntry(commitSHA: fix.initialSHA)
 
@@ -200,6 +213,51 @@ struct PackUpdaterTests {
         }
         #expect(updatedEntry.commitSHA == newSHA)
         #expect(updatedEntry.identifier == "test-pack")
+        #expect(!FileManager.default.fileExists(atPath: fix.env.updateCheckCacheFile.path))
+    }
+
+    @Test("updated result invalidates the update-check cache")
+    func updatedResultInvalidatesUpdateCheckCache() throws {
+        let fix = try makeFixture()
+        defer { fix.cleanup() }
+
+        try seedUpdateCheckCache(env: fix.env)
+
+        let entry = makeEntry(commitSHA: fix.initialSHA)
+        let packPath = fix.packsDir.appendingPathComponent("test-pack")
+
+        _ = try pushNewCommit(fixture: fix)
+
+        let result = fix.updater.updateGitPack(
+            entry: entry, packPath: packPath, registry: fix.registry
+        )
+
+        guard case .updated = result else {
+            Issue.record("Expected .updated, got \(result)")
+            return
+        }
+        #expect(!FileManager.default.fileExists(atPath: fix.env.updateCheckCacheFile.path))
+    }
+
+    @Test("alreadyUpToDate result leaves the update-check cache intact")
+    func alreadyUpToDateDoesNotInvalidateCache() throws {
+        let fix = try makeFixture()
+        defer { fix.cleanup() }
+
+        try seedUpdateCheckCache(env: fix.env)
+
+        let entry = makeEntry(commitSHA: fix.initialSHA)
+        let packPath = fix.packsDir.appendingPathComponent("test-pack")
+
+        let result = fix.updater.updateGitPack(
+            entry: entry, packPath: packPath, registry: fix.registry
+        )
+
+        guard case .alreadyUpToDate = result else {
+            Issue.record("Expected .alreadyUpToDate, got \(result)")
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: fix.env.updateCheckCacheFile.path))
     }
 
     @Test("returns skipped when fetch fails")
@@ -220,5 +278,26 @@ struct PackUpdaterTests {
             Issue.record("Expected .skipped, got \(result)")
             return
         }
+    }
+
+    @Test("skipped result leaves the update-check cache intact")
+    func skippedResultDoesNotInvalidateCache() throws {
+        let fix = try makeFixture()
+        defer { fix.cleanup() }
+
+        try seedUpdateCheckCache(env: fix.env)
+
+        let entry = makeEntry(commitSHA: fix.initialSHA)
+        let brokenPath = fix.tmpDir.appendingPathComponent("nonexistent-pack")
+
+        let result = fix.updater.updateGitPack(
+            entry: entry, packPath: brokenPath, registry: fix.registry
+        )
+
+        guard case .skipped = result else {
+            Issue.record("Expected .skipped, got \(result)")
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: fix.env.updateCheckCacheFile.path))
     }
 }

@@ -153,7 +153,8 @@ struct UpdateChecker {
 
     /// Delete the cache file (e.g., after `mcs pack update`).
     /// Returns true if deleted or already absent; false on permission error.
-    @discardableResult
+    /// Callers must decide how to react to `false` — silently discarding it re-introduces
+    /// the "stale update banner" defect from issue #334.
     static func invalidateCache(environment: Environment) -> Bool {
         let fm = FileManager.default
         guard fm.fileExists(atPath: environment.updateCheckCacheFile.path) else { return true }

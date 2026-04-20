@@ -110,6 +110,15 @@ struct PackUpdater {
             isLocal: entry.isLocal
         )
 
+        // Covers both `.updated` paths: fresh fetch and stale-registry recovery.
+        if !UpdateChecker.invalidateCache(environment: environment) {
+            output.warn(
+                "Could not clear update check cache at \(environment.updateCheckCacheFile.path) — "
+                    + "next session may show stale update info. "
+                    + "Remove the file manually or check permissions on ~/.mcs/."
+            )
+        }
+
         return .updated(updatedEntry)
     }
 }

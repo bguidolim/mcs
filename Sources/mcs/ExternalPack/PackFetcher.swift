@@ -63,8 +63,8 @@ struct PackFetcher {
     /// Returns a `FetchResult` if updated, or `nil` if already at the latest commit.
     ///
     /// When `ref` is set, fetches that ref explicitly and resets to `FETCH_HEAD` — uniform for
-    /// branches and tags. A plain `checkout <branch>` would not advance the local branch past
-    /// whatever was captured at clone time, freezing branch-ref packs (see issue #334).
+    /// any ref type. A plain `checkout <branch>` would not advance the local branch past
+    /// whatever was captured at clone time, freezing branch-ref packs.
     func update(packPath: URL, ref: String?) throws -> FetchResult? {
         try ensureGitAvailable()
         if let ref { try validateRef(ref) }
@@ -87,7 +87,9 @@ struct PackFetcher {
             workingDirectory: workDir
         )
         guard fetchResult.succeeded else {
-            if let ref {
+            // Distinguish a missing ref (user typo / tag removed) from network/auth/transport
+            // failures, which should not be reported as "Ref not found".
+            if let ref, Self.stderrIndicatesMissingRef(fetchResult.stderr) {
                 throw PackFetchError.refNotFound(ref: ref, stderr: fetchResult.stderr)
             }
             throw PackFetchError.fetchFailed(path: packPath.path, stderr: fetchResult.stderr)
@@ -164,6 +166,15 @@ struct PackFetcher {
         else {
             throw PackFetchError.invalidRef(ref)
         }
+    }
+
+    /// Heuristic: does this `git fetch` stderr indicate the ref is genuinely missing upstream,
+    /// rather than a network/auth/transport failure? Used to pick between `.refNotFound` and `.fetchFailed`.
+    static func stderrIndicatesMissingRef(_ stderr: String) -> Bool {
+        let lower = stderr.lowercased()
+        return lower.contains("couldn't find remote ref")
+            || lower.contains("remote branch")
+            || lower.contains("not found in upstream")
     }
 
     private func ensureGitAvailable() throws {

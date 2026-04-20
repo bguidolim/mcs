@@ -279,4 +279,25 @@ struct PackUpdaterTests {
             return
         }
     }
+
+    @Test("skipped result leaves the update-check cache intact")
+    func skippedResultDoesNotInvalidateCache() throws {
+        let fix = try makeFixture()
+        defer { fix.cleanup() }
+
+        try seedUpdateCheckCache(env: fix.env)
+
+        let entry = makeEntry(commitSHA: fix.initialSHA)
+        let brokenPath = fix.tmpDir.appendingPathComponent("nonexistent-pack")
+
+        let result = fix.updater.updateGitPack(
+            entry: entry, packPath: brokenPath, registry: fix.registry
+        )
+
+        guard case .skipped = result else {
+            Issue.record("Expected .skipped, got \(result)")
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: fix.env.updateCheckCacheFile.path))
+    }
 }

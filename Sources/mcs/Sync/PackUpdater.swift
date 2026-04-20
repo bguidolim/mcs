@@ -110,8 +110,10 @@ struct PackUpdater {
             isLocal: entry.isLocal
         )
 
-        // Placed here rather than updateGitPack so the stale-registry-recovery path also clears the cache.
-        UpdateChecker.invalidateCache(environment: environment)
+        // Covers both `.updated` paths: fresh fetch and stale-registry recovery.
+        if !UpdateChecker.invalidateCache(environment: environment) {
+            output.warn("Could not clear update check cache — next session may show stale update info")
+        }
 
         return .updated(updatedEntry)
     }

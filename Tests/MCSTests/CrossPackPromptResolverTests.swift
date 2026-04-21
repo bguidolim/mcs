@@ -722,6 +722,49 @@ struct PartitionDeclaredPromptsTests {
         #expect(reusable == ["FREEFORM": "anything"])
     }
 
+    @Test("partition: mixed constrained + unconstrained — prior outside constraints is not reusable")
+    func partitionMixedConstrainedRejectsOutOfConstraint() {
+        // Pack A restricts REGION to [us]; pack B declares REGION select with nil options.
+        // The shared resolver would present [us] to the user, so a prior of "zz" must be re-asked.
+        let constrained = PromptDefinition(
+            key: "REGION", type: .select,
+            label: nil, defaultValue: nil,
+            options: [PromptOption(value: "us", label: "US")],
+            detectPatterns: nil, scriptCommand: nil
+        )
+        let unconstrained = PromptDefinition(
+            key: "REGION", type: .select,
+            label: nil, defaultValue: nil,
+            options: nil,
+            detectPatterns: nil, scriptCommand: nil
+        )
+        let (reusable, newKeys) = CrossPackPromptResolver.partitionDeclaredPrompts(
+            [constrained, unconstrained], priorValues: ["REGION": "zz"]
+        )
+        #expect(reusable.isEmpty)
+        #expect(newKeys == ["REGION"])
+    }
+
+    @Test("partition: mixed constrained + unconstrained — prior inside constraints is reusable")
+    func partitionMixedConstrainedAcceptsValidValue() {
+        let constrained = PromptDefinition(
+            key: "REGION", type: .select,
+            label: nil, defaultValue: nil,
+            options: [PromptOption(value: "us", label: "US")],
+            detectPatterns: nil, scriptCommand: nil
+        )
+        let unconstrained = PromptDefinition(
+            key: "REGION", type: .select,
+            label: nil, defaultValue: nil,
+            options: nil,
+            detectPatterns: nil, scriptCommand: nil
+        )
+        let (reusable, _) = CrossPackPromptResolver.partitionDeclaredPrompts(
+            [constrained, unconstrained], priorValues: ["REGION": "us"]
+        )
+        #expect(reusable == ["REGION": "us"])
+    }
+
     @Test("collectDeclaredPrompts preserves duplicate-key declarations across packs")
     func collectPreservesPerPackDeclarations() {
         let packA = PromptMockPack(

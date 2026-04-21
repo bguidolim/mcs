@@ -29,26 +29,27 @@ enum CrossPackPromptResolver {
     /// `script` and `fileDetect` keys are excluded from both outputs — they always
     /// re-run and must not trigger the "new prompts" UX branch.
     ///
-    /// Select priors are reusable if the stored value is in the merged option set
-    /// of all declarations of that key. A select prompt with `nil`/empty `options`
-    /// accepts any value (mirroring `PromptExecutor.executeSelect`'s fallback),
-    /// so its prior is reusable regardless of content.
+    /// Select priors are reusable when:
+    /// - no declaration constrains the value (all have nil/empty options — the executor
+    ///   falls back to free-form input), OR
+    /// - at least one declaration constrains via `options` AND the prior is in the
+    ///   merged set of constrained options.
+    ///
+    /// Conservative rule for mixed declarations: when any pack constrains the value,
+    /// the prior must satisfy those constraints (matches `resolveSharedPrompts` which
+    /// presents the merged constrained option list to the user).
+    ///
     /// Type conflicts across packs (input vs select) fall back to input semantics.
     static func partitionDeclaredPrompts(
         _ prompts: [PromptDefinition],
         priorValues: [String: String]
     ) -> (reusableValues: [String: String], newDeclaredKeys: Set<String>) {
-        var mergedOptionsByKey: [String: Set<String>] = [:]
-        var hasUnconstrainedSelectByKey: [String: Bool] = [:]
+        var constrainedOptionsByKey: [String: Set<String>] = [:]
         var typesByKey: [String: Set<PromptType>] = [:]
         for prompt in prompts {
             typesByKey[prompt.key, default: []].insert(prompt.type)
-            if prompt.type == .select {
-                if let options = prompt.options, !options.isEmpty {
-                    mergedOptionsByKey[prompt.key, default: []].formUnion(options.map(\.value))
-                } else {
-                    hasUnconstrainedSelectByKey[prompt.key] = true
-                }
+            if prompt.type == .select, let options = prompt.options, !options.isEmpty {
+                constrainedOptionsByKey[prompt.key, default: []].formUnion(options.map(\.value))
             }
         }
 
@@ -64,9 +65,9 @@ enum CrossPackPromptResolver {
             }
 
             if answerableTypes == [.select] {
-                let validOptions = mergedOptionsByKey[key] ?? []
-                let unconstrained = hasUnconstrainedSelectByKey[key] == true
-                if unconstrained || validOptions.contains(prior) {
+                let constrained = constrainedOptionsByKey[key] ?? []
+                // No constraints → free-form; any constraint → prior must satisfy it.
+                if constrained.isEmpty || constrained.contains(prior) {
                     reusable[key] = prior
                 } else {
                     newKeys.insert(key)

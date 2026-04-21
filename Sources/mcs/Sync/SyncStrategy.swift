@@ -17,7 +17,13 @@ protocol SyncStrategy {
     func resolveBuiltInValues(shell: any ShellRunning, output: CLIOutput) -> [String: String]
 
     /// Build the `ProjectConfigContext` for template value resolution.
-    func makeConfigContext(output: CLIOutput, resolvedValues: [String: String]) -> ProjectConfigContext
+    ///
+    /// - Parameter priorValues: Values resolved during the previous sync, used as prompt defaults.
+    func makeConfigContext(
+        output: CLIOutput,
+        resolvedValues: [String: String],
+        priorValues: [String: String]
+    ) -> ProjectConfigContext
 
     /// Install artifacts for a single pack.
     ///

@@ -71,4 +71,11 @@ enum PromptType: String, Codable {
 struct PromptOption: Codable, Equatable {
     let value: String
     let label: String
+
+    /// Find the index of the option whose `value` matches, returning 0 when absent.
+    /// Used by single-select UIs to seed the cursor from a previously-stored answer.
+    static func index(of value: String?, in options: [PromptOption]) -> Int {
+        guard let value else { return 0 }
+        return options.firstIndex { $0.value == value } ?? 0
+    }
 }

@@ -82,6 +82,7 @@ struct ExternalPackAdapter: TechPack {
 
     /// Execute prompts and return resolved values, skipping keys already in `context.resolvedValues`.
     /// Returns only newly resolved values — callers must merge with previously resolved values.
+    /// `context.priorValues` are forwarded as per-prompt defaults for `input`/`select`.
     func templateValues(context: ProjectConfigContext) throws -> [String: String] {
         let prompts = declaredPrompts(context: context)
         guard !prompts.isEmpty else { return [:] }
@@ -91,7 +92,8 @@ struct ExternalPackAdapter: TechPack {
         return try executor.executeAll(
             prompts: remaining,
             packPath: packPath,
-            projectPath: context.projectPath
+            projectPath: context.projectPath,
+            priorValues: context.priorValues
         )
     }
 

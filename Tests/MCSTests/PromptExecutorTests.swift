@@ -392,4 +392,61 @@ struct PromptExecutorTests {
 
         #expect(value == "default-pick")
     }
+
+    // MARK: - priorValue behavior
+
+    @Test("Select prompt with nil options prefers priorValue over defaultValue")
+    func selectPromptNilOptionsHonorsPriorValue() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let prompt = PromptDefinition(
+            key: "stored",
+            type: .select,
+            label: "Pick one",
+            defaultValue: "default-pick",
+            options: nil,
+            detectPatterns: nil,
+            scriptCommand: nil
+        )
+
+        let executor = makeExecutor()
+        let value = try executor.execute(
+            prompt: prompt,
+            packPath: tmpDir,
+            projectPath: tmpDir,
+            priorValue: "remembered"
+        )
+
+        #expect(value == "remembered")
+    }
+
+    @Test("Script prompt ignores priorValue — always re-runs scriptCommand")
+    func scriptPromptIgnoresPriorValue() throws {
+        let tmpDir = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let packDir = tmpDir.appendingPathComponent("pack")
+        try FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)
+
+        let prompt = PromptDefinition(
+            key: "version",
+            type: .script,
+            label: "Detected version",
+            defaultValue: nil,
+            options: nil,
+            detectPatterns: nil,
+            scriptCommand: "echo 3.0.0"
+        )
+
+        let executor = makeExecutor()
+        let value = try executor.execute(
+            prompt: prompt,
+            packPath: packDir,
+            projectPath: tmpDir,
+            priorValue: "1.0.0-stale"
+        )
+
+        #expect(value == "3.0.0")
+    }
 }

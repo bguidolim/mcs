@@ -15,6 +15,68 @@ enum CrossPackPromptResolver {
     /// Prompt types eligible for cross-pack deduplication.
     static let deduplicableTypes: Set<PromptType> = [.input, .select]
 
+    /// Collect declared prompts from all packs, deduplicated by key (first pack wins).
+    static func collectDeclaredPrompts(
+        packs: [any TechPack],
+        context: ProjectConfigContext
+    ) -> [PromptDefinition] {
+        var seen = Set<String>()
+        var collected: [PromptDefinition] = []
+        for pack in packs {
+            for prompt in pack.declaredPrompts(context: context)
+                where seen.insert(prompt.key).inserted {
+                collected.append(prompt)
+            }
+        }
+        return collected
+    }
+
+    /// Partition declared prompts against `priorValues`.
+    ///
+    /// `script` and `fileDetect` keys are excluded from both outputs — they always
+    /// re-run and must not trigger the "new prompts" UX branch.
+    ///
+    /// Select priors must still be a valid option in at least one declaration of
+    /// that key (merged across packs); invalidated select priors land in `newDeclaredKeys`.
+    /// Type conflicts across packs (input vs select) fall back to input semantics.
+    static func partitionDeclaredPrompts(
+        _ prompts: [PromptDefinition],
+        priorValues: [String: String]
+    ) -> (reusableValues: [String: String], newDeclaredKeys: Set<String>) {
+        var optionsByKey: [String: Set<String>] = [:]
+        var typesByKey: [String: Set<PromptType>] = [:]
+        for prompt in prompts {
+            typesByKey[prompt.key, default: []].insert(prompt.type)
+            if prompt.type == .select, let options = prompt.options {
+                optionsByKey[prompt.key, default: []].formUnion(options.map(\.value))
+            }
+        }
+
+        var reusable: [String: String] = [:]
+        var newKeys: Set<String> = []
+        for (key, types) in typesByKey {
+            let answerableTypes = types.intersection(deduplicableTypes)
+            guard !answerableTypes.isEmpty else { continue }
+
+            guard let prior = priorValues[key] else {
+                newKeys.insert(key)
+                continue
+            }
+
+            if answerableTypes == [.select] {
+                let validOptions = optionsByKey[key] ?? []
+                if validOptions.contains(prior) {
+                    reusable[key] = prior
+                } else {
+                    newKeys.insert(key)
+                }
+            } else {
+                reusable[key] = prior
+            }
+        }
+        return (reusable, newKeys)
+    }
+
     /// Collect prompts from all packs and group by key, skipping already-resolved keys.
     ///
     /// - Returns: A dictionary keyed by prompt key, with each value being the list
@@ -42,10 +104,14 @@ enum CrossPackPromptResolver {
 
     /// Execute shared prompts once, showing a combined label from all packs.
     ///
+    /// - Parameter priorValues: Values from a previous sync; used as the default
+    ///   when present, overriding pack-declared defaults. For `select` prompts,
+    ///   a prior value only applies when it still matches a merged option.
     /// - Returns: Resolved values for all shared prompt keys.
     static func resolveSharedPrompts(
         _ shared: [String: [PackPromptInfo]],
-        output: CLIOutput
+        output: CLIOutput,
+        priorValues: [String: String] = [:]
     ) -> [String: String] {
         var resolved: [String: String] = [:]
 
@@ -70,8 +136,9 @@ enum CrossPackPromptResolver {
                 output.warn("  Type conflict across packs (\(typesByPack)) — falling back to text input")
             }
 
-            // Use the first non-nil default value
-            let defaultValue = infos.compactMap(\.prompt.defaultValue).first
+            // Prior value wins over pack-declared defaults; fall back to first non-nil declared default
+            let declaredDefault = infos.compactMap(\.prompt.defaultValue).first
+            let prior = priorValues[key]
 
             if !hasTypeConflict, primaryType == .select {
                 // Merge unique options from all packs (first occurrence of each value wins)
@@ -85,16 +152,18 @@ enum CrossPackPromptResolver {
                 }
                 guard !mergedOptions.isEmpty else {
                     output.warn("  Shared select prompt '\(key)' has no options — using default value")
-                    resolved[key] = defaultValue ?? ""
+                    resolved[key] = prior ?? declaredDefault ?? ""
                     continue
                 }
                 let items = mergedOptions.map { (name: $0.label, description: $0.value) }
                 let label = "Select value for \(key)"
-                let selected = output.singleSelect(title: label, items: items)
+                let initialIndex = PromptOption.index(of: prior, in: mergedOptions)
+                let selected = output.singleSelect(title: label, items: items, initialIndex: initialIndex)
                 resolved[key] = mergedOptions[selected].value
             } else {
-                // Default to text input
-                let value = output.promptInline("  Enter value for \(key)", default: defaultValue)
+                // Default to text input; prior value seeds the Enter-to-accept default
+                let effectiveDefault = prior ?? declaredDefault
+                let value = output.promptInline("  Enter value for \(key)", default: effectiveDefault)
                 resolved[key] = value
             }
         }

@@ -138,7 +138,12 @@ struct Configurator {
             try self.dryRun(packs: selectedPacks)
         } else {
             // Interactive flow already confirmed via the "Review changes" screen above.
-            try configure(packs: selectedPacks, confirmRemovals: false, excludedComponents: excludedComponents)
+            try configure(
+                packs: selectedPacks,
+                confirmRemovals: false,
+                excludedComponents: excludedComponents,
+                customize: customize
+            )
 
             output.header("Done")
             output.info("Run 'mcs doctor' to verify configuration")
@@ -176,7 +181,8 @@ struct Configurator {
     func configure(
         packs: [any TechPack],
         confirmRemovals: Bool = true,
-        excludedComponents: [String: Set<String>] = [:]
+        excludedComponents: [String: Set<String>] = [:],
+        customize: Bool = false
     ) throws {
         var state = try ProjectState(stateFile: scope.stateFile)
         let fsContext = strategy.makeCollisionContext(trackedFiles: state.allTrackedFiles)
@@ -227,7 +233,7 @@ struct Configurator {
         }
 
         // 3–4b. Resolve all template/placeholder values upfront (single pass)
-        let allValues = try resolveAllValues(packs: packs, state: &state)
+        let allValues = try resolveAllValues(packs: packs, state: &state, customize: customize)
 
         // 4c. Pre-load templates (single disk read per pack), filtering excluded dependencies
         let preloadedTemplates = preloadTemplates(
@@ -279,7 +285,11 @@ struct Configurator {
 
         // 8. Run pack-specific configureProject hooks (project scope only)
         if scope.runConfigureProjectHooks {
-            let hookContext = strategy.makeConfigContext(output: output, resolvedValues: allValues)
+            let hookContext = strategy.makeConfigContext(
+                output: output,
+                resolvedValues: allValues,
+                priorValues: [:]
+            )
             let projectPath = scope.targetPath.deletingLastPathComponent()
             for pack in packs {
                 try pack.configureProject(at: projectPath, context: hookContext)
@@ -588,53 +598,113 @@ struct Configurator {
 
     /// Resolve all template/placeholder values upfront (single pass).
     ///
-    /// Resolves built-in values (e.g. REPO_NAME), shared cross-pack prompts,
-    /// per-pack prompts, and auto-prompts for undeclared placeholders.
-    /// Persists resolved values to state for doctor freshness checks.
+    /// Reuses values from the previous sync when safe:
+    /// - `input` priors are reused verbatim.
+    /// - `select` priors are reused only if the stored value is still a valid option.
+    /// - `script` and `fileDetect` always re-execute (computed / filesystem-dependent).
     private func resolveAllValues(
         packs: [any TechPack],
-        state: inout ProjectState
+        state: inout ProjectState,
+        customize: Bool
     ) throws -> [String: String] {
-        // 3a. Built-in values (REPO_NAME, PROJECT_DIR_NAME in project scope)
+        let priorValues = state.resolvedValues ?? [:]
         var allValues = strategy.resolveBuiltInValues(shell: shell, output: output)
 
-        // 3b–3c. Detect shared prompts across packs and resolve them once.
-        // `initialContext` uses partial resolvedValues (built-ins only). groupSharedPrompts
-        // filters out already-resolved keys; current TechPack implementations only use
-        // isGlobalScope from the context in declaredPrompts().
-        let initialContext = strategy.makeConfigContext(output: output, resolvedValues: allValues)
-        let sharedPrompts = CrossPackPromptResolver.groupSharedPrompts(
+        let initialContext = strategy.makeConfigContext(
+            output: output, resolvedValues: allValues, priorValues: priorValues
+        )
+        let allDeclaredPrompts = CrossPackPromptResolver.collectDeclaredPrompts(
             packs: packs, context: initialContext
         )
+        let (reusableValues, newDeclaredKeys) = CrossPackPromptResolver.partitionDeclaredPrompts(
+            allDeclaredPrompts, priorValues: priorValues
+        )
+
+        let seedFromPriors = decideSeedStrategy(
+            reusableValues: reusableValues,
+            newDeclaredKeys: newDeclaredKeys,
+            customize: customize
+        )
+        if seedFromPriors {
+            allValues.merge(reusableValues) { existing, _ in existing }
+        }
+
+        let sharedContext = strategy.makeConfigContext(
+            output: output, resolvedValues: allValues, priorValues: priorValues
+        )
+        let sharedPrompts = CrossPackPromptResolver.groupSharedPrompts(
+            packs: packs, context: sharedContext
+        )
         if !sharedPrompts.isEmpty {
-            let sharedValues = CrossPackPromptResolver.resolveSharedPrompts(sharedPrompts, output: output)
+            let sharedValues = CrossPackPromptResolver.resolveSharedPrompts(
+                sharedPrompts, output: output, priorValues: priorValues
+            )
             allValues.merge(sharedValues) { existing, _ in existing }
         }
 
-        // 3d. Execute remaining per-pack prompts. templateValues() skips prompts whose key
-        // already exists in context.resolvedValues (pre-resolved by shared prompt resolution).
-        // Merge uses "first wins" — shared values and built-ins take precedence.
-        let context = strategy.makeConfigContext(output: output, resolvedValues: allValues)
+        let context = strategy.makeConfigContext(
+            output: output, resolvedValues: allValues, priorValues: priorValues
+        )
         for pack in packs {
             let packValues = try pack.templateValues(context: context)
             allValues.merge(packValues) { existing, _ in existing }
         }
 
-        // 4. Auto-prompt for undeclared placeholders in pack files
         let undeclared = ConfiguratorSupport.scanForUndeclaredPlaceholders(
             packs: packs, resolvedValues: allValues,
             includeTemplates: scope.includeTemplatesInScan,
             onWarning: { output.warn($0) }
         )
         for key in undeclared {
-            let value = output.promptInline("Set value for \(key)", default: nil)
-            allValues[key] = value
+            if seedFromPriors, let prior = priorValues[key] {
+                allValues[key] = prior
+                continue
+            }
+            allValues[key] = output.promptInline("Set value for \(key)", default: priorValues[key])
         }
 
-        // 4b. Persist resolved values for doctor freshness checks
         state.setResolvedValues(allValues)
-
         return allValues
+    }
+
+    /// Returns `true` when reusable priors should short-circuit the prompt executors.
+    ///
+    /// `--customize` always re-asks; non-interactive and new-prompts-added paths reuse
+    /// silently; interactive with only reusable prompts gates on a single Y/n.
+    private func decideSeedStrategy(
+        reusableValues: [String: String],
+        newDeclaredKeys: Set<String>,
+        customize: Bool
+    ) -> Bool {
+        guard !reusableValues.isEmpty else { return false }
+        if customize { return false }
+
+        if !output.hasInteractiveStdin {
+            // Non-interactive: readLine() would return nil anyway, so reuse silently.
+            output.info("Reusing \(reusableValues.count) previously configured value(s) from last sync.")
+            return true
+        }
+
+        if !newDeclaredKeys.isEmpty {
+            output.plain("")
+            output.info(
+                "Reusing \(reusableValues.count) previously configured value(s); "
+                    + "asking for \(newDeclaredKeys.count) new."
+            )
+            return true
+        }
+
+        output.plain("")
+        output.info("Previously configured values:")
+        let sortedKeys = reusableValues.keys.sorted()
+        let maxKeyLen = sortedKeys.map(\.count).max() ?? 0
+        for key in sortedKeys {
+            let value = reusableValues[key] ?? ""
+            let padded = key.padding(toLength: maxKeyLen, withPad: " ", startingAt: 0)
+            let display = value.isEmpty ? "(empty)" : value
+            output.dimmed("  \(padded) = \(display)")
+        }
+        return output.askYesNo("Reuse these values?", default: true)
     }
 
     /// Pre-load templates from disk (single read per pack), filtering excluded dependencies.

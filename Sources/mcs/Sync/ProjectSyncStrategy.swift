@@ -27,12 +27,17 @@ struct ProjectSyncStrategy: SyncStrategy {
         ]
     }
 
-    func makeConfigContext(output: CLIOutput, resolvedValues: [String: String]) -> ProjectConfigContext {
+    func makeConfigContext(
+        output: CLIOutput,
+        resolvedValues: [String: String],
+        priorValues: [String: String]
+    ) -> ProjectConfigContext {
         ProjectConfigContext(
             projectPath: projectPath,
             repoName: resolvedValues["REPO_NAME"] ?? projectPath.lastPathComponent,
             output: output,
-            resolvedValues: resolvedValues
+            resolvedValues: resolvedValues,
+            priorValues: priorValues
         )
     }
 

@@ -7,6 +7,9 @@ struct ProjectConfigContext {
     let output: CLIOutput
     /// Template values resolved by `templateValues(context:)`, available in `configureProject`.
     let resolvedValues: [String: String]
+    /// Values resolved during a previous sync, used as defaults when re-prompting.
+    /// Empty on first sync. Source: `ProjectState.resolvedValues`.
+    let priorValues: [String: String]
     /// When `true`, project-scoped prompts (e.g. `fileDetect`) should be skipped.
     let isGlobalScope: Bool
 
@@ -15,12 +18,14 @@ struct ProjectConfigContext {
         repoName: String,
         output: CLIOutput,
         resolvedValues: [String: String] = [:],
+        priorValues: [String: String] = [:],
         isGlobalScope: Bool = false
     ) {
         self.projectPath = projectPath
         self.repoName = repoName
         self.output = output
         self.resolvedValues = resolvedValues
+        self.priorValues = priorValues
         self.isGlobalScope = isGlobalScope
     }
 }

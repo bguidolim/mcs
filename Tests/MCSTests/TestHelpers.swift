@@ -177,6 +177,63 @@ struct MockTechPack: TechPack {
     func configureProject(at _: URL, context _: ProjectConfigContext) throws {}
 }
 
+/// Mock TechPack that declares prompts and resolves them using `context.priorValues`
+/// (falling back to a `defaultAnswer` closure when no prior exists). Simulates the
+/// adapter's "skip keys already in resolvedValues" filter so tests can verify the
+/// full reuse pipeline without needing interactive stdin.
+struct MockPromptTechPack: TechPack {
+    let identifier: String
+    let displayName: String
+    let description: String = "Mock pack with prompts"
+    let components: [ComponentDefinition]
+    let templates: [TemplateContribution]
+    private let prompts: [PromptDefinition]
+    private let defaultAnswer: @Sendable (String) -> String
+
+    init(
+        identifier: String,
+        displayName: String,
+        prompts: [PromptDefinition],
+        components: [ComponentDefinition] = [],
+        templates: [TemplateContribution] = [],
+        defaultAnswer: @escaping @Sendable (String) -> String = { "default-\($0)" }
+    ) {
+        self.identifier = identifier
+        self.displayName = displayName
+        self.prompts = prompts
+        self.components = components
+        self.templates = templates
+        self.defaultAnswer = defaultAnswer
+    }
+
+    func supplementaryDoctorChecks(projectRoot _: URL?) -> [any DoctorCheck] {
+        []
+    }
+
+    func declaredPrompts(context _: ProjectConfigContext) -> [PromptDefinition] {
+        prompts
+    }
+
+    func templateValues(context: ProjectConfigContext) -> [String: String] {
+        var resolved: [String: String] = [:]
+        for prompt in prompts where context.resolvedValues[prompt.key] == nil {
+            // Mirror real executor semantics: a select prior is only a valid answer
+            // when it still matches one of the current options. Otherwise fall back
+            // to the mock's defaultAnswer (simulating the user picking fresh).
+            let prior = context.priorValues[prompt.key]
+            if prompt.type == .select, let prior, let options = prompt.options,
+               !options.contains(where: { $0.value == prior }) {
+                resolved[prompt.key] = defaultAnswer(prompt.key)
+            } else {
+                resolved[prompt.key] = prior ?? defaultAnswer(prompt.key)
+            }
+        }
+        return resolved
+    }
+
+    func configureProject(at _: URL, context _: ProjectConfigContext) throws {}
+}
+
 /// Mock TechPack that tracks `configureProject` invocations.
 final class TrackingMockTechPack: TechPack, @unchecked Sendable {
     let identifier: String

@@ -314,21 +314,30 @@ struct CLIOutput {
     /// Single-select: arrow keys to navigate, Enter to confirm.
     /// Returns the index of the selected item.
     /// Falls back to numbered list with readLine() when not a TTY.
-    func singleSelect(title: String, items: [(name: String, description: String)]) -> Int {
+    ///
+    /// - Parameter initialIndex: Pre-selected cursor position (clamped to `0..<items.count`).
+    ///   Used to seed the selection with a previously-stored value.
+    func singleSelect(
+        title: String,
+        items: [(name: String, description: String)],
+        initialIndex: Int = 0
+    ) -> Int {
         guard !items.isEmpty else { return 0 }
+        let seed = max(0, min(initialIndex, items.count - 1))
 
         if isInteractiveTerminal {
-            return interactiveSingleSelect(title: title, items: items)
+            return interactiveSingleSelect(title: title, items: items, initialIndex: seed)
         }
-        return fallbackSingleSelect(title: title, items: items)
+        return fallbackSingleSelect(title: title, items: items, initialIndex: seed)
     }
 
     private func interactiveSingleSelect(
         title: String,
-        items: [(name: String, description: String)]
+        items: [(name: String, description: String)],
+        initialIndex: Int
     ) -> Int {
         withRawTerminal {
-            var cursor = 0
+            var cursor = initialIndex
 
             renderSingleSelectList(title: title, items: items, cursor: cursor)
 
@@ -414,7 +423,8 @@ struct CLIOutput {
 
     private func fallbackSingleSelect(
         title: String,
-        items: [(name: String, description: String)]
+        items: [(name: String, description: String)],
+        initialIndex: Int
     ) -> Int {
         write("\n")
         write("  \(bold)\(title)\(reset)\n")
@@ -423,7 +433,8 @@ struct CLIOutput {
         for (index, item) in items.enumerated() {
             if index > 0 { write("\n") }
             let num = index + 1
-            write("  [\(num)] \(bold)\(item.name)\(reset)\n")
+            let marker = index == initialIndex ? " (default)" : ""
+            write("  [\(num)] \(bold)\(item.name)\(reset)\(marker)\n")
             write("      \(dim)\(item.description)\(reset)\n")
         }
 
@@ -432,7 +443,10 @@ struct CLIOutput {
         while true {
             write("\(bold)> \(reset)")
             guard let input = readLine()?.trimmingCharacters(in: .whitespaces) else {
-                return 0
+                return initialIndex
+            }
+            if input.isEmpty {
+                return initialIndex
             }
             if let num = Int(input), num >= 1, num <= items.count {
                 return num - 1

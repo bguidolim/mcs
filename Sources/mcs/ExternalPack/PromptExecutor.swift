@@ -27,19 +27,23 @@ struct PromptExecutor {
     ///   - prompt: The declarative prompt definition
     ///   - packPath: Root directory of the external pack
     ///   - projectPath: Current project root directory
+    ///   - priorValue: Value resolved in a previous sync, used as the default for
+    ///     `input`/`select` prompts. Ignored for `script` and `fileDetect` (both
+    ///     re-compute every sync).
     /// - Returns: The resolved value string
     func execute(
         prompt: PromptDefinition,
         packPath: URL,
-        projectPath: URL
+        projectPath: URL,
+        priorValue: String? = nil
     ) throws -> String {
         switch prompt.type {
         case .fileDetect:
             try executeFileDetect(prompt: prompt, projectPath: projectPath)
         case .input:
-            executeInput(prompt: prompt)
+            executeInput(prompt: prompt, priorValue: priorValue)
         case .select:
-            executeSelect(prompt: prompt)
+            executeSelect(prompt: prompt, priorValue: priorValue)
         case .script:
             try executeScript(prompt: prompt, packPath: packPath, projectPath: projectPath)
         }
@@ -51,18 +55,22 @@ struct PromptExecutor {
     ///   - prompts: Array of prompt definitions
     ///   - packPath: Root directory of the external pack
     ///   - projectPath: Current project root directory
+    ///   - priorValues: Values from the previous sync, keyed by prompt key,
+    ///     used as defaults for `input`/`select` prompts.
     /// - Returns: Dictionary of prompt key to resolved value
     func executeAll(
         prompts: [PromptDefinition],
         packPath: URL,
-        projectPath: URL
+        projectPath: URL,
+        priorValues: [String: String] = [:]
     ) throws -> [String: String] {
         var resolved: [String: String] = [:]
         for prompt in prompts {
             let value = try execute(
                 prompt: prompt,
                 packPath: packPath,
-                projectPath: projectPath
+                projectPath: projectPath,
+                priorValue: priorValues[prompt.key]
             )
             resolved[prompt.key] = value
         }
@@ -166,24 +174,30 @@ struct PromptExecutor {
     // MARK: - Input
 
     /// Free-text prompt with optional default value.
-    private func executeInput(prompt: PromptDefinition) -> String {
+    /// `priorValue` (stored from a previous sync) wins over `prompt.defaultValue` as the Enter-to-accept default.
+    private func executeInput(prompt: PromptDefinition, priorValue: String?) -> String {
         let label = prompt.label ?? "Enter value for \(prompt.key)"
-        return output.promptInline(label, default: prompt.defaultValue)
+        let effectiveDefault = priorValue ?? prompt.defaultValue
+        return output.promptInline(label, default: effectiveDefault)
     }
 
     // MARK: - Select
 
     /// Single choice from a fixed list of options.
-    private func executeSelect(prompt: PromptDefinition) -> String {
+    /// `priorValue` (stored from a previous sync) becomes the pre-selected option when
+    /// it matches an option value; otherwise the stored value is ignored (caller should
+    /// have already purged invalid select priors upstream).
+    private func executeSelect(prompt: PromptDefinition, priorValue: String?) -> String {
         guard let options = prompt.options, !options.isEmpty else {
-            return prompt.defaultValue ?? ""
+            return priorValue ?? prompt.defaultValue ?? ""
         }
 
         let items = options.map { option -> (name: String, description: String) in
             (name: option.label, description: option.value)
         }
         let label = prompt.label ?? "Select value for \(prompt.key)"
-        let selected = output.singleSelect(title: label, items: items)
+        let initialIndex = PromptOption.index(of: priorValue, in: options)
+        let selected = output.singleSelect(title: label, items: items, initialIndex: initialIndex)
         return options[selected].value
     }
 

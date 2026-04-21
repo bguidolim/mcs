@@ -20,12 +20,17 @@ struct GlobalSyncStrategy: SyncStrategy {
         [:]
     }
 
-    func makeConfigContext(output: CLIOutput, resolvedValues: [String: String]) -> ProjectConfigContext {
+    func makeConfigContext(
+        output: CLIOutput,
+        resolvedValues: [String: String],
+        priorValues: [String: String]
+    ) -> ProjectConfigContext {
         ProjectConfigContext(
             projectPath: environment.homeDirectory,
             repoName: "",
             output: output,
             resolvedValues: resolvedValues,
+            priorValues: priorValues,
             isGlobalScope: true
         )
     }

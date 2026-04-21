@@ -15,20 +15,13 @@ enum CrossPackPromptResolver {
     /// Prompt types eligible for cross-pack deduplication.
     static let deduplicableTypes: Set<PromptType> = [.input, .select]
 
-    /// Collect declared prompts from all packs, deduplicated by key (first pack wins).
+    /// Flat list of every declaration from every pack. Multiple packs can declare
+    /// the same key — `partitionDeclaredPrompts` groups them when merging select options.
     static func collectDeclaredPrompts(
         packs: [any TechPack],
         context: ProjectConfigContext
     ) -> [PromptDefinition] {
-        var seen = Set<String>()
-        var collected: [PromptDefinition] = []
-        for pack in packs {
-            for prompt in pack.declaredPrompts(context: context)
-                where seen.insert(prompt.key).inserted {
-                collected.append(prompt)
-            }
-        }
-        return collected
+        packs.flatMap { $0.declaredPrompts(context: context) }
     }
 
     /// Partition declared prompts against `priorValues`.
@@ -36,19 +29,26 @@ enum CrossPackPromptResolver {
     /// `script` and `fileDetect` keys are excluded from both outputs — they always
     /// re-run and must not trigger the "new prompts" UX branch.
     ///
-    /// Select priors must still be a valid option in at least one declaration of
-    /// that key (merged across packs); invalidated select priors land in `newDeclaredKeys`.
+    /// Select priors are reusable if the stored value is in the merged option set
+    /// of all declarations of that key. A select prompt with `nil`/empty `options`
+    /// accepts any value (mirroring `PromptExecutor.executeSelect`'s fallback),
+    /// so its prior is reusable regardless of content.
     /// Type conflicts across packs (input vs select) fall back to input semantics.
     static func partitionDeclaredPrompts(
         _ prompts: [PromptDefinition],
         priorValues: [String: String]
     ) -> (reusableValues: [String: String], newDeclaredKeys: Set<String>) {
-        var optionsByKey: [String: Set<String>] = [:]
+        var mergedOptionsByKey: [String: Set<String>] = [:]
+        var hasUnconstrainedSelectByKey: [String: Bool] = [:]
         var typesByKey: [String: Set<PromptType>] = [:]
         for prompt in prompts {
             typesByKey[prompt.key, default: []].insert(prompt.type)
-            if prompt.type == .select, let options = prompt.options {
-                optionsByKey[prompt.key, default: []].formUnion(options.map(\.value))
+            if prompt.type == .select {
+                if let options = prompt.options, !options.isEmpty {
+                    mergedOptionsByKey[prompt.key, default: []].formUnion(options.map(\.value))
+                } else {
+                    hasUnconstrainedSelectByKey[prompt.key] = true
+                }
             }
         }
 
@@ -64,8 +64,9 @@ enum CrossPackPromptResolver {
             }
 
             if answerableTypes == [.select] {
-                let validOptions = optionsByKey[key] ?? []
-                if validOptions.contains(prior) {
+                let validOptions = mergedOptionsByKey[key] ?? []
+                let unconstrained = hasUnconstrainedSelectByKey[key] == true
+                if unconstrained || validOptions.contains(prior) {
                     reusable[key] = prior
                 } else {
                     newKeys.insert(key)

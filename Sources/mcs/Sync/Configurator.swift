@@ -669,8 +669,11 @@ struct Configurator {
 
     /// Returns `true` when reusable priors should short-circuit the prompt executors.
     ///
-    /// `--customize` always re-asks; non-interactive and new-prompts-added paths reuse
-    /// silently; interactive with only reusable prompts gates on a single Y/n.
+    /// `--customize` always re-asks. Non-interactive reuses with a dimmed one-line
+    /// acknowledgement (visible in CI logs, not loud). Interactive with new prompts
+    /// added since last sync reuses old values and prompts only for the new ones.
+    /// Interactive with only reusable prompts shows the key list (values masked —
+    /// prompts often hold secrets) and gates on a single Y/n.
     private func decideSeedStrategy(
         reusableValues: [String: String],
         newDeclaredKeys: Set<String>,
@@ -680,8 +683,7 @@ struct Configurator {
         if customize { return false }
 
         if !output.hasInteractiveStdin {
-            // Non-interactive: readLine() would return nil anyway, so reuse silently.
-            output.info("Reusing \(reusableValues.count) previously configured value(s) from last sync.")
+            output.dimmed("Reusing \(reusableValues.count) previously configured value(s) from last sync.")
             return true
         }
 
@@ -695,14 +697,9 @@ struct Configurator {
         }
 
         output.plain("")
-        output.info("Previously configured values:")
-        let sortedKeys = reusableValues.keys.sorted()
-        let maxKeyLen = sortedKeys.map(\.count).max() ?? 0
-        for key in sortedKeys {
-            let value = reusableValues[key] ?? ""
-            let padded = key.padding(toLength: maxKeyLen, withPad: " ", startingAt: 0)
-            let display = value.isEmpty ? "(empty)" : value
-            output.dimmed("  \(padded) = \(display)")
+        output.info("Previously configured keys (values hidden — prompts may hold secrets):")
+        for key in reusableValues.keys.sorted() {
+            output.dimmed("  \(key)")
         }
         return output.askYesNo("Reuse these values?", default: true)
     }

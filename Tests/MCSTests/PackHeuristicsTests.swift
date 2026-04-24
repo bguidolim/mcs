@@ -684,4 +684,32 @@ struct PackHeuristicsTests {
         #expect(!dirWarnings.isEmpty)
         #expect(dirWarnings.allSatisfy { $0.severity == .warning })
     }
+
+    // MARK: - infrastructureFilesForUpdateCheck (issue #338)
+
+    @Test("infrastructureFilesForUpdateCheck excludes techpack.yaml (supply-chain invariant)")
+    func updateCheckSetExcludesManifest() {
+        #expect(!PackHeuristics.infrastructureFilesForUpdateCheck.contains(
+            Constants.ExternalPacks.manifestFilename
+        ))
+    }
+
+    @Test("infrastructureFilesForUpdateCheck still contains the other infra files")
+    func updateCheckSetContainsInfraFiles() {
+        let set = PackHeuristics.infrastructureFilesForUpdateCheck
+        #expect(set.contains("README.md"))
+        #expect(set.contains("LICENSE"))
+        #expect(set.contains("CHANGELOG.md"))
+        #expect(set.contains(".gitignore"))
+        #expect(set.contains("Makefile"))
+    }
+
+    @Test("ignoredDirectories is accessible and contains expected entries")
+    func ignoredDirsAccessible() {
+        let dirs = PackHeuristics.ignoredDirectories
+        #expect(dirs.contains(".git"))
+        #expect(dirs.contains(".github"))
+        #expect(dirs.contains("node_modules"))
+        #expect(dirs.contains(".build"))
+    }
 }

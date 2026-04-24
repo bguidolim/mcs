@@ -31,6 +31,24 @@ struct PackRegistryFile {
             }
             return PathContainment.safePath(relativePath: localPath, within: packsDirectory)
         }
+
+        /// Return a copy with `commitSHA` replaced.
+        /// Used when `UpdateChecker`'s noise filter advances the baseline without
+        /// updating the working-tree checkout (see issue #338).
+        func withCommitSHA(_ sha: String) -> Self {
+            PackEntry(
+                identifier: identifier,
+                displayName: displayName,
+                author: author,
+                sourceURL: sourceURL,
+                ref: ref,
+                commitSHA: sha,
+                localPath: localPath,
+                addedAt: addedAt,
+                trustedScriptHashes: trustedScriptHashes,
+                isLocal: isLocal
+            )
+        }
     }
 
     struct RegistryData: Codable {

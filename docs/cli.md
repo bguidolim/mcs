@@ -174,6 +174,9 @@ mcs check-updates --json         # Machine-readable JSON output
 
 **How it works:**
 - **Pack checks**: Runs `git ls-remote` per pack to compare the remote HEAD against the local commit SHA. Local packs are skipped.
+- **Noise filter**: When the remote SHA differs, runs a shallow `git fetch` + `git diff --name-only` in the local pack clone and classifies the changed-path list. If every path is deny-listed infrastructure (README, LICENSE, CHANGELOG, `.github/`, `node_modules/`, `.build/`, `Makefile`, `.gitignore`, etc.), the notification is suppressed and `~/.mcs/registry.yaml`'s `commitSHA` advances to the new remote SHA — the same infrastructure-only commits won't re-trigger on future cooldown windows. Any non-deny-listed path makes the update material and surfaces the notification.
+- **`techpack.yaml` always surfaces**: manifest edits can change the install surface entirely (new hook scripts, swapped MCP server commands, different component actions), so the filter never suppresses a commit that touches the manifest — supply-chain safety takes precedence over noise reduction.
+- **Never-hide on filter failure**: if `git fetch` or `git diff` errors (offline, access revoked, repo corrupt), the notification surfaces unfiltered. The filter can only suppress; it can't manufacture silence on error.
 - **CLI version check**: Queries `git ls-remote --tags` on the mcs repository and compares the latest CalVer tag against the installed version.
 - **Cache**: Results are cached in `~/.mcs/update-check.json` (timestamp + results). Cached results are served if less than 24 hours old (no network request). When the cache is stale, a fresh network check runs and the results are cached. `mcs check-updates` (without `--hook`) always forces a fresh check; `mcs sync` and `mcs doctor` respect the cache.
 - **Cache invalidation**: `mcs pack update` deletes the cache so the next hook re-checks. CLI version cache self-invalidates when the user upgrades mcs.

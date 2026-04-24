@@ -7,7 +7,10 @@ import Foundation
 /// remotes produce no output, matching the design goal of non-intrusive checks.
 struct UpdateChecker {
     let environment: Environment
-    let shell: ShellRunner
+    /// `any ShellRunning` so tests can inject `MockShellRunner` for the new
+    /// post-SHA-change git fetch/diff calls. Production call sites pass a concrete
+    /// `ShellRunner`, which upcasts implicitly. `ShellRunning: Sendable`.
+    let shell: any ShellRunning
 
     /// Default cooldown interval: 24 hours.
     static let cooldownInterval: TimeInterval = 86400
@@ -168,42 +171,173 @@ struct UpdateChecker {
 
     // MARK: - Pack Checks
 
+    /// Classification of an upstream commit-SHA change. Drives whether the noise filter
+    /// suppresses the update notification (issue #338).
+    ///
+    /// **Never-hide invariant:** `.suppressed` is the narrow special case. Every error
+    /// path (fetch fail, diff fail, missing clone, parse error) must fall through to
+    /// `.unknown`, which surfaces the notification as today. Do not invert this polarity.
+    enum UpstreamChange: Equatable {
+        case suppressed
+        case material([String])
+        case unknown
+    }
+
+    /// Pure classifier for the changed-path list returned by `git diff --name-only`.
+    /// No I/O — unit-testable in isolation. The orchestrator (`classifyUpstreamChange`)
+    /// runs git and calls into this.
+    ///
+    /// Rules, applied in order:
+    /// 1. If any path equals `techpack.yaml` → `.material` (supply-chain invariant —
+    ///    manifest edits can swap hook scripts, MCP commands, install surface).
+    /// 2. A path is "noise" if its leading segment matches `PackHeuristics.ignoredDirectories`
+    ///    (e.g. `.github/workflows/ci.yml`) OR its basename matches
+    ///    `PackHeuristics.infrastructureFilesForUpdateCheck` (e.g. `README.md`, `LICENSE`).
+    /// 3. If all paths are noise → `.suppressed`. Any survivor → `.material(survivors)`.
+    static func classifyDiffPaths(_ paths: [String]) -> UpstreamChange {
+        let cleaned = paths
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !cleaned.isEmpty else { return .suppressed }
+
+        if cleaned.contains(Constants.ExternalPacks.manifestFilename) {
+            return .material([Constants.ExternalPacks.manifestFilename])
+        }
+
+        var material: [String] = []
+        for path in cleaned where !isNoisePath(path) {
+            material.append(path)
+        }
+        return material.isEmpty ? .suppressed : .material(material)
+    }
+
+    private static func isNoisePath(_ path: String) -> Bool {
+        let leadingSegment = path.split(separator: "/", maxSplits: 1).first.map(String.init) ?? path
+        if PackHeuristics.ignoredDirectories.contains(leadingSegment) {
+            return true
+        }
+        // Basename match only when the path is a single segment — a file called `README.md`
+        // inside `hooks/` (i.e. `hooks/README.md`) is not suppressed; only pack-root infra is.
+        if !path.contains("/"), PackHeuristics.infrastructureFilesForUpdateCheck.contains(path) {
+            return true
+        }
+        return false
+    }
+
+    /// Orchestrator — runs `git fetch` + `git diff --name-only` in the pack clone
+    /// and feeds the diff into `classifyDiffPaths`. Every error path falls through
+    /// to `.unknown` per the never-hide invariant.
+    func classifyUpstreamChange(entry: PackRegistryFile.PackEntry) -> UpstreamChange {
+        guard let workDirURL = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
+            return .unknown
+        }
+        let workDir = workDirURL.path
+        let ref = entry.ref ?? "HEAD"
+
+        let fetchResult = shell.run(
+            environment.gitPath,
+            arguments: ["fetch", "--depth", "1", "origin", ref],
+            workingDirectory: workDir,
+            additionalEnvironment: Self.gitNoPromptEnv
+        )
+        guard fetchResult.succeeded else { return .unknown }
+
+        let diffResult = shell.run(
+            environment.gitPath,
+            arguments: ["diff", "--name-only", "HEAD", "FETCH_HEAD"],
+            workingDirectory: workDir,
+            additionalEnvironment: Self.gitNoPromptEnv
+        )
+        guard diffResult.succeeded else { return .unknown }
+
+        let paths = diffResult.stdout.split(separator: "\n").map(String.init)
+        return Self.classifyDiffPaths(paths)
+    }
+
+    /// Per-iteration result of `checkPackUpdates`: an optional notification to emit
+    /// and an optional registry baseline advance (applied post-loop to serialize writes).
+    private struct PackCheckOutcome {
+        let update: PackUpdate?
+        let advance: SHAAdvance?
+    }
+
+    private struct SHAAdvance {
+        let identifier: String
+        let newSHA: String
+    }
+
     /// Check each git pack for remote updates via `git ls-remote`.
     /// Local packs are skipped. Checks run in parallel. Network failures are silently ignored per-pack.
+    ///
+    /// When a remote SHA differs, runs a noise filter (`classifyUpstreamChange`) that may
+    /// suppress the notification for README/CI/infra-only commits and advance the registry
+    /// baseline so the same commits don't re-trigger (issue #338).
     func checkPackUpdates(entries: [PackRegistryFile.PackEntry]) -> [PackUpdate] {
         let gitEntries = entries.filter { !$0.isLocalPack }
         guard !gitEntries.isEmpty else { return [] }
 
         // Each index is written by exactly one iteration — no data race.
         // nonisolated(unsafe) is needed because concurrentPerform's closure is @Sendable.
-        nonisolated(unsafe) var results = [PackUpdate?](repeating: nil, count: gitEntries.count)
+        nonisolated(unsafe) var results = [PackCheckOutcome?](repeating: nil, count: gitEntries.count)
 
         DispatchQueue.concurrentPerform(iterations: gitEntries.count) { index in
             let entry = gitEntries[index]
             let ref = entry.ref ?? "HEAD"
-            let result = shell.run(
+            let lsRemote = shell.run(
                 environment.gitPath,
                 arguments: ["ls-remote", entry.sourceURL, ref],
                 additionalEnvironment: Self.gitNoPromptEnv
             )
 
-            guard result.succeeded,
-                  let remoteSHA = Self.parseRemoteSHA(from: result.stdout)
+            guard lsRemote.succeeded,
+                  let remoteSHA = Self.parseRemoteSHA(from: lsRemote.stdout),
+                  remoteSHA != entry.commitSHA
             else {
                 return
             }
 
-            if remoteSHA != entry.commitSHA {
-                results[index] = PackUpdate(
-                    identifier: entry.identifier,
-                    displayName: entry.displayName,
-                    localSHA: entry.commitSHA,
-                    remoteSHA: remoteSHA
+            let pendingUpdate = PackUpdate(
+                identifier: entry.identifier,
+                displayName: entry.displayName,
+                localSHA: entry.commitSHA,
+                remoteSHA: remoteSHA
+            )
+
+            switch classifyUpstreamChange(entry: entry) {
+            case .suppressed:
+                results[index] = PackCheckOutcome(
+                    update: nil,
+                    advance: SHAAdvance(identifier: entry.identifier, newSHA: remoteSHA)
                 )
+            case .material, .unknown:
+                // .unknown → never-hide: surface the notification unfiltered.
+                results[index] = PackCheckOutcome(update: pendingUpdate, advance: nil)
             }
         }
 
-        return results.compactMap(\.self)
+        let advances = results.compactMap { $0?.advance }
+        if !advances.isEmpty {
+            applyRegistryAdvances(advances)
+        }
+
+        return results.compactMap { $0?.update }
+    }
+
+    /// Apply collected SHA advances to `registry.yaml` in one load→mutate→save round-trip.
+    /// Serializes the writes that were collected from the parallel `concurrentPerform` loop.
+    /// Silent on failure: next check will re-classify (same pattern as `saveCache`).
+    private func applyRegistryAdvances(_ advances: [SHAAdvance]) {
+        let registry = PackRegistryFile(path: environment.packsRegistry)
+        do {
+            var data = try registry.load()
+            for advance in advances {
+                guard let existing = registry.pack(identifier: advance.identifier, in: data) else { continue }
+                registry.register(existing.withCommitSHA(advance.newSHA), in: &data)
+            }
+            try registry.save(data)
+        } catch {
+            // Registry write failure is non-fatal — next check will classify again.
+        }
     }
 
     // MARK: - CLI Version Check

@@ -109,6 +109,12 @@ Wraps `claude mcp add/remove` and `claude plugin install/remove` CLI commands. M
 - **`project`**: team-shared — stored in `.mcp.json` in the project directory
 - **`user`**: cross-project — stored in `~/.claude.json` globally
 
+### UpdateChecker (`Core/UpdateChecker.swift`)
+
+Detects upstream pack and CLI updates via `git ls-remote`, with a **noise filter** so non-material upstream commits (README, LICENSE, CI, `.github/`, etc.) don't trigger spurious notifications. When the remote SHA differs from the registry baseline, the checker does a shallow `git fetch` + `git diff --name-only` in the local pack clone and classifies the changed-path list against a built-in deny-list. If every path is infrastructure, the notification is suppressed and the registry `commitSHA` advances so the same commits don't re-trigger. `techpack.yaml` is always treated as material — manifest edits can swap the install surface entirely, and silently suppressing those commits would be a supply-chain attack vector. Filter failures (offline, fetch error) fall through to surfacing the notification unfiltered — the filter can only suppress, never manufacture silence.
+
+Results are cached in `~/.mcs/update-check.json` with a 24-hour cooldown. The SessionStart hook serves cached results on every session start; only `mcs check-updates` (without `--hook`) forces a fresh network check.
+
 ## External Pack System
 
 External packs are directories containing a `techpack.yaml` manifest — either Git repositories cloned into `~/.mcs/packs/` or local directories registered in-place. The system has these layers:

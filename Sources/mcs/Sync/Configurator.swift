@@ -331,6 +331,7 @@ struct Configurator {
         guard let artifacts = state.artifacts(for: packID) else {
             output.dimmed("No artifact record for \(packID) — skipping")
             state.removePack(packID)
+            pruneOrphanResolvedValues(state: &state)
             return
         }
 
@@ -489,6 +490,23 @@ struct Configurator {
             state.setArtifacts(remaining, for: packID)
             output.warn("Some artifacts for \(packID) could not be removed. Re-run '\(scope.syncHint)' to retry.")
         }
+        pruneOrphanResolvedValues(state: &state)
+    }
+
+    /// Drop `state.resolvedValues` entries whose keys are not declared by any currently-configured pack.
+    /// Invoked at the tail of `unconfigurePack` so both `mcs sync` deselection and `mcs pack remove`
+    /// federated cleanup prune orphans — a later pack declaring the same key is asked fresh instead
+    /// of seeing a stale "prior" from a removed pack.
+    private func pruneOrphanResolvedValues(state: inout ProjectState) {
+        let priors = state.resolvedValues ?? [:]
+        let survivingPacks = state.configuredPacks.compactMap { registry.pack(for: $0) }
+        let context = strategy.makeConfigContext(
+            output: output, resolvedValues: priors, priorValues: priors
+        )
+        let declared = CrossPackPromptResolver.collectDeclaredPrompts(
+            packs: survivingPacks, context: context
+        )
+        state.pruneResolvedValues(keepingKeys: Set(declared.lazy.map(\.key)))
     }
 
     /// Remove artifacts for components that were previously included but are now excluded.

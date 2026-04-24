@@ -218,6 +218,13 @@ struct ProjectState {
         storage.resolvedValues = values
     }
 
+    /// Remove resolved-value entries whose keys are not in the provided set.
+    mutating func pruneResolvedValues(keepingKeys keys: Set<String>) {
+        guard let current = storage.resolvedValues, !current.isEmpty else { return }
+        let kept = current.filter { keys.contains($0.key) }
+        storage.resolvedValues = kept.isEmpty ? nil : kept
+    }
+
     // MARK: - Persistence
 
     /// Save to disk. Updates internal state with timestamp and version.

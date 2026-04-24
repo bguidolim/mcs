@@ -1601,6 +1601,83 @@ struct PromptValueReuseLifecycleTests {
         #expect(final.resolvedValues?["KEY_A"] != "SHOULD_NOT_APPEAR")
     }
 
+    @Test("Removing a pack prunes its resolvedValues; a later pack with same key is asked fresh")
+    func removedPackOrphanPruned() throws {
+        let bed = try LifecycleTestBed()
+        defer { bed.cleanup() }
+
+        // First sync: pack A declares BRANCH_PREFIX
+        let packA = MockPromptTechPack(
+            identifier: "pack-a",
+            displayName: "Pack A",
+            prompts: [inputPrompt("BRANCH_PREFIX")],
+            defaultAnswer: { "a-\($0)" }
+        )
+        try bed.makeConfigurator(registry: TechPackRegistry(packs: [packA]))
+            .configure(packs: [packA], confirmRemovals: false)
+
+        // Seed the user's custom answer
+        var state = try bed.projectState()
+        state.setResolvedValues(["BRANCH_PREFIX": "bruno"])
+        try state.save()
+
+        // Deselect pack A: registry still knows the pack (so unconfigure can resolve
+        // survivors) but configure() passes an empty selection → removal triggers prune.
+        try bed.makeConfigurator(registry: TechPackRegistry(packs: [packA]))
+            .configure(packs: [], confirmRemovals: false)
+
+        // BRANCH_PREFIX should be pruned — no surviving pack declares it.
+        let afterRemoval = try bed.projectState()
+        #expect(afterRemoval.resolvedValues?["BRANCH_PREFIX"] == nil)
+
+        // Pack B (different identifier) declares the same key with a different default.
+        let packB = MockPromptTechPack(
+            identifier: "pack-b",
+            displayName: "Pack B",
+            prompts: [inputPrompt("BRANCH_PREFIX")],
+            defaultAnswer: { "b-\($0)" }
+        )
+        try bed.makeConfigurator(registry: TechPackRegistry(packs: [packB]))
+            .configure(packs: [packB], confirmRemovals: false)
+
+        // Pack B sees no prior for BRANCH_PREFIX → mock falls back to its defaultAnswer,
+        // NOT the stale "bruno" from removed pack A.
+        let final = try bed.projectState()
+        #expect(final.resolvedValues?["BRANCH_PREFIX"] == "b-BRANCH_PREFIX")
+    }
+
+    @Test("Shared resolved key preserved when one of two declaring packs is removed")
+    func sharedKeyRetainedAfterPartialRemoval() throws {
+        let bed = try LifecycleTestBed()
+        defer { bed.cleanup() }
+
+        let packA = MockPromptTechPack(
+            identifier: "pack-a",
+            displayName: "Pack A",
+            prompts: [inputPrompt("BRANCH_PREFIX")],
+            defaultAnswer: { "a-\($0)" }
+        )
+        let packB = MockPromptTechPack(
+            identifier: "pack-b",
+            displayName: "Pack B",
+            prompts: [inputPrompt("BRANCH_PREFIX")],
+            defaultAnswer: { "b-\($0)" }
+        )
+        try bed.makeConfigurator(registry: TechPackRegistry(packs: [packA, packB]))
+            .configure(packs: [packA, packB], confirmRemovals: false)
+
+        var state = try bed.projectState()
+        state.setResolvedValues(["BRANCH_PREFIX": "bruno"])
+        try state.save()
+
+        // Remove pack A; pack B still declares BRANCH_PREFIX so the value must survive.
+        try bed.makeConfigurator(registry: TechPackRegistry(packs: [packA, packB]))
+            .configure(packs: [packB], confirmRemovals: false)
+
+        let final = try bed.projectState()
+        #expect(final.resolvedValues?["BRANCH_PREFIX"] == "bruno")
+    }
+
     @Test("--customize forces re-ask even when priors are available")
     func customizeForceReAsk() throws {
         let bed = try LifecycleTestBed()

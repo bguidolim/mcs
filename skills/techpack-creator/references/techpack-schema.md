@@ -39,6 +39,7 @@ everything needed to generate valid manifests without access to the MCS source c
 | `prompts` | [Prompt] | No | Interactive prompts for `mcs sync` |
 | `configureProject` | Object | No | Script to run after project configuration |
 | `supplementaryDoctorChecks` | [DoctorCheck] | No | Pack-level health checks |
+| `ignore` | [String] | No | POSIX-glob paths the engine treats as non-material — silences `mcs pack validate` warnings AND prevents `mcs check-updates` from firing on commits limited to these paths. Cannot include `techpack.yaml` or any referenced component/template path. Trailing `/` silences the whole directory tree. Example: `["docs/", "examples/", "diagrams/*.png"]` |
 
 ---
 

@@ -21,7 +21,8 @@ struct UpdateCheckerCacheTests {
     private func writeCacheFile(at env: Environment, timestamp: Date, result: UpdateChecker.CheckResult) throws {
         let cached = UpdateChecker.CachedResult(
             timestamp: ISO8601DateFormatter().string(from: timestamp),
-            result: result
+            result: result,
+            perPackIgnoreHash: nil
         )
         let dir = env.updateCheckCacheFile.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -141,7 +142,8 @@ struct UpdateCheckerPerformCheckTests {
     private func writeFreshCache(at env: Environment, result: UpdateChecker.CheckResult) throws {
         let cached = UpdateChecker.CachedResult(
             timestamp: ISO8601DateFormatter().string(from: Date()),
-            result: result
+            result: result,
+            perPackIgnoreHash: nil
         )
         let dir = env.updateCheckCacheFile.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -208,7 +210,8 @@ struct UpdateCheckerPerformCheckTests {
         let staleTimestamp = Date().addingTimeInterval(-90000)
         let cached = UpdateChecker.CachedResult(
             timestamp: ISO8601DateFormatter().string(from: staleTimestamp),
-            result: staleResult
+            result: staleResult,
+            perPackIgnoreHash: nil
         )
         let dir = env.updateCheckCacheFile.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -795,6 +798,101 @@ struct UpdateCheckerPackUpdatesTests {
 
         #expect(updates2.isEmpty)
         #expect(mock2.runCalls.count == 1, "Only ls-remote — no fetch/diff after baseline caught up")
+    }
+}
+
+// MARK: - Manifest ignore: integration (issue #338 Phase 2)
+
+struct UpdateCheckerIgnoreFieldTests {
+    private func ignoreManifest(_ ignore: [String]?) -> ExternalPackManifest {
+        ExternalPackManifest(
+            schemaVersion: 1,
+            identifier: "p",
+            displayName: "P",
+            description: "x",
+            author: nil,
+            minMCSVersion: nil,
+            components: nil,
+            templates: nil,
+            prompts: nil,
+            configureProject: nil,
+            supplementaryDoctorChecks: nil,
+            ignore: ignore
+        )
+    }
+
+    @Test("classifyDiffPaths suppresses paths matched by manifest ignore:")
+    func ignoreSuppressesAuthorPaths() {
+        let manifest = ignoreManifest(["docs/", "examples/"])
+        // docs/guide.md isn't in the built-in deny-list (built-in covers `.github/`, etc.)
+        // so without the manifest it would be material; with it, suppressed.
+        #expect(UpdateChecker.classifyDiffPaths(["docs/guide.md"]) ==
+            .material(["docs/guide.md"]))
+        #expect(UpdateChecker.classifyDiffPaths(["docs/guide.md"], manifest: manifest) ==
+            .suppressed)
+        #expect(UpdateChecker.classifyDiffPaths(["examples/sample.md"], manifest: manifest) ==
+            .suppressed)
+    }
+
+    @Test("classifyDiffPaths still surfaces material paths even with broad ignore:")
+    func ignoreDoesNotHideMaterial() {
+        let manifest = ignoreManifest(["docs/"])
+        let result = UpdateChecker.classifyDiffPaths(
+            ["docs/guide.md", "hooks/handler.sh"],
+            manifest: manifest
+        )
+        #expect(result == .material(["hooks/handler.sh"]))
+    }
+
+    @Test("ignore: cannot override the techpack.yaml-always-material invariant")
+    func ignoreCannotSilenceManifest() {
+        // Even if an author tried to silence techpack.yaml, the supply-chain invariant wins.
+        let manifest = ignoreManifest(["techpack.yaml"])
+        #expect(UpdateChecker.classifyDiffPaths(["techpack.yaml"], manifest: manifest) ==
+            .material(["techpack.yaml"]))
+    }
+
+    @Test("ignoreHash differs when ignore: list changes")
+    func ignoreHashSensitivity() {
+        let a = ignoreManifest(["docs/"])
+        let b = ignoreManifest(["docs/", "examples/"])
+        let c = ignoreManifest(nil)
+
+        #expect(UpdateChecker.ignoreHash(manifest: a) != UpdateChecker.ignoreHash(manifest: b))
+        #expect(UpdateChecker.ignoreHash(manifest: a) != UpdateChecker.ignoreHash(manifest: c))
+    }
+
+    @Test("ignoreHash is order-independent (sorted internally)")
+    func ignoreHashOrderIndependent() {
+        let a = ignoreManifest(["docs/", "examples/"])
+        let b = ignoreManifest(["examples/", "docs/"])
+        #expect(UpdateChecker.ignoreHash(manifest: a) == UpdateChecker.ignoreHash(manifest: b))
+    }
+
+    @Test("loadCache returns nil when current ignore-hash differs from cached")
+    func cacheInvalidatedOnIgnoreHashMismatch() throws {
+        let tmpDir = try makeTmpDir(label: "ignore-cache")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        let cached = UpdateChecker.CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            result: UpdateChecker.CheckResult(packUpdates: [], cliUpdate: nil),
+            perPackIgnoreHash: ["pack-a": "hash-old"]
+        )
+        let dir = env.updateCheckCacheFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(cached)
+        try data.write(to: env.updateCheckCacheFile, options: .atomic)
+
+        let checker = UpdateChecker(environment: env, shell: ShellRunner(environment: env))
+
+        // Same hashes → cache hit
+        #expect(checker.loadCache(currentIgnoreHashes: ["pack-a": "hash-old"]) != nil)
+        // Different hash → cache miss
+        #expect(checker.loadCache(currentIgnoreHashes: ["pack-a": "hash-new"]) == nil)
+        // No-arg call ignores hashes → still hit
+        #expect(checker.loadCache() != nil)
     }
 }
 

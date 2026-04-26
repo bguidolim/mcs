@@ -84,7 +84,11 @@ enum PackHeuristics {
         "node_modules", "__pycache__", ".build",
     ]
 
-    private static func referencedPaths(from manifest: ExternalPackManifest) -> Set<String> {
+    /// Paths the manifest relies on for its install surface.
+    /// Used by `checkUnreferencedFiles`, by `ExternalPackManifest.validate()` to reject
+    /// load-bearing entries in the `ignore:` list (issue #338), and by the runtime safety
+    /// guard in `ExternalPackLoader` that strips forbidden `ignore:` entries defensively.
+    static func referencedPaths(from manifest: ExternalPackManifest) -> Set<String> {
         var paths = Set<String>()
         for component in manifest.components ?? [] {
             switch component.installAction {
@@ -128,9 +132,12 @@ enum PackHeuristics {
 
         let subdirs = rootContents.filter { url in
             var isDir: ObjCBool = false
-            return fm.fileExists(atPath: url.path, isDirectory: &isDir)
-                && isDir.boolValue
-                && !ignoredDirectories.contains(url.lastPathComponent)
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir),
+                  isDir.boolValue,
+                  !ignoredDirectories.contains(url.lastPathComponent)
+            else { return false }
+            // Skip subdirectories entirely when the author has ignored them via techpack.yaml.
+            return !isIgnoredByManifest(url.lastPathComponent, manifest: manifest)
         }
 
         var findings: [Finding] = []
@@ -155,16 +162,26 @@ enum PackHeuristics {
 
             for itemURL in contents {
                 let relativePath = "\(dirName)/\(itemURL.lastPathComponent)"
-                if !referencedPaths.contains(relativePath) {
-                    findings.append(Finding(
-                        severity: .warning,
-                        message: "\(relativePath) is not referenced by any component or template"
-                    ))
-                }
+                if referencedPaths.contains(relativePath) { continue }
+                if isIgnoredByManifest(relativePath, manifest: manifest) { continue }
+                findings.append(Finding(
+                    severity: .warning,
+                    message: "\(relativePath) is not referenced by any component or template"
+                ))
             }
         }
 
         return findings
+    }
+
+    /// True when the path (or the directory tree it lives in) matches any `ignore:` entry
+    /// in the manifest. Uses POSIX glob semantics via `GlobMatcher`.
+    static func isIgnoredByManifest(_ path: String, manifest: ExternalPackManifest) -> Bool {
+        guard let ignore = manifest.ignore, !ignore.isEmpty else { return false }
+        for pattern in ignore where GlobMatcher.matches(pattern, path: path) {
+            return true
+        }
+        return false
     }
 
     /// Files at the pack root that are expected infrastructure, not content.

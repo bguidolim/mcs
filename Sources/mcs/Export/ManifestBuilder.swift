@@ -306,7 +306,8 @@ struct ManifestBuilder {
             templates: templates.isEmpty ? nil : templates,
             prompts: prompts.isEmpty ? nil : prompts,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
 
         return ManifestBuildOutput(

@@ -2063,7 +2063,8 @@ struct ExternalPackManifestTests {
             ],
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
 
         #expect(throws: ManifestError.templateSectionMismatch(
@@ -3146,5 +3147,165 @@ struct ExternalPackManifestTests {
         #expect(comp.isRequired == true)
         #expect(comp.hookRegistration?.event == .sessionStart)
         #expect(comp.doctorChecks?.count == 1)
+    }
+
+    // MARK: - ignore: field (issue #338)
+
+    private func ignoreManifest(
+        ignore: [String]?,
+        components: [ExternalComponentDefinition]? = nil,
+        templates: [ExternalTemplateDefinition]? = nil,
+        configureProject: ExternalConfigureProject? = nil
+    ) -> ExternalPackManifest {
+        ExternalPackManifest(
+            schemaVersion: 1,
+            identifier: "ignore-pack",
+            displayName: "Ignore Pack",
+            description: "Pack with ignore: entries",
+            author: nil,
+            minMCSVersion: nil,
+            components: components,
+            templates: templates,
+            prompts: nil,
+            configureProject: configureProject,
+            supplementaryDoctorChecks: nil,
+            ignore: ignore
+        )
+    }
+
+    @Test("ignore: with directory glob validates")
+    func ignoreDirGlobValidates() throws {
+        let manifest = ignoreManifest(ignore: ["docs/", "examples/", "*.md"])
+        try manifest.validate()
+    }
+
+    @Test("ignore: with techpack.yaml is rejected (manifest is always tracked)")
+    func ignoreManifestRejected() {
+        let manifest = ignoreManifest(ignore: ["techpack.yaml"])
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("ignore: with empty entry is rejected")
+    func ignoreEmptyRejected() {
+        let manifest = ignoreManifest(ignore: ["docs/", ""])
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("ignore: with referenced copyPackFile source is rejected")
+    func ignoreReferencedCopySource() {
+        let component = ExternalComponentDefinition(
+            id: "ignore-pack.hook",
+            displayName: "Hook",
+            description: "Hook script",
+            type: .hookFile,
+            installAction: .copyPackFile(ExternalCopyPackFileConfig(
+                source: "hooks/handler.sh",
+                destination: "handler.sh",
+                fileType: .hook
+            ))
+        )
+        let manifest = ignoreManifest(
+            ignore: ["hooks/handler.sh"],
+            components: [component]
+        )
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("ignore: with referenced template contentFile is rejected")
+    func ignoreReferencedTemplate() {
+        let template = ExternalTemplateDefinition(
+            sectionIdentifier: "ignore-pack.main",
+            placeholders: nil,
+            contentFile: "templates/section.md",
+            dependencies: nil
+        )
+        let manifest = ignoreManifest(
+            ignore: ["templates/section.md"],
+            templates: [template]
+        )
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("ignore: with referenced configureProject script is rejected")
+    func ignoreReferencedConfigureScript() {
+        let manifest = ignoreManifest(
+            ignore: ["scripts/configure.sh"],
+            configureProject: ExternalConfigureProject(script: "scripts/configure.sh")
+        )
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("ignore: nil/empty does not error")
+    func ignoreEmptyOrNilValidates() throws {
+        try ignoreManifest(ignore: nil).validate()
+        try ignoreManifest(ignore: []).validate()
+    }
+
+    @Test("normalized() preserves ignore: entries")
+    func normalizedPreservesIgnore() throws {
+        let manifest = ignoreManifest(ignore: ["docs/", "*.md"])
+        let normalized = try manifest.normalized()
+        #expect(normalized.ignore == ["docs/", "*.md"])
+    }
+
+    // MARK: - sanitizedIgnoreEntries (runtime safety guard)
+
+    @Test("sanitizedIgnoreEntries strips manifest-filename entry")
+    func sanitizeStripsManifestEntry() {
+        let manifest = ignoreManifest(ignore: ["techpack.yaml", "docs/"])
+        let sanitized = manifest.sanitizedIgnoreEntries(output: CLIOutput())
+        #expect(sanitized.ignore == ["docs/"])
+    }
+
+    @Test("sanitizedIgnoreEntries strips empty entry")
+    func sanitizeStripsEmptyEntry() {
+        let manifest = ignoreManifest(ignore: ["", "docs/", "  "])
+        let sanitized = manifest.sanitizedIgnoreEntries(output: CLIOutput())
+        #expect(sanitized.ignore == ["docs/"])
+    }
+
+    @Test("sanitizedIgnoreEntries strips referenced-path entry")
+    func sanitizeStripsReferenced() {
+        let component = ExternalComponentDefinition(
+            id: "ignore-pack.hook",
+            displayName: "Hook",
+            description: "Hook script",
+            type: .hookFile,
+            installAction: .copyPackFile(ExternalCopyPackFileConfig(
+                source: "hooks/handler.sh",
+                destination: "handler.sh",
+                fileType: .hook
+            ))
+        )
+        let manifest = ignoreManifest(
+            ignore: ["hooks/handler.sh", "docs/"],
+            components: [component]
+        )
+        let sanitized = manifest.sanitizedIgnoreEntries(output: CLIOutput())
+        #expect(sanitized.ignore == ["docs/"])
+    }
+
+    @Test("sanitizedIgnoreEntries with all-forbidden entries returns nil ignore")
+    func sanitizeAllStrippedReturnsNil() {
+        let manifest = ignoreManifest(ignore: ["techpack.yaml"])
+        let sanitized = manifest.sanitizedIgnoreEntries(output: CLIOutput())
+        #expect(sanitized.ignore == nil)
+    }
+
+    @Test("sanitizedIgnoreEntries on nil ignore: is a no-op (still nil)")
+    func sanitizeNilIsNoop() {
+        let manifest = ignoreManifest(ignore: nil)
+        let sanitized = manifest.sanitizedIgnoreEntries(output: CLIOutput())
+        #expect(sanitized.ignore == nil)
     }
 }

@@ -18,7 +18,8 @@ struct PackHeuristicsTests {
             templates: nil,
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
     }
 
@@ -248,7 +249,8 @@ struct PackHeuristicsTests {
             )],
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
 
@@ -463,7 +465,8 @@ struct PackHeuristicsTests {
             )],
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
 
@@ -489,7 +492,8 @@ struct PackHeuristicsTests {
             templates: nil,
             prompts: nil,
             configureProject: ExternalConfigureProject(script: "configure.sh"),
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
 
@@ -531,7 +535,8 @@ struct PackHeuristicsTests {
             templates: nil,
             prompts: nil,
             configureProject: ExternalConfigureProject(script: "configure.sh"),
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
 
@@ -558,7 +563,8 @@ struct PackHeuristicsTests {
             templates: nil,
             prompts: nil,
             configureProject: ExternalConfigureProject(script: "scripts/configure.sh"),
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
 
@@ -711,5 +717,98 @@ struct PackHeuristicsTests {
         #expect(dirs.contains(".github"))
         #expect(dirs.contains("node_modules"))
         #expect(dirs.contains(".build"))
+    }
+
+    // MARK: - manifest ignore: silences checkUnreferencedFiles (issue #338 Phase 2)
+
+    @Test("ignore: directory entry silences unreferenced-file warnings for that dir")
+    func ignoreSilencesDirWarnings() throws {
+        let tmpDir = try makeTmpDir(label: "heuristics-ignore")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create a docs/ directory that is NOT referenced by any component.
+        let docsDir = tmpDir.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: docsDir, withIntermediateDirectories: true)
+        try "# Guide".write(
+            to: docsDir.appendingPathComponent("guide.md"),
+            atomically: true, encoding: .utf8
+        )
+
+        let manifestWithoutIgnore = minimalManifest(components: [
+            ExternalComponentDefinition(
+                id: "test-pack.brew",
+                displayName: "Brew",
+                description: "Some package",
+                type: .brewPackage,
+                installAction: .brewInstall(package: "git")
+            ),
+        ])
+        // Without ignore:, docs/guide.md is flagged.
+        let baseFindings = PackHeuristics.check(manifest: manifestWithoutIgnore, packPath: tmpDir)
+        let baseDocsWarnings = baseFindings.filter { $0.message.contains("docs/guide.md") }
+        #expect(baseDocsWarnings.count == 1)
+
+        // With ignore: ["docs/"], no warning.
+        let manifestWithIgnore = ExternalPackManifest(
+            schemaVersion: 1,
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            description: "test",
+            author: nil,
+            minMCSVersion: nil,
+            components: manifestWithoutIgnore.components,
+            templates: nil,
+            prompts: nil,
+            configureProject: nil,
+            supplementaryDoctorChecks: nil,
+            ignore: ["docs/"]
+        )
+        let ignoredFindings = PackHeuristics.check(manifest: manifestWithIgnore, packPath: tmpDir)
+        let ignoredDocsWarnings = ignoredFindings.filter { $0.message.contains("docs/guide.md") }
+        #expect(ignoredDocsWarnings.isEmpty)
+    }
+
+    @Test("ignore: glob entry silences unreferenced-file warnings matching the pattern")
+    func ignoreGlobSilencesWarnings() throws {
+        let tmpDir = try makeTmpDir(label: "heuristics-ignore-glob")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let assetsDir = tmpDir.appendingPathComponent("assets")
+        try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
+        try Data().write(to: assetsDir.appendingPathComponent("logo.png"))
+        try Data().write(to: assetsDir.appendingPathComponent("notes.txt"))
+
+        let manifest = ExternalPackManifest(
+            schemaVersion: 1,
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            description: "test",
+            author: nil,
+            minMCSVersion: nil,
+            components: [
+                ExternalComponentDefinition(
+                    id: "test-pack.brew",
+                    displayName: "Brew",
+                    description: "package",
+                    type: .brewPackage,
+                    installAction: .brewInstall(package: "git")
+                ),
+            ],
+            templates: nil,
+            prompts: nil,
+            configureProject: nil,
+            supplementaryDoctorChecks: nil,
+            ignore: ["assets/*.png"]
+        )
+        let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
+        // logo.png matches the glob → silenced; notes.txt is still flagged.
+        #expect(findings.filter { $0.message.contains("assets/logo.png") }.isEmpty)
+        #expect(findings.contains { $0.message.contains("assets/notes.txt") })
+    }
+
+    @Test("isIgnoredByManifest returns false when manifest has no ignore:")
+    func isIgnoredByManifestEmpty() {
+        let manifest = minimalManifest()
+        #expect(!PackHeuristics.isIgnoredByManifest("docs/guide.md", manifest: manifest))
     }
 }

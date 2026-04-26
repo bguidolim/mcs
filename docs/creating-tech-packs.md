@@ -401,6 +401,34 @@ Placeholder substitution works in **templates**, **settings files** (`settingsFi
 
 ---
 
+## Ignoring Non-Material Paths
+
+Pack repos accumulate files that aren't part of the install surface — `docs/`, `examples/`, design assets, screenshots. Two annoyances follow:
+
+- `mcs pack validate` flags every unreferenced file with a warning.
+- Every README/docs/CI commit triggers a "pack update available" notification on every user who has the pack installed, even though `mcs sync` would install the same files.
+
+Add an `ignore:` field at the manifest root to silence both:
+
+```yaml
+identifier: my-pack
+displayName: My Pack
+description: Example
+schemaVersion: 1
+ignore:
+  - docs/
+  - examples/
+  - diagrams/*.png
+```
+
+The engine extends its built-in deny-list (README, LICENSE, `.github/`, `node_modules/`, etc.) with your entries. POSIX glob syntax (`*`, `?`, `[abc]`) — no `**` recursion. A trailing `/` silences the entire directory tree.
+
+You **cannot** put `techpack.yaml` or any path referenced by a component/template in `ignore:` — `mcs pack validate` rejects those entries with a clear error. Manifest edits change the install surface and must always surface to users; silencing referenced files would produce a broken pack.
+
+See the [Schema Reference](techpack-schema.md#the-ignore-field) for full semantics.
+
+---
+
 ## Prompts
 
 Prompts gather values from the user during `mcs sync`. These values are available as `__KEY__` placeholders in templates, settings files, MCP server configs, and copyPackFile artifacts — and as `MCS_RESOLVED_KEY` environment variables in scripts.

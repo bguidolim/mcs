@@ -32,9 +32,11 @@ struct PackRegistryFile {
             return PathContainment.safePath(relativePath: localPath, within: packsDirectory)
         }
 
-        /// Return a copy with `commitSHA` replaced.
-        /// Used when `UpdateChecker`'s noise filter advances the baseline without
-        /// updating the working-tree checkout (see issue #338).
+        /// Return a copy with `commitSHA` replaced. The registry SHA and working-tree
+        /// HEAD are normally kept in lockstep (set together by clone/checkout). Updating
+        /// only the SHA reflects "we acknowledged this upstream commit but did not move
+        /// the checkout" — used when a non-material upstream commit is recognized but
+        /// not pulled.
         func withCommitSHA(_ sha: String) -> Self {
             PackEntry(
                 identifier: identifier,

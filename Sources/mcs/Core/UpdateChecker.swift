@@ -7,9 +7,6 @@ import Foundation
 /// remotes produce no output, matching the design goal of non-intrusive checks.
 struct UpdateChecker {
     let environment: Environment
-    /// `any ShellRunning` so tests can inject `MockShellRunner` for the new
-    /// post-SHA-change git fetch/diff calls. Production call sites pass a concrete
-    /// `ShellRunner`, which upcasts implicitly. `ShellRunning: Sendable`.
     let shell: any ShellRunning
 
     /// Default cooldown interval: 24 hours.
@@ -172,15 +169,19 @@ struct UpdateChecker {
     // MARK: - Pack Checks
 
     /// Classification of an upstream commit-SHA change. Drives whether the noise filter
-    /// suppresses the update notification (issue #338).
-    ///
-    /// **Never-hide invariant:** `.suppressed` is the narrow special case. Every error
-    /// path (fetch fail, diff fail, missing clone, parse error) must fall through to
-    /// `.unknown`, which surfaces the notification as today. Do not invert this polarity.
+    /// suppresses the update notification.
     enum UpstreamChange: Equatable {
         case suppressed
         case material([String])
-        case unknown
+        case unknown(UnknownReason)
+
+        /// Why a classification could not be made. Carries enough context for telemetry
+        /// without requiring callers to inspect the orchestrator's call sites.
+        enum UnknownReason: Equatable {
+            case missingClone
+            case fetchFailed
+            case diffFailed
+        }
     }
 
     /// Pure classifier for the changed-path list returned by `git diff --name-only`.
@@ -191,9 +192,14 @@ struct UpdateChecker {
     /// 1. If any path equals `techpack.yaml` → `.material` (supply-chain invariant —
     ///    manifest edits can swap hook scripts, MCP commands, install surface).
     /// 2. A path is "noise" if its leading segment matches `PackHeuristics.ignoredDirectories`
-    ///    (e.g. `.github/workflows/ci.yml`) OR its basename matches
-    ///    `PackHeuristics.infrastructureFilesForUpdateCheck` (e.g. `README.md`, `LICENSE`).
+    ///    (e.g. `.github/workflows/ci.yml`) OR the path is a single segment that matches
+    ///    `PackHeuristics.infrastructureFilesForUpdateCheck` (e.g. `README.md` at the pack
+    ///    root, but not `hooks/README.md`).
     /// 3. If all paths are noise → `.suppressed`. Any survivor → `.material(survivors)`.
+    ///
+    /// Empty input maps to `.suppressed`: `git diff --name-only` only produces empty output
+    /// after a successful diff that found no changed paths, which is a "definitely no
+    /// material change" signal — not an unknown one.
     static func classifyDiffPaths(_ paths: [String]) -> UpstreamChange {
         let cleaned = paths
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -204,10 +210,7 @@ struct UpdateChecker {
             return .material([Constants.ExternalPacks.manifestFilename])
         }
 
-        var material: [String] = []
-        for path in cleaned where !isNoisePath(path) {
-            material.append(path)
-        }
+        let material = cleaned.filter { !isNoisePath($0) }
         return material.isEmpty ? .suppressed : .material(material)
     }
 
@@ -224,12 +227,19 @@ struct UpdateChecker {
         return false
     }
 
-    /// Orchestrator — runs `git fetch` + `git diff --name-only` in the pack clone
-    /// and feeds the diff into `classifyDiffPaths`. Every error path falls through
-    /// to `.unknown` per the never-hide invariant.
+    /// Orchestrator — runs `git fetch` + `git diff --name-only` in the pack clone and feeds
+    /// the diff into `classifyDiffPaths`.
+    ///
+    /// **Never-hide invariant (orchestrator scope):** within this function, every operational
+    /// failure (missing clone, fetch failure, diff failure) returns `.unknown(reason)` so the
+    /// caller can surface the notification unfiltered. `.suppressed` is reserved for diffs
+    /// successfully classified as all-noise. The earlier `git ls-remote` and SHA-parsing path
+    /// in `checkPackUpdates` is a separate guard — when we can't determine whether there is an
+    /// upstream change at all, the closure exits without producing an outcome (consistent with
+    /// the file-level "Network failures are silently ignored" design goal).
     func classifyUpstreamChange(entry: PackRegistryFile.PackEntry) -> UpstreamChange {
         guard let workDirURL = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
-            return .unknown
+            return .unknown(.missingClone)
         }
         let workDir = workDirURL.path
         let ref = entry.ref ?? "HEAD"
@@ -240,7 +250,7 @@ struct UpdateChecker {
             workingDirectory: workDir,
             additionalEnvironment: Self.gitNoPromptEnv
         )
-        guard fetchResult.succeeded else { return .unknown }
+        guard fetchResult.succeeded else { return .unknown(.fetchFailed) }
 
         let diffResult = shell.run(
             environment.gitPath,
@@ -248,30 +258,27 @@ struct UpdateChecker {
             workingDirectory: workDir,
             additionalEnvironment: Self.gitNoPromptEnv
         )
-        guard diffResult.succeeded else { return .unknown }
+        guard diffResult.succeeded else { return .unknown(.diffFailed) }
 
         let paths = diffResult.stdout.split(separator: "\n").map(String.init)
         return Self.classifyDiffPaths(paths)
     }
 
-    /// Per-iteration result of `checkPackUpdates`: an optional notification to emit
-    /// and an optional registry baseline advance (applied post-loop to serialize writes).
-    private struct PackCheckOutcome {
-        let update: PackUpdate?
-        let advance: SHAAdvance?
-    }
-
-    private struct SHAAdvance {
-        let identifier: String
-        let newSHA: String
+    /// Per-iteration result of `checkPackUpdates`. Sum type — exactly one of:
+    /// surface a notification, OR advance the registry baseline. The unreachable
+    /// "both" state in the prior optional-pair encoding would have produced a
+    /// stuck-update bug (notify + silently advance), so the type rules it out.
+    private enum PackCheckOutcome {
+        case emit(PackUpdate)
+        case advance(identifier: String, newSHA: String)
     }
 
     /// Check each git pack for remote updates via `git ls-remote`.
     /// Local packs are skipped. Checks run in parallel. Network failures are silently ignored per-pack.
     ///
-    /// When a remote SHA differs, runs a noise filter (`classifyUpstreamChange`) that may
+    /// When a remote SHA differs, runs the noise filter (`classifyUpstreamChange`) which may
     /// suppress the notification for README/CI/infra-only commits and advance the registry
-    /// baseline so the same commits don't re-trigger (issue #338).
+    /// baseline so the same commits don't re-trigger.
     func checkPackUpdates(entries: [PackRegistryFile.PackEntry]) -> [PackUpdate] {
         let gitEntries = entries.filter { !$0.isLocalPack }
         guard !gitEntries.isEmpty else { return [] }
@@ -305,28 +312,38 @@ struct UpdateChecker {
 
             switch classifyUpstreamChange(entry: entry) {
             case .suppressed:
-                results[index] = PackCheckOutcome(
-                    update: nil,
-                    advance: SHAAdvance(identifier: entry.identifier, newSHA: remoteSHA)
-                )
+                results[index] = .advance(identifier: entry.identifier, newSHA: remoteSHA)
             case .material, .unknown:
-                // .unknown → never-hide: surface the notification unfiltered.
-                results[index] = PackCheckOutcome(update: pendingUpdate, advance: nil)
+                results[index] = .emit(pendingUpdate)
             }
         }
 
-        let advances = results.compactMap { $0?.advance }
+        var updates: [PackUpdate] = []
+        var advances: [(identifier: String, newSHA: String)] = []
+        for outcome in results {
+            switch outcome {
+            case nil: continue
+            case let .emit(update): updates.append(update)
+            case let .advance(identifier, newSHA): advances.append((identifier, newSHA))
+            }
+        }
         if !advances.isEmpty {
             applyRegistryAdvances(advances)
         }
-
-        return results.compactMap { $0?.update }
+        return updates
     }
 
     /// Apply collected SHA advances to `registry.yaml` in one load→mutate→save round-trip.
     /// Serializes the writes that were collected from the parallel `concurrentPerform` loop.
-    /// Silent on failure: next check will re-classify (same pattern as `saveCache`).
-    private func applyRegistryAdvances(_ advances: [SHAAdvance]) {
+    ///
+    /// Failures are non-fatal: the registry stays at the old commit SHA, so the next check
+    /// re-runs the classifier on the same paths and either suppresses again (and re-attempts
+    /// the write) or surfaces the notification. We deliberately avoid `output.warn` here
+    /// because this runs inside the SessionStart hook path where the file-level "non-intrusive
+    /// checks" design goal precludes user-facing noise. To keep the failure mode visible during
+    /// development, we emit to stderr only when the `MCS_DEBUG` env var is set — production
+    /// runs stay silent.
+    private func applyRegistryAdvances(_ advances: [(identifier: String, newSHA: String)]) {
         let registry = PackRegistryFile(path: environment.packsRegistry)
         do {
             var data = try registry.load()
@@ -336,6 +353,10 @@ struct UpdateChecker {
             }
             try registry.save(data)
         } catch {
+            if ProcessInfo.processInfo.environment["MCS_DEBUG"] != nil {
+                let message = "mcs: registry advance write failed: \(error.localizedDescription)\n"
+                FileHandle.standardError.write(Data(message.utf8))
+            }
             // Registry write failure is non-fatal — next check will classify again.
         }
     }

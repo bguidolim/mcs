@@ -19,10 +19,22 @@ enum PackHeuristics {
         findings += checkEmptyPack(manifest: manifest)
         findings += checkRootSourceCopy(components: components)
         findings += checkSettingsFileSources(components: components, packPath: packPath)
-        findings += checkUnreferencedFiles(manifest: manifest, packPath: packPath)
-        findings += checkRootLevelContentFiles(manifest: manifest, packPath: packPath)
+        let unreferenced = checkUnreferencedFiles(manifest: manifest, packPath: packPath)
+            + checkRootLevelContentFiles(manifest: manifest, packPath: packPath)
+        findings += unreferenced
         findings += checkMCPDependencyGaps(components: components)
         findings += checkPythonModulePaths(components: components, packPath: packPath)
+
+        // Issue #338 Phase 3: when unreferenced-file warnings are present, point authors at
+        // the `ignore:` field so they can silence intentional non-material paths (docs/, examples/,
+        // assets) once and quiet both `mcs pack validate` and downstream update notifications.
+        if unreferenced.contains(where: { $0.severity == .warning && $0.message.contains("not referenced") }) {
+            findings.append(Finding(
+                severity: .warning,
+                message: "Add intentional non-material paths (docs/, examples/, assets) to the"
+                    + " `ignore:` field in techpack.yaml to silence these warnings."
+            ))
+        }
 
         return findings
     }

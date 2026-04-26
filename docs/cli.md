@@ -106,6 +106,8 @@ mcs pack validate ios            # Validate an installed pack by identifier
 
 Structural errors always cause exit code 1 and stop further analysis. Heuristic errors also cause exit code 1. Warnings are advisory and do not affect the exit code.
 
+When unreferenced-file warnings appear, the command also emits a remediation hint pointing authors at the manifest's `ignore:` field (see [Schema Reference](techpack-schema.md#the-ignore-field)) — adding intentional non-material paths there silences both the validation warnings and downstream `mcs check-updates` notifications for commits limited to those paths.
+
 ## `mcs doctor`
 
 Diagnose installation health with multi-layer checks.

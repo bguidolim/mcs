@@ -811,4 +811,88 @@ struct PackHeuristicsTests {
         let manifest = minimalManifest()
         #expect(!PackHeuristics.isIgnoredByManifest("docs/guide.md", manifest: manifest))
     }
+
+    // MARK: - ignore: remediation hint (issue #338 Phase 3)
+
+    @Test("Unreferenced files trigger the ignore: remediation hint")
+    func unreferencedFilesEmitHint() throws {
+        let tmpDir = try makeTmpDir(label: "heuristics-hint")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let docsDir = tmpDir.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: docsDir, withIntermediateDirectories: true)
+        try "# Guide".write(
+            to: docsDir.appendingPathComponent("guide.md"),
+            atomically: true, encoding: .utf8
+        )
+
+        let manifest = minimalManifest(components: [
+            ExternalComponentDefinition(
+                id: "test-pack.brew",
+                displayName: "Brew",
+                description: "package",
+                type: .brewPackage,
+                installAction: .brewInstall(package: "git")
+            ),
+        ])
+        let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
+        #expect(findings.contains { $0.message.contains("Add intentional non-material paths") })
+    }
+
+    @Test("No unreferenced files → no remediation hint")
+    func noUnreferencedFilesNoHint() throws {
+        let tmpDir = try makeTmpDir(label: "heuristics-no-hint")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Only the techpack.yaml-equivalent root content; no extra files.
+        let manifest = minimalManifest(components: [
+            ExternalComponentDefinition(
+                id: "test-pack.brew",
+                displayName: "Brew",
+                description: "package",
+                type: .brewPackage,
+                installAction: .brewInstall(package: "git")
+            ),
+        ])
+        let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
+        #expect(!findings.contains { $0.message.contains("Add intentional non-material paths") })
+    }
+
+    @Test("ignore: silencing all unreferenced files removes the hint")
+    func ignoreSilencesHint() throws {
+        let tmpDir = try makeTmpDir(label: "heuristics-hint-ignored")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let docsDir = tmpDir.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: docsDir, withIntermediateDirectories: true)
+        try "# Guide".write(
+            to: docsDir.appendingPathComponent("guide.md"),
+            atomically: true, encoding: .utf8
+        )
+
+        let manifest = ExternalPackManifest(
+            schemaVersion: 1,
+            identifier: "test-pack",
+            displayName: "Test Pack",
+            description: "test",
+            author: nil,
+            minMCSVersion: nil,
+            components: [
+                ExternalComponentDefinition(
+                    id: "test-pack.brew",
+                    displayName: "Brew",
+                    description: "package",
+                    type: .brewPackage,
+                    installAction: .brewInstall(package: "git")
+                ),
+            ],
+            templates: nil,
+            prompts: nil,
+            configureProject: nil,
+            supplementaryDoctorChecks: nil,
+            ignore: ["docs/"]
+        )
+        let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
+        #expect(!findings.contains { $0.message.contains("Add intentional non-material paths") })
+    }
 }

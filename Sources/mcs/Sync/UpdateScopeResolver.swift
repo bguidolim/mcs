@@ -10,67 +10,81 @@ struct UpdateScopeResolver {
     let environment: Environment
     let output: CLIOutput
 
+    enum Scope {
+        case global
+        case project(URL)
+
+        var isGlobal: Bool {
+            if case .global = self { true } else { false }
+        }
+
+        var projectPath: URL? {
+            if case let .project(url) = self { url } else { nil }
+        }
+    }
+
     struct ScopeRun {
-        let label: String
+        let scope: Scope
         let strategy: any SyncStrategy
         let configuredPackIDs: Set<String>
         let excludedComponents: [String: Set<String>]
-        let isGlobal: Bool
-        /// The project root path. `nil` for the global scope.
-        let projectPath: URL?
+
+        var isGlobal: Bool {
+            scope.isGlobal
+        }
+
+        var projectPath: URL? {
+            scope.projectPath
+        }
+
+        var label: String {
+            switch scope {
+            case .global: "Global"
+            case let .project(url): "Project: \(url.path)"
+            }
+        }
     }
 
     enum Filter {
-        case all
+        case currentScopes
         case globalOnly
         case projectOnly
         case everywhere
     }
 
     func resolve(filter: Filter, projectRoot: URL?, dryRun: Bool = false) throws -> [ScopeRun] {
-        let indexFile = ProjectIndex(path: environment.projectsIndexFile)
-        var indexData = try indexFile.load()
-
-        let pruned = indexFile.pruneStale(in: &indexData)
-        if !pruned.isEmpty {
-            output.dimmed("Pruned \(pruned.count) stale project entries from index.")
-            if !dryRun {
-                try indexFile.save(indexData)
-            }
-        }
-
         var runs: [ScopeRun] = []
+
+        if filter == .everywhere {
+            try pruneStaleIndexEntries(dryRun: dryRun)
+        }
 
         if filter != .projectOnly,
            let run = try buildRun(
-               strategy: GlobalSyncStrategy(environment: environment),
-               label: "Global (\(environment.claudeDirectory.path))",
-               isGlobal: true,
-               projectPath: nil
+               scope: .global,
+               strategy: GlobalSyncStrategy(environment: environment)
            ) {
             runs.append(run)
         }
 
         switch filter {
         case .everywhere:
+            let indexFile = ProjectIndex(path: environment.projectsIndexFile)
+            let indexData = try indexFile.load()
             for entry in indexData.projects {
                 guard let projectURL = entry.url?.standardizedFileURL else { continue }
                 if let run = try buildRun(
-                    strategy: ProjectSyncStrategy(projectPath: projectURL, environment: environment),
-                    label: "Project: \(entry.path)",
-                    isGlobal: false,
-                    projectPath: projectURL
+                    scope: .project(projectURL),
+                    strategy: ProjectSyncStrategy(projectPath: projectURL, environment: environment)
                 ) {
                     runs.append(run)
                 }
             }
-        case .all, .projectOnly:
+        case .currentScopes, .projectOnly:
             if let projectRoot,
                let run = try buildRun(
-                   strategy: ProjectSyncStrategy(projectPath: projectRoot, environment: environment),
-                   label: "Project (\(projectRoot.lastPathComponent))",
-                   isGlobal: false,
-                   projectPath: projectRoot
+                   scope: .project(projectRoot),
+                   strategy: ProjectSyncStrategy(projectPath: projectRoot, environment: environment)
                ) {
                 runs.append(run)
             }
@@ -81,23 +95,29 @@ struct UpdateScopeResolver {
         return runs
     }
 
-    private func buildRun(
-        strategy: any SyncStrategy,
-        label: String,
-        isGlobal: Bool,
-        projectPath: URL?
-    ) throws -> ScopeRun? {
+    private func buildRun(scope: Scope, strategy: any SyncStrategy) throws -> ScopeRun? {
         let state = try ProjectState(stateFile: strategy.scope.stateFile)
         let configured = state.configuredPacks
         guard !configured.isEmpty else { return nil }
 
         return ScopeRun(
-            label: label,
+            scope: scope,
             strategy: strategy,
             configuredPackIDs: configured,
-            excludedComponents: state.allExcludedComponents,
-            isGlobal: isGlobal,
-            projectPath: projectPath
+            excludedComponents: state.allExcludedComponents
         )
+    }
+
+    private func pruneStaleIndexEntries(dryRun: Bool) throws {
+        let indexFile = ProjectIndex(path: environment.projectsIndexFile)
+        var indexData = try indexFile.load()
+
+        let pruned = indexFile.pruneStale(in: &indexData)
+        guard !pruned.isEmpty else { return }
+
+        output.dimmed("Pruned \(pruned.count) stale project entries from index.")
+        if !dryRun {
+            try indexFile.save(indexData)
+        }
     }
 }

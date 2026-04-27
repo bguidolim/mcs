@@ -22,7 +22,6 @@ struct PackRegistryFile {
             isLocal ?? false
         }
 
-        /// 7-character short prefix of the commit SHA for display.
         var shortSHA: String {
             String(commitSHA.prefix(7))
         }

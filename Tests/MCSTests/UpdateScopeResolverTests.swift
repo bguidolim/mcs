@@ -60,7 +60,7 @@ struct UpdateScopeResolverTests {
         let env = Environment(home: home)
 
         let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
-        let runs = try resolver.resolve(filter: .all, projectRoot: nil)
+        let runs = try resolver.resolve(filter: .currentScopes, projectRoot: nil)
         #expect(runs.isEmpty)
     }
 
@@ -70,7 +70,7 @@ struct UpdateScopeResolverTests {
         defer { try? FileManager.default.removeItem(at: home) }
 
         let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
-        let runs = try resolver.resolve(filter: .all, projectRoot: nil)
+        let runs = try resolver.resolve(filter: .currentScopes, projectRoot: nil)
         #expect(runs.count == 1)
         #expect(runs[0].isGlobal)
         #expect(runs[0].configuredPackIDs == ["pack-a"])
@@ -85,7 +85,7 @@ struct UpdateScopeResolverTests {
         defer { try? FileManager.default.removeItem(at: home) }
 
         let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
-        let runs = try resolver.resolve(filter: .all, projectRoot: project)
+        let runs = try resolver.resolve(filter: .currentScopes, projectRoot: project)
         #expect(runs.count == 2)
         #expect(runs[0].isGlobal)
         #expect(runs[0].configuredPackIDs == ["pack-a"])
@@ -129,7 +129,7 @@ struct UpdateScopeResolverTests {
         defer { try? FileManager.default.removeItem(at: home) }
 
         let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
-        let runs = try resolver.resolve(filter: .all, projectRoot: project)
+        let runs = try resolver.resolve(filter: .currentScopes, projectRoot: project)
         #expect(runs.count == 1)
         #expect(runs[0].isGlobal)
     }
@@ -173,7 +173,7 @@ struct UpdateScopeResolverTests {
         #expect(projectRunPaths == [projectA.standardizedFileURL.path, projectB.standardizedFileURL.path])
     }
 
-    @Test("Stale project entries are pruned from the index")
+    @Test("Stale project entries are pruned from the index under .everywhere")
     func staleEntriesPruned() throws {
         let home = try makeGlobalTmpDir(label: "update-resolver-stale")
         defer { try? FileManager.default.removeItem(at: home) }
@@ -189,14 +189,14 @@ struct UpdateScopeResolverTests {
         try indexFile.save(indexData)
 
         let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
-        let runs = try resolver.resolve(filter: .all, projectRoot: nil)
+        let runs = try resolver.resolve(filter: .everywhere, projectRoot: nil)
         #expect(runs.isEmpty)
 
         let reloaded = try indexFile.load()
         #expect(reloaded.projects.isEmpty)
     }
 
-    @Test("Dry-run resolve does not rewrite the pruned index to disk")
+    @Test("Dry-run .everywhere does not rewrite the pruned index to disk")
     func dryRunDoesNotPruneOnDisk() throws {
         let home = try makeGlobalTmpDir(label: "update-resolver-stale-dry")
         defer { try? FileManager.default.removeItem(at: home) }
@@ -209,8 +209,28 @@ struct UpdateScopeResolverTests {
         try indexFile.save(indexData)
 
         let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
-        let runs = try resolver.resolve(filter: .all, projectRoot: nil, dryRun: true)
+        let runs = try resolver.resolve(filter: .everywhere, projectRoot: nil, dryRun: true)
         #expect(runs.isEmpty)
+
+        let reloaded = try indexFile.load()
+        #expect(reloaded.projects.count == 1)
+        #expect(reloaded.projects.first?.path == stalePath)
+    }
+
+    @Test("Non-everywhere filters do not prune the index")
+    func currentScopesDoesNotPrune() throws {
+        let home = try makeGlobalTmpDir(label: "update-resolver-no-prune")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let env = Environment(home: home)
+
+        let stalePath = "/nonexistent/path/to/project"
+        var indexData = ProjectIndex.IndexData()
+        let indexFile = ProjectIndex(path: env.projectsIndexFile)
+        indexFile.upsert(projectPath: stalePath, packIDs: ["pack-x"], in: &indexData)
+        try indexFile.save(indexData)
+
+        let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
+        _ = try resolver.resolve(filter: .currentScopes, projectRoot: nil)
 
         let reloaded = try indexFile.load()
         #expect(reloaded.projects.count == 1)
@@ -228,7 +248,7 @@ struct UpdateScopeResolverTests {
         try globalState.save()
 
         let resolver = UpdateScopeResolver(environment: env, output: CLIOutput(colorsEnabled: false))
-        let runs = try resolver.resolve(filter: .all, projectRoot: nil)
+        let runs = try resolver.resolve(filter: .currentScopes, projectRoot: nil)
         #expect(runs.count == 1)
         #expect(runs[0].isGlobal)
         #expect(runs[0].configuredPackIDs == ["pack-a"])

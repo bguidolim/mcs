@@ -1,10 +1,8 @@
 import ArgumentParser
 import Foundation
 
-/// Refresh-only orchestration: fetch latest pack contents (with trust verification),
-/// then re-apply the existing configured set in both the global scope and the current
-/// project's scope. Does not add or remove packs (use `mcs sync`). Lockfile writes are
-/// gated by `generate-lockfile`, unlike `mcs sync --update` which force-writes.
+/// Refresh-only orchestration. Lockfile writes are gated by `generate-lockfile`,
+/// unlike `mcs sync --update` which force-writes regardless of config.
 struct UpdateCommand: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "update",
@@ -58,14 +56,12 @@ struct UpdateCommand: LockedCommand {
 
         warnIfProjectScopeMissing(filter: filter, projectRoot: projectRoot, runs: runs, output: output)
 
-        let configuredAcrossScopes = runs.reduce(into: Set<String>()) {
-            $0.formUnion($1.configuredPackIDs)
-        }
+        let configuredAcrossScopes = Set(runs.flatMap(\.configuredPackIDs))
 
         let registryFile = PackRegistryFile(path: env.packsRegistry)
         let registryData = try registryFile.load()
 
-        let (updatedRegistryData, anyUpdated, skippedPackIDs) = try runUpdatePhase(
+        let (updatedRegistryData, updates, skippedPackIDs) = runUpdatePhase(
             packIDsToUpdate: configuredAcrossScopes,
             registryFile: registryFile,
             registryData: registryData,
@@ -74,16 +70,19 @@ struct UpdateCommand: LockedCommand {
             output: output
         )
 
-        if !dryRun, anyUpdated {
-            try registryFile.save(updatedRegistryData)
-        }
+        try persistRegistryUpdates(
+            registryFile: registryFile,
+            updatedData: updatedRegistryData,
+            updates: updates,
+            output: output
+        )
 
         let techPackRegistry = TechPackRegistry.loadWithExternalPacks(
             environment: env,
             output: output
         )
 
-        try runReapplyPhase(
+        let reapplyFailures = runReapplyPhase(
             runs: runs,
             skippedPackIDs: skippedPackIDs,
             registry: techPackRegistry,
@@ -92,10 +91,14 @@ struct UpdateCommand: LockedCommand {
             output: output
         )
 
-        try runLockfilePhase(runs: runs, env: env, shell: shell, output: output)
+        let lockfileFailures = runLockfilePhase(runs: runs, env: env, shell: shell, output: output)
 
         if !dryRun {
             UpdateChecker.checkAndPrint(env: env, shell: shell, output: output)
+        }
+
+        if !reapplyFailures.isEmpty || !lockfileFailures.isEmpty {
+            throw ExitCode.failure
         }
     }
 
@@ -125,6 +128,10 @@ struct UpdateCommand: LockedCommand {
             throw ExitCode.failure
         }
 
+        if path != nil, let scope = active.first, scope != .project {
+            output.warn("Positional path argument is ignored under \(scope.rawValue).")
+        }
+
         switch active.first {
         case .allProjects:
             return (.everywhere, nil)
@@ -138,7 +145,7 @@ struct UpdateCommand: LockedCommand {
             }
             return (.projectOnly, root)
         case .none:
-            return (.all, detectProjectRoot())
+            return (.currentScopes, detectProjectRoot())
         }
     }
 
@@ -149,9 +156,21 @@ struct UpdateCommand: LockedCommand {
         guard !dryRun, output.hasInteractiveStdin else { return true }
 
         let projectRuns = runs.filter { !$0.isGlobal }
-        guard !projectRuns.isEmpty else { return true }
+        let hasGlobal = runs.contains(where: \.isGlobal)
+        guard !projectRuns.isEmpty || hasGlobal else { return true }
 
-        output.warn("--all-projects will refresh \(projectRuns.count) project(s):")
+        let scopeSummary = if hasGlobal, !projectRuns.isEmpty {
+            "the global scope plus \(projectRuns.count) project(s)"
+        } else if hasGlobal {
+            "the global scope"
+        } else {
+            "\(projectRuns.count) project(s)"
+        }
+
+        output.warn("--all-projects will refresh \(scopeSummary):")
+        if hasGlobal {
+            output.plain("  • global (\(environment.claudeDirectory.path))")
+        }
         for run in projectRuns {
             if let projectPath = run.projectPath {
                 output.plain("  • \(projectPath.path)")
@@ -164,13 +183,17 @@ struct UpdateCommand: LockedCommand {
         return output.askYesNo("Proceed?", default: false)
     }
 
+    private var environment: Environment {
+        Environment()
+    }
+
     private func warnIfProjectScopeMissing(
         filter: UpdateScopeResolver.Filter,
         projectRoot: URL?,
         runs: [UpdateScopeResolver.ScopeRun],
         output: CLIOutput
     ) {
-        guard filter == .all else { return }
+        guard filter == .currentScopes else { return }
         guard !runs.contains(where: { !$0.isGlobal }) else { return }
 
         if let projectRoot {
@@ -194,6 +217,14 @@ struct UpdateCommand: LockedCommand {
         ProjectDetector.findProjectRoot(from: targetPath)
     }
 
+    /// Per-pack update results from `runUpdatePhase`. Buffered so success messages
+    /// don't print before the registry save persists them.
+    private struct UpdateRecord {
+        let displayName: String
+        let priorSHA: String
+        let newSHA: String
+    }
+
     private func runUpdatePhase(
         packIDsToUpdate: Set<String>,
         registryFile: PackRegistryFile,
@@ -201,13 +232,13 @@ struct UpdateCommand: LockedCommand {
         env: Environment,
         shell: ShellRunner,
         output: CLIOutput
-    ) throws -> (data: PackRegistryFile.RegistryData, anyUpdated: Bool, skipped: Set<String>) {
+    ) -> (data: PackRegistryFile.RegistryData, updates: [UpdateRecord], skipped: Set<String>) {
         var updatedData = registryData
-        var anyUpdated = false
+        var updates: [UpdateRecord] = []
         var skipped: Set<String> = []
 
         let entries = registryData.packs.filter { packIDsToUpdate.contains($0.identifier) }
-        guard !entries.isEmpty else { return (updatedData, anyUpdated, skipped) }
+        guard !entries.isEmpty else { return (updatedData, updates, skipped) }
 
         output.header("Updating packs")
 
@@ -215,7 +246,7 @@ struct UpdateCommand: LockedCommand {
             for entry in entries {
                 output.dimmed("  \(entry.displayName): would check for updates")
             }
-            return (updatedData, anyUpdated, skipped)
+            return (updatedData, updates, skipped)
         }
 
         let updater = PackUpdater(
@@ -243,17 +274,48 @@ struct UpdateCommand: LockedCommand {
                 output.dimmed("  \(entry.displayName): already up to date")
             case let .updated(updatedEntry):
                 registryFile.register(updatedEntry, in: &updatedData)
-                anyUpdated = true
-                output.success("  \(entry.displayName): \(entry.shortSHA) → \(updatedEntry.shortSHA)")
+                updates.append(UpdateRecord(
+                    displayName: entry.displayName,
+                    priorSHA: entry.shortSHA,
+                    newSHA: updatedEntry.shortSHA
+                ))
             case let .skipped(reason):
                 output.warn("  \(entry.identifier): \(reason) (will re-prompt on next 'mcs update')")
                 skipped.insert(entry.identifier)
             }
         }
 
-        return (updatedData, anyUpdated, skipped)
+        return (updatedData, updates, skipped)
     }
 
+    /// Save the updated registry, then emit success messages for each persisted update.
+    /// If save fails, the user gets a single clear error and the success messages never print.
+    private func persistRegistryUpdates(
+        registryFile: PackRegistryFile,
+        updatedData: PackRegistryFile.RegistryData,
+        updates: [UpdateRecord],
+        output: CLIOutput
+    ) throws {
+        guard !dryRun, !updates.isEmpty else { return }
+
+        do {
+            try registryFile.save(updatedData)
+        } catch {
+            output.error("Registry save failed — pack updates listed below were NOT persisted:")
+            for update in updates {
+                output.plain("  • \(update.displayName) (\(update.priorSHA) → \(update.newSHA))")
+            }
+            output.error(error.localizedDescription)
+            throw ExitCode.failure
+        }
+
+        for update in updates {
+            output.success("  \(update.displayName): \(update.priorSHA) → \(update.newSHA)")
+        }
+    }
+
+    /// Re-apply each scope, capturing per-scope failures so one bad scope does not abort the rest.
+    /// Returns the labels of scopes that failed; the caller exits non-zero if any did.
     private func runReapplyPhase(
         runs: [UpdateScopeResolver.ScopeRun],
         skippedPackIDs: Set<String>,
@@ -261,7 +323,9 @@ struct UpdateCommand: LockedCommand {
         env: Environment,
         shell: ShellRunner,
         output: CLIOutput
-    ) throws {
+    ) -> [String] {
+        var failures: [String] = []
+
         for run in runs {
             output.header(run.label)
 
@@ -294,38 +358,55 @@ struct UpdateCommand: LockedCommand {
                 strategy: run.strategy
             )
 
-            if dryRun {
-                try configurator.dryRun(packs: packs)
-            } else {
-                try configurator.configure(
-                    packs: packs,
-                    confirmRemovals: false,
-                    excludedComponents: run.excludedComponents,
-                    reusePriorValuesSilently: true
-                )
+            do {
+                if dryRun {
+                    try configurator.dryRun(packs: packs)
+                } else {
+                    try configurator.configure(
+                        packs: packs,
+                        confirmRemovals: false,
+                        excludedComponents: run.excludedComponents,
+                        reusePriorValuesSilently: true
+                    )
+                }
+            } catch {
+                output.error("  \(run.label) failed: \(error.localizedDescription)")
+                failures.append(run.label)
             }
         }
+
+        return failures
     }
 
+    /// Lockfile maintenance is best-effort across projects. `reportDrift` is purely
+    /// diagnostic and a single project's failure must not suppress sibling drift warnings.
     private func runLockfilePhase(
         runs: [UpdateScopeResolver.ScopeRun],
         env: Environment,
         shell: ShellRunner,
         output: CLIOutput
-    ) throws {
-        guard !dryRun else { return }
+    ) -> [String] {
+        guard !dryRun else { return [] }
 
         let config = MCSConfig.load(from: env.mcsConfigFile, output: output)
         let lockOps = LockfileOperations(environment: env, output: output, shell: shell)
+        var failures: [String] = []
 
         for run in runs where !run.isGlobal {
             guard let projectPath = run.projectPath else { continue }
 
-            if config.isLockfileGenerationEnabled {
-                try lockOps.writeLockfile(at: projectPath)
-            } else if config.isLockfileGenerationUnset {
-                try lockOps.reportDrift(at: projectPath)
+            do {
+                if config.isLockfileGenerationEnabled {
+                    try lockOps.writeLockfile(at: projectPath)
+                } else if config.isLockfileGenerationUnset {
+                    try lockOps.reportDrift(at: projectPath)
+                }
+            } catch {
+                output.warn("Lockfile (\(projectPath.path)): \(error.localizedDescription)")
+                failures.append(projectPath.path)
             }
         }
+
+        return failures
     }
 }

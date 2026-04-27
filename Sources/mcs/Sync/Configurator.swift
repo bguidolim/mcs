@@ -179,9 +179,8 @@ struct Configurator {
     ///   Pass `false` for non-interactive paths (`--pack`, `--all`).
     /// - Parameter excludedComponents: Component IDs excluded per pack (packID -> Set<componentID>).
     /// - Parameter reusePriorValuesSilently: When `true`, skip the interactive
-    ///   "Reuse these values?" gate even when stdin is a TTY — used by
-    ///   `mcs update`, where re-asking only makes sense for genuinely new prompts.
-    ///   Existing priors are silently reused; new prompts still execute.
+    ///   "Reuse these values?" gate even on a TTY and silently reuse stored answers.
+    ///   New prompts still execute.
     func configure(
         packs: [any TechPack],
         confirmRemovals: Bool = true,
@@ -721,8 +720,8 @@ struct Configurator {
     /// added since last sync reuses old values and prompts only for the new ones.
     /// Interactive with only reusable prompts shows the key list (values masked —
     /// prompts often hold secrets) and gates on a single Y/n.
-    /// `reusePriorValuesSilently` (set by `mcs update`) collapses the interactive-only
-    /// branches into the same silent-reuse path used for non-interactive runs.
+    /// `reusePriorValuesSilently` collapses the interactive-only branches into the
+    /// same silent-reuse path used for non-interactive runs.
     private func decideSeedStrategy(
         reusableValues: [String: String],
         newDeclaredKeys: Set<String>,

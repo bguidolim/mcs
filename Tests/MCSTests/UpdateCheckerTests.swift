@@ -334,8 +334,8 @@ struct UpdateCheckerOrchestratorTests {
         UpdateChecker(environment: Environment(home: home), shell: mock)
     }
 
-    @Test("fetch + diff succeed with noise → suppressed")
-    func fetchDiffNoiseSuppressed() throws {
+    @Test("nil ref: fetch without ref arg, diff against origin/HEAD (mirrors PackFetcher.update)")
+    func nilRefUsesOriginHEAD() throws {
         let tmpDir = try makeTmpDir(label: "classify")
         defer { try? FileManager.default.removeItem(at: tmpDir) }
         try preparePackDir(home: tmpDir, identifier: "pack-a")
@@ -352,10 +352,11 @@ struct UpdateCheckerOrchestratorTests {
         #expect(result == .suppressed)
         #expect(mock.runCalls.count == 2)
 
-        let expectedWorkDir = tmpDir.appendingPathComponent(".mcs/packs/pack-a").path
-        #expect(mock.runCalls[0].arguments == ["fetch", "--depth", "1", "origin", "HEAD"])
+        let expectedWorkDir = Environment(home: tmpDir).packsDirectory
+            .appendingPathComponent("pack-a").path
+        #expect(mock.runCalls[0].arguments == ["fetch", "--depth", "1", "origin"])
         #expect(mock.runCalls[0].workingDirectory == expectedWorkDir)
-        #expect(mock.runCalls[1].arguments == ["diff", "--name-only", "HEAD", "FETCH_HEAD"])
+        #expect(mock.runCalls[1].arguments == ["diff", "--name-only", "HEAD", "origin/HEAD"])
         #expect(mock.runCalls[1].workingDirectory == expectedWorkDir)
     }
 
@@ -377,7 +378,7 @@ struct UpdateCheckerOrchestratorTests {
         #expect(result == .material(["hooks/session-start.sh"]))
     }
 
-    @Test("Custom entry.ref propagates through fetch arguments")
+    @Test("Custom entry.ref propagates through fetch + diff against FETCH_HEAD")
     func customRefPropagates() throws {
         let tmpDir = try makeTmpDir(label: "classify")
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -393,6 +394,21 @@ struct UpdateCheckerOrchestratorTests {
         _ = checker.classifyUpstreamChange(entry: makeEntry(ref: "v2.0"))
 
         #expect(mock.runCalls[0].arguments == ["fetch", "--depth", "1", "origin", "v2.0"])
+        #expect(mock.runCalls[1].arguments == ["diff", "--name-only", "HEAD", "FETCH_HEAD"])
+    }
+
+    @Test("Invalid entry.ref (argument injection) → .unknown(.fetchFailed); no git invocation")
+    func invalidRefRejected() throws {
+        let tmpDir = try makeTmpDir(label: "classify")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        try preparePackDir(home: tmpDir, identifier: "pack-a")
+
+        let mock = MockShellRunner(environment: Environment(home: tmpDir))
+        let checker = makeChecker(home: tmpDir, mock: mock)
+        let result = checker.classifyUpstreamChange(entry: makeEntry(ref: "-rf"))
+
+        #expect(result == .unknown(.fetchFailed))
+        #expect(mock.runCalls.isEmpty, "Refs starting with `-` must never reach git")
     }
 
     @Test("resolvedPath nil (containment escape) → .unknown(.missingClone)")
@@ -578,6 +594,35 @@ struct UpdateCheckerPackUpdatesTests {
         #expect(mock.runCalls.count == 1)
     }
 
+    @Test("Invalid registry ref → pack silently skipped (no ls-remote, no notification)")
+    func invalidRegistryRefSkipped() throws {
+        let tmpDir = try makeTmpDir(label: "checkPackUpdates")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        try preparePackDir(home: tmpDir, identifier: "pack-a")
+
+        let env = Environment(home: tmpDir)
+        // ref = "-rf" simulates registry corruption — would be argument injection if passed to git.
+        let entry = PackRegistryFile.PackEntry(
+            identifier: "pack-a",
+            displayName: "pack-a",
+            author: nil,
+            sourceURL: "https://example.com/pack-a.git",
+            ref: "-rf",
+            commitSHA: "old123",
+            localPath: "pack-a",
+            addedAt: "2026-01-01T00:00:00Z",
+            trustedScriptHashes: [:],
+            isLocal: nil
+        )
+        try writeRegistry(at: env, entries: [entry])
+
+        let mock = MockShellRunner(environment: env)
+        let updates = UpdateChecker(environment: env, shell: mock).checkPackUpdates(entries: [entry])
+
+        #expect(updates.isEmpty)
+        #expect(mock.runCalls.isEmpty, "Invalid ref must never invoke git, even ls-remote")
+    }
+
     @Test("Local packs are filtered out before any git invocation")
     func localPacksSkippedFromGitChecks() throws {
         let tmpDir = try makeTmpDir(label: "checkPackUpdates")
@@ -619,9 +664,6 @@ struct UpdateCheckerPackUpdatesTests {
         }
         try writeRegistry(at: env, entries: entries)
 
-        // Argument-keyed dispatch — `concurrentPerform` order is non-deterministic, so positional
-        // queues would race. Each ls-remote / fetch / diff returns the same canned response
-        // regardless of which iteration emitted it.
         let mock = MockShellRunner(environment: env)
         mock.runResultsByFirstArg = [
             "ls-remote": ShellResult(exitCode: 0, stdout: "shared-new-sha\tHEAD\n", stderr: ""),
@@ -752,6 +794,24 @@ struct UpdateCheckerParsingTests {
         """
         let sha = UpdateChecker.parseRemoteSHA(from: output)
         #expect(sha == "abc123")
+    }
+
+    @Test("parseRemoteSHA prefers the peeled ^{} commit for annotated tags")
+    func parsePrefersPeeledTag() {
+        // Annotated tag: first line is the tag-object SHA, second is the peeled commit.
+        // The peeled commit is what `rev-parse HEAD` would resolve to after a checkout —
+        // writing the tag-object SHA into registry.yaml would desync the registry.
+        let output = """
+        tagobj11111111\trefs/tags/v1.0
+        commit22222222\trefs/tags/v1.0^{}
+        """
+        #expect(UpdateChecker.parseRemoteSHA(from: output) == "commit22222222")
+    }
+
+    @Test("parseRemoteSHA returns first SHA when no peeled line is present (lightweight tag / branch)")
+    func parseFirstSHAWhenNoPeeled() {
+        let output = "abc123def\trefs/heads/main"
+        #expect(UpdateChecker.parseRemoteSHA(from: output) == "abc123def")
     }
 
     @Test("parseLatestTag finds the highest CalVer tag")

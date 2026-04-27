@@ -72,6 +72,14 @@ struct Environment {
         mcsDirectory.appendingPathComponent(Constants.ExternalPacks.packsDirectory)
     }
 
+    /// Whether the `MCS_DEBUG` env var is set. Used to gate developer-facing diagnostic
+    /// emits (e.g. stderr writes for non-fatal failures that would otherwise be silent).
+    /// Production runs are unaffected; CI and developer shells can opt in by exporting
+    /// `MCS_DEBUG=1`.
+    static var isDebugMode: Bool {
+        ProcessInfo.processInfo.environment["MCS_DEBUG"] != nil
+    }
+
     /// YAML registry of installed external packs (`~/.mcs/registry.yaml`).
     var packsRegistry: URL {
         mcsDirectory.appendingPathComponent(Constants.ExternalPacks.registryFilename)

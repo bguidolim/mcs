@@ -81,33 +81,28 @@ final class MockShellRunner: ShellRunning, @unchecked Sendable {
 
     let environment: Environment
 
-    /// Lock around all mutable state. The mock is `@unchecked Sendable` and is invoked
-    /// from `DispatchQueue.concurrentPerform` in `UpdateChecker.checkPackUpdates`, where
-    /// multiple threads race on `runResults.removeFirst()` and `runCalls.append(...)`.
-    /// The lock keeps both the queue and the call-recording array internally consistent.
+    /// Mock is `@unchecked Sendable` and may be called concurrently from
+    /// `DispatchQueue.concurrentPerform`; the lock makes the queue and call arrays consistent.
     private let lock = NSLock()
 
     var runCalls: [RunCall] = []
     var shellCalls: [ShellCall] = []
     var commandExistsCalls: [String] = []
 
-    /// Result returned from `run()` and `shell()`. Defaults to success.
+    /// Default result when neither queue below produces a value.
+    /// Dispatch precedence in `run()`: `runResultsByFirstArg[arguments.first]` →
+    /// `runResults.removeFirst()` → `result`.
     var result = ShellResult(exitCode: 0, stdout: "", stderr: "")
 
-    /// Sequential results for `run()`: pops first element when non-empty, falls back to `result`.
-    /// Positional ordering — only safe for tests where shell calls happen in a known order.
-    /// For parallel tests where `concurrentPerform` may interleave calls, use
-    /// `runResultsByFirstArg` instead (order-free, argument-keyed dispatch).
+    /// Positional queue for `run()`. Only safe for sequential call orders.
     var runResults: [ShellResult] = []
 
-    /// Argument-keyed dispatch for `run()`. When `arguments.first` matches a key here,
-    /// the mapped result is returned without consuming from `runResults`. Designed for
-    /// tests that exercise `DispatchQueue.concurrentPerform` paths where positional
-    /// ordering is non-deterministic — every ls-remote / fetch / diff call returns the
-    /// same canned response regardless of which iteration emitted it.
+    /// Argument-keyed dispatch for `run()`, keyed on `arguments.first`. Use this for tests
+    /// where `concurrentPerform` interleaves calls — every matching call returns the same
+    /// canned response regardless of order.
     var runResultsByFirstArg: [String: ShellResult] = [:]
 
-    /// Sequential results for `shell()`: pops first element when non-empty, falls back to `result`.
+    /// Positional queue for `shell()`. Same precedence model as `runResults`.
     var shellResults: [ShellResult] = []
 
     /// Controls what `commandExists()` returns. Defaults to `true`.
@@ -330,12 +325,12 @@ func makeLocalRegistryEntry(
     )
 }
 
-/// Create the on-disk pack clone directory at `<home>/.mcs/packs/<identifier>/` so
-/// `PackEntry.resolvedPath(packsDirectory:)` succeeds and the path-containment check
-/// inside it doesn't fail. The directory is empty — tests that mock the shell don't
-/// need a real git checkout, only a valid working directory to pass to git invocations.
+/// Create the on-disk pack clone directory under `Environment(home:).packsDirectory` so
+/// `PackEntry.resolvedPath(packsDirectory:)` resolves and `PathContainment.safePath` allows
+/// it. The directory is empty — tests that mock the shell don't need a real git checkout,
+/// only a valid working directory to pass to git invocations.
 func preparePackDir(home: URL, identifier: String) throws {
-    let dir = home.appendingPathComponent(".mcs/packs/\(identifier)")
+    let dir = Environment(home: home).packsDirectory.appendingPathComponent(identifier)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 }
 

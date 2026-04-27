@@ -237,16 +237,35 @@ struct UpdateChecker {
     /// in `checkPackUpdates` is a separate guard — when we can't determine whether there is an
     /// upstream change at all, the closure exits without producing an outcome (consistent with
     /// the file-level "Network failures are silently ignored" design goal).
+    ///
+    /// Mirrors `PackFetcher.update` for the fetch shape: when `entry.ref == nil`, fetch without
+    /// a ref arg and diff against `origin/HEAD` (more reliable across git servers than passing
+    /// `HEAD` as a positional ref). When `entry.ref` is set, fetch that ref explicitly and diff
+    /// against `FETCH_HEAD`.
     func classifyUpstreamChange(entry: PackRegistryFile.PackEntry) -> UpstreamChange {
         guard let workDirURL = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
             return .unknown(.missingClone)
         }
         let workDir = workDirURL.path
-        let ref = entry.ref ?? "HEAD"
+
+        let fetchArgs: [String]
+        let diffTarget: String
+        if let ref = entry.ref {
+            // Refs are read from `registry.yaml`; if user-edited or corrupted, a ref starting
+            // with `-` would be interpreted as a git option (argument injection). Validate
+            // before invoking git; treat invalid refs as a fetch failure so the never-hide
+            // invariant still surfaces a notification.
+            guard isValidGitRef(ref) else { return .unknown(.fetchFailed) }
+            fetchArgs = ["fetch", "--depth", "1", "origin", ref]
+            diffTarget = "FETCH_HEAD"
+        } else {
+            fetchArgs = ["fetch", "--depth", "1", "origin"]
+            diffTarget = "origin/HEAD"
+        }
 
         let fetchResult = shell.run(
             environment.gitPath,
-            arguments: ["fetch", "--depth", "1", "origin", ref],
+            arguments: fetchArgs,
             workingDirectory: workDir,
             additionalEnvironment: Self.gitNoPromptEnv
         )
@@ -254,7 +273,7 @@ struct UpdateChecker {
 
         let diffResult = shell.run(
             environment.gitPath,
-            arguments: ["diff", "--name-only", "HEAD", "FETCH_HEAD"],
+            arguments: ["diff", "--name-only", "HEAD", diffTarget],
             workingDirectory: workDir,
             additionalEnvironment: Self.gitNoPromptEnv
         )
@@ -289,10 +308,13 @@ struct UpdateChecker {
 
         DispatchQueue.concurrentPerform(iterations: gitEntries.count) { index in
             let entry = gitEntries[index]
-            let ref = entry.ref ?? "HEAD"
+            // Refs are user-controllable via `mcs pack add --ref` and persisted in `registry.yaml`;
+            // a corrupted ref starting with `-` would be interpreted as a git option (argument
+            // injection). Skip the pack silently — same behavior as ls-remote network failures.
+            if let ref = entry.ref, !isValidGitRef(ref) { return }
             let lsRemote = shell.run(
                 environment.gitPath,
-                arguments: ["ls-remote", entry.sourceURL, ref],
+                arguments: ["ls-remote", entry.sourceURL, entry.ref ?? "HEAD"],
                 additionalEnvironment: Self.gitNoPromptEnv
             )
 
@@ -353,7 +375,7 @@ struct UpdateChecker {
             }
             try registry.save(data)
         } catch {
-            if ProcessInfo.processInfo.environment["MCS_DEBUG"] != nil {
+            if Environment.isDebugMode {
                 let message = "mcs: registry advance write failed: \(error.localizedDescription)\n"
                 FileHandle.standardError.write(Data(message.utf8))
             }
@@ -538,15 +560,39 @@ struct UpdateChecker {
 
     // MARK: - Parsing Helpers
 
-    /// Extract the SHA from the first line of `git ls-remote` output.
-    /// Format: `<sha>\t<ref>\n`
+    /// Extract the commit SHA from `git ls-remote` output. Format: `<sha>\t<ref>\n`.
+    ///
+    /// For annotated tags, ls-remote returns the tag-object SHA on the first line and the
+    /// peeled commit SHA on a second line whose ref ends with `^{}`. Prefer the peeled line
+    /// when present so the returned SHA matches what the working tree's `rev-parse HEAD`
+    /// would resolve to — writing a tag-object SHA into `registry.yaml` desyncs the registry
+    /// from the checkout and trips PackUpdater's "disk ahead of registry" recovery path.
     static func parseRemoteSHA(from output: String) -> String? {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let firstLine = trimmed.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? trimmed
-        let sha = firstLine.split(separator: "\t", maxSplits: 1).first.map(String.init)
-        guard let sha, !sha.isEmpty else { return nil }
-        return sha
+
+        var firstSHA: String?
+        for line in trimmed.split(separator: "\n", omittingEmptySubsequences: true) {
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let sha = String(parts[0])
+            let ref = parts[1]
+            guard !sha.isEmpty else { continue }
+            if ref.hasSuffix("^{}") {
+                return sha
+            }
+            if firstSHA == nil {
+                firstSHA = sha
+            }
+        }
+
+        // Fallback for malformed single-line output that has no tab — preserve historical behavior.
+        if firstSHA == nil {
+            let firstLine = trimmed.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? trimmed
+            let sha = firstLine.split(separator: "\t", maxSplits: 1).first.map(String.init) ?? ""
+            return sha.isEmpty ? nil : sha
+        }
+        return firstSHA
     }
 
     /// Find the latest CalVer tag from `git ls-remote --tags --refs` output.

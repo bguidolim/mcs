@@ -155,10 +155,7 @@ struct PackFetcher {
 
     /// Validate that a git ref is safe for use as a command argument.
     func validateRef(_ ref: String) throws {
-        guard !ref.hasPrefix("-"),
-              !ref.contains(".."),
-              ref.range(of: #"^[a-zA-Z0-9._/+-]+$"#, options: .regularExpression) != nil
-        else {
+        guard isValidGitRef(ref) else {
             throw PackFetchError.invalidRef(ref)
         }
     }
@@ -175,6 +172,19 @@ struct PackFetcher {
             try fm.createDirectory(at: packsDirectory, withIntermediateDirectories: true)
         }
     }
+}
+
+// MARK: - Ref validation
+
+/// Predicate form of `PackFetcher.validateRef`. Returns `true` iff `ref` is safe to pass
+/// directly as a positional argument to git: not a `-` option, no `..` range, and limited
+/// to characters git accepts in branch/tag/commit names. Used by callers that want to
+/// silently skip invalid refs (e.g. `UpdateChecker`'s noise filter — registry corruption
+/// shouldn't surface as a git error).
+func isValidGitRef(_ ref: String) -> Bool {
+    !ref.hasPrefix("-")
+        && !ref.contains("..")
+        && ref.range(of: #"^[a-zA-Z0-9._/+-]+$"#, options: .regularExpression) != nil
 }
 
 // MARK: - Errors

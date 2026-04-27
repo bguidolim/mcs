@@ -189,28 +189,44 @@ extension ExternalPackManifest {
         try validateIgnoreEntries()
     }
 
+    /// Why an `ignore:` entry is forbidden. Both `validateIgnoreEntries` (publish-strict)
+    /// and `sanitizedIgnoreEntries` (runtime-lenient) classify entries via this enum so the
+    /// rule list lives in one place.
+    enum IgnoreEntryRejection {
+        case empty
+        case manifestFile
+        case referencedPath
+
+        var reason: String {
+            switch self {
+            case .empty:
+                "empty entries are not allowed"
+            case .manifestFile:
+                "\(Constants.ExternalPacks.manifestFilename) is always tracked — manifest edits can change the install surface"
+            case .referencedPath:
+                "path is referenced by a component or template. Remove it from `ignore:` or remove the component."
+            }
+        }
+    }
+
+    /// Classify a single `ignore:` entry; returns nil if the entry is acceptable.
+    static func classifyIgnoreEntry(
+        _ entry: String,
+        referenced: Set<String>
+    ) -> IgnoreEntryRejection? {
+        let trimmed = entry.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return .empty }
+        if trimmed == Constants.ExternalPacks.manifestFilename { return .manifestFile }
+        if referenced.contains(trimmed) { return .referencedPath }
+        return nil
+    }
+
     private func validateIgnoreEntries() throws {
         guard let ignore, !ignore.isEmpty else { return }
         let referenced = PackHeuristics.referencedPaths(from: self)
         for entry in ignore {
-            let trimmed = entry.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                throw ManifestError.ignoreEntryLoadBearing(
-                    entry: entry,
-                    reason: "empty entries are not allowed"
-                )
-            }
-            if trimmed == Constants.ExternalPacks.manifestFilename {
-                throw ManifestError.ignoreEntryLoadBearing(
-                    entry: entry,
-                    reason: "\(Constants.ExternalPacks.manifestFilename) is always tracked — manifest edits can change the install surface"
-                )
-            }
-            if referenced.contains(trimmed) {
-                throw ManifestError.ignoreEntryLoadBearing(
-                    entry: entry,
-                    reason: "path is referenced by a component or template. Remove it from `ignore:` or remove the component."
-                )
+            if let rejection = Self.classifyIgnoreEntry(entry, referenced: referenced) {
+                throw ManifestError.ignoreEntryLoadBearing(entry: entry, reason: rejection.reason)
             }
         }
     }
@@ -266,24 +282,14 @@ extension ExternalPackManifest {
         let referenced = PackHeuristics.referencedPaths(from: self)
         var kept: [String] = []
         for entry in ignore {
-            let trimmed = entry.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                output.warn("Pack '\(identifier)': dropping empty `ignore:` entry")
-                continue
-            }
-            if trimmed == Constants.ExternalPacks.manifestFilename {
-                let manifest = Constants.ExternalPacks.manifestFilename
-                output.warn(
-                    "Pack '\(identifier)': dropping `ignore:` entry '\(entry)' — \(manifest) is always tracked"
-                )
-                continue
-            }
-            if referenced.contains(trimmed) {
-                output.warn("Pack '\(identifier)': dropping `ignore:` entry '\(entry)' — referenced by a component or template")
+            if let rejection = Self.classifyIgnoreEntry(entry, referenced: referenced) {
+                output.warn("Pack '\(identifier)': dropping `ignore:` entry '\(entry)' — \(rejection.reason)")
                 continue
             }
             kept.append(entry)
         }
+        // Empty and absent collapse to nil so downstream callers (e.g. `isIgnoredByManifest`)
+        // can treat "no ignore list" as a single state.
         return ExternalPackManifest(
             schemaVersion: schemaVersion,
             identifier: identifier,

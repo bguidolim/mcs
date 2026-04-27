@@ -113,9 +113,9 @@ enum PackHeuristics {
     /// Trims whitespace and strips a leading `./` so `ignore:` validation doesn't miss
     /// the same file expressed as `hooks/foo.sh` vs `./hooks/foo.sh` vs ` hooks/foo.sh`.
     private static func normalizeReferencedPath(_ path: String) -> String {
-        var s = path.trimmingCharacters(in: .whitespaces)
-        if s.hasPrefix("./") { s = String(s.dropFirst(2)) }
-        return s
+        var normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.hasPrefix("./") { normalized = String(normalized.dropFirst(2)) }
+        return normalized
     }
 
     private static func checkUnreferencedFiles(

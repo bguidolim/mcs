@@ -220,7 +220,7 @@ extension ExternalPackManifest {
         _ entry: String,
         referenced: Set<String>
     ) -> IgnoreEntryRejection? {
-        let trimmed = entry.trimmingCharacters(in: .whitespaces)
+        let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .empty }
         if GlobMatcher.matches(trimmed, path: Constants.ExternalPacks.manifestFilename) {
             return .manifestFile

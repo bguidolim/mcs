@@ -894,6 +894,49 @@ struct UpdateCheckerIgnoreFieldTests {
         // No-arg call ignores hashes → still hit
         #expect(checker.loadCache() != nil)
     }
+
+    @Test("loadCache invalidates when a pack appears in current but not in cached (pack added)")
+    func cacheInvalidatedOnPackAdded() throws {
+        let tmpDir = try makeTmpDir(label: "ignore-cache-add")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        let cached = UpdateChecker.CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            result: UpdateChecker.CheckResult(packUpdates: [], cliUpdate: nil),
+            perPackIgnoreHash: ["pack-a": "hash-a"]
+        )
+        let dir = env.updateCheckCacheFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONEncoder().encode(cached).write(to: env.updateCheckCacheFile, options: .atomic)
+
+        let checker = UpdateChecker(environment: env, shell: ShellRunner(environment: env))
+
+        // pack-b just got added; cached set is missing it → invalidate
+        #expect(checker.loadCache(currentIgnoreHashes: ["pack-a": "hash-a", "pack-b": "hash-b"]) == nil)
+    }
+
+    @Test("loadCache invalidates when a pack disappears from current (manifest unreadable / removed)")
+    func cacheInvalidatedOnPackDropped() throws {
+        let tmpDir = try makeTmpDir(label: "ignore-cache-drop")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        let cached = UpdateChecker.CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            result: UpdateChecker.CheckResult(packUpdates: [], cliUpdate: nil),
+            perPackIgnoreHash: ["pack-a": "hash-a", "pack-b": "hash-b"]
+        )
+        let dir = env.updateCheckCacheFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONEncoder().encode(cached).write(to: env.updateCheckCacheFile, options: .atomic)
+
+        let checker = UpdateChecker(environment: env, shell: ShellRunner(environment: env))
+
+        // pack-b's manifest is now unreadable → it dropped out of currentIgnoreHashes.
+        // Without bidirectional check, the cache would still serve stale suppression for pack-b.
+        #expect(checker.loadCache(currentIgnoreHashes: ["pack-a": "hash-a"]) == nil)
+    }
 }
 
 // MARK: - Parsing Tests

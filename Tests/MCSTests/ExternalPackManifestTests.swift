@@ -3362,4 +3362,39 @@ struct ExternalPackManifestTests {
         let sanitized = manifest.sanitizedIgnoreEntries(output: CLIOutput())
         #expect(sanitized.ignore == nil)
     }
+
+    @Test("silentlySanitizedIgnoreEntries strips forbidden entries with no warning sink")
+    func silentlySanitizeStripsForbidden() {
+        let component = ExternalComponentDefinition(
+            id: "ignore-pack.hook",
+            displayName: "Hook",
+            description: "Hook script",
+            type: .hookFile,
+            installAction: .copyPackFile(ExternalCopyPackFileConfig(
+                source: "hooks/handler.sh",
+                destination: "handler.sh",
+                fileType: .hook
+            ))
+        )
+        // techpack.yaml AND a referenced source — both forbidden; "docs/" is fine.
+        let manifest = ignoreManifest(
+            ignore: ["docs/", "techpack.yaml", "hooks/handler.sh"],
+            components: [component]
+        )
+        let sanitized = manifest.silentlySanitizedIgnoreEntries()
+        // Forbidden entries dropped, kept entry preserved. No CLIOutput involvement.
+        #expect(sanitized.ignore == ["docs/"])
+    }
+
+    @Test("silentlySanitizedIgnoreEntries on nil ignore: returns nil")
+    func silentlySanitizeNilIsNoop() {
+        let manifest = ignoreManifest(ignore: nil)
+        #expect(manifest.silentlySanitizedIgnoreEntries().ignore == nil)
+    }
+
+    @Test("silentlySanitizedIgnoreEntries collapses an all-forbidden list to nil")
+    func silentlySanitizeAllForbiddenCollapsesToNil() {
+        let manifest = ignoreManifest(ignore: ["techpack.yaml", "  "])
+        #expect(manifest.silentlySanitizedIgnoreEntries().ignore == nil)
+    }
 }

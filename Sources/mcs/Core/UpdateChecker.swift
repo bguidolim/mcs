@@ -138,19 +138,11 @@ struct UpdateChecker {
             return nil
         }
         // Invalidate if any pack's `ignore:` list changed since the cache was written.
-        // A cached suppression could hide updates that authors no longer want silenced,
-        // or a cached notification could persist for commits authors have since ignored.
-        // The compare is bidirectional — a pack present in the cache but absent from the
-        // current set (e.g. its manifest just became unreadable) also invalidates, since
-        // its old hash would otherwise stamp stale suppression onto a now-unknown ignore list.
-        if let currentIgnoreHashes {
-            let cachedHashes = cached.perPackIgnoreHash ?? [:]
-            if Set(cachedHashes.keys) != Set(currentIgnoreHashes.keys) {
-                return nil
-            }
-            for (identifier, hash) in currentIgnoreHashes where cachedHashes[identifier] != hash {
-                return nil
-            }
+        // Dict equality covers both directions: value drift (entry edited) AND key drift
+        // (pack added, removed, or its manifest just became unreadable so it dropped out
+        // of the current set). Either way, stale suppression cannot survive into the next run.
+        if let currentIgnoreHashes, (cached.perPackIgnoreHash ?? [:]) != currentIgnoreHashes {
+            return nil
         }
         return cached
     }
@@ -442,6 +434,10 @@ struct UpdateChecker {
             let normalized = try raw.normalized()
             return normalized.silentlySanitizedIgnoreEntries()
         } catch {
+            if Environment.isDebugMode {
+                let message = "mcs: ignore-check manifest unreadable for '\(entry.identifier)': \(error.localizedDescription)\n"
+                FileHandle.standardError.write(Data(message.utf8))
+            }
             return nil
         }
     }

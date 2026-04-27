@@ -937,6 +937,28 @@ struct UpdateCheckerIgnoreFieldTests {
         // Without bidirectional check, the cache would still serve stale suppression for pack-b.
         #expect(checker.loadCache(currentIgnoreHashes: ["pack-a": "hash-a"]) == nil)
     }
+
+    @Test("loadCache without currentIgnoreHashes ignores pack-hash drift (CLI-only check)")
+    func cacheNotInvalidatedWhenIgnoreHashesNotProvided() throws {
+        let tmpDir = try makeTmpDir(label: "ignore-cache-nil")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let env = Environment(home: tmpDir)
+        let cached = UpdateChecker.CachedResult(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            result: UpdateChecker.CheckResult(packUpdates: [], cliUpdate: nil),
+            perPackIgnoreHash: ["pack-a": "hash-a", "pack-b": "hash-b"]
+        )
+        let dir = env.updateCheckCacheFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONEncoder().encode(cached).write(to: env.updateCheckCacheFile, options: .atomic)
+
+        let checker = UpdateChecker(environment: env, shell: ShellRunner(environment: env))
+
+        // checkPacks=false path passes nil → cooldown for the CLI check is preserved even when
+        // the cache holds prior pack-hashes.
+        #expect(checker.loadCache(currentIgnoreHashes: nil) != nil)
+    }
 }
 
 // MARK: - Parsing Tests

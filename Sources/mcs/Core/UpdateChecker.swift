@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// Checks for available updates to tech packs (via `git ls-remote`)
@@ -540,9 +539,14 @@ struct UpdateChecker {
         let manifests = checkPacks ? loadManifestsForIgnoreCheck(entries: entries) : [:]
         let ignoreHashes = checkPacks ? Self.ignoreHashes(manifests: manifests) : [:]
 
+        // Only feed the hash set into cache invalidation when we're actually checking packs.
+        // With `checkPacks == false`, an empty `ignoreHashes` would force a miss against any
+        // prior cache that recorded hashes — defeating the cooldown for the CLI-only check.
+        let cacheInvalidationHashes: [String: String]? = checkPacks ? ignoreHashes : nil
+
         // Serve cached results if still fresh (single disk read), unless explicitly forced
         if !forceRefresh,
-           let cached = loadCache(currentIgnoreHashes: ignoreHashes),
+           let cached = loadCache(currentIgnoreHashes: cacheInvalidationHashes),
            let lastCheck = ISO8601DateFormatter().date(from: cached.timestamp),
            Date().timeIntervalSince(lastCheck) < Self.cooldownInterval {
             return cached.result

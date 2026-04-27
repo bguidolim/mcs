@@ -8,8 +8,12 @@ enum FileHasher {
     /// Compute SHA-256 hash of a file.
     static func sha256(of url: URL) throws -> String {
         let data = try Data(contentsOf: url)
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
+        return sha256(data: data)
+    }
+
+    /// Compute SHA-256 hex digest of an in-memory byte buffer.
+    static func sha256(data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Result of hashing all files in a directory, with per-file error resilience.

@@ -84,25 +84,38 @@ enum PackHeuristics {
         "node_modules", "__pycache__", ".build",
     ]
 
-    private static func referencedPaths(from manifest: ExternalPackManifest) -> Set<String> {
+    /// Paths the manifest relies on for its install surface.
+    /// Used by `checkUnreferencedFiles`, by `ExternalPackManifest.validate()` to reject
+    /// load-bearing entries in the `ignore:` list (issue #338), and by the runtime safety
+    /// guard in `ExternalPackLoader` that strips forbidden `ignore:` entries defensively.
+    static func referencedPaths(from manifest: ExternalPackManifest) -> Set<String> {
         var paths = Set<String>()
         for component in manifest.components ?? [] {
             switch component.installAction {
             case let .copyPackFile(config):
-                paths.insert(config.source)
+                paths.insert(normalizeReferencedPath(config.source))
             case let .settingsFile(source):
-                paths.insert(source)
+                paths.insert(normalizeReferencedPath(source))
             default:
                 break
             }
         }
         for template in manifest.templates ?? [] {
-            paths.insert(template.contentFile)
+            paths.insert(normalizeReferencedPath(template.contentFile))
         }
         if let script = manifest.configureProject?.script {
-            paths.insert(script)
+            paths.insert(normalizeReferencedPath(script))
         }
         return paths
+    }
+
+    /// Normalize a referenced path so equivalent expressions collapse to the same key.
+    /// Trims whitespace and strips a leading `./` so `ignore:` validation doesn't miss
+    /// the same file expressed as `hooks/foo.sh` vs `./hooks/foo.sh` vs ` hooks/foo.sh`.
+    private static func normalizeReferencedPath(_ path: String) -> String {
+        var normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.hasPrefix("./") { normalized = String(normalized.dropFirst(2)) }
+        return normalized
     }
 
     private static func checkUnreferencedFiles(
@@ -128,9 +141,12 @@ enum PackHeuristics {
 
         let subdirs = rootContents.filter { url in
             var isDir: ObjCBool = false
-            return fm.fileExists(atPath: url.path, isDirectory: &isDir)
-                && isDir.boolValue
-                && !ignoredDirectories.contains(url.lastPathComponent)
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir),
+                  isDir.boolValue,
+                  !ignoredDirectories.contains(url.lastPathComponent)
+            else { return false }
+            // Skip subdirectories entirely when the author has ignored them via techpack.yaml.
+            return !isIgnoredByManifest(url.lastPathComponent, manifest: manifest)
         }
 
         var findings: [Finding] = []
@@ -155,16 +171,26 @@ enum PackHeuristics {
 
             for itemURL in contents {
                 let relativePath = "\(dirName)/\(itemURL.lastPathComponent)"
-                if !referencedPaths.contains(relativePath) {
-                    findings.append(Finding(
-                        severity: .warning,
-                        message: "\(relativePath) is not referenced by any component or template"
-                    ))
-                }
+                if referencedPaths.contains(relativePath) { continue }
+                if isIgnoredByManifest(relativePath, manifest: manifest) { continue }
+                findings.append(Finding(
+                    severity: .warning,
+                    message: "\(relativePath) is not referenced by any component or template"
+                ))
             }
         }
 
         return findings
+    }
+
+    /// True when the path (or the directory tree it lives in) matches any `ignore:` entry
+    /// in the manifest. Uses POSIX glob semantics via `GlobMatcher`.
+    static func isIgnoredByManifest(_ path: String, manifest: ExternalPackManifest) -> Bool {
+        guard let ignore = manifest.ignore, !ignore.isEmpty else { return false }
+        for pattern in ignore where GlobMatcher.matches(pattern, path: path) {
+            return true
+        }
+        return false
     }
 
     /// Files at the pack root that are expected infrastructure, not content.

@@ -287,7 +287,8 @@ struct ExternalPackAdapterTests {
             ],
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
 
         let adapter = ExternalPackAdapter(manifest: manifest, packPath: tmpDir)
@@ -329,7 +330,8 @@ struct ExternalPackAdapterTests {
             ],
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let adapter = ExternalPackAdapter(manifest: manifest, packPath: packDir)
 
@@ -373,7 +375,8 @@ struct ExternalPackAdapterTests {
             ],
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let adapter = ExternalPackAdapter(manifest: manifest, packPath: packDir)
 
@@ -507,7 +510,8 @@ struct ExternalPackAdapterTests {
             ],
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let adapter = ExternalPackAdapter(manifest: manifest, packPath: packDir)
 
@@ -537,7 +541,8 @@ struct ExternalPackAdapterTests {
                 ),
             ],
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let (adapter, tmpDir) = try makeAdapter(manifest: manifest)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -579,7 +584,8 @@ struct ExternalPackAdapterTests {
                 ),
             ],
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
         let (adapter, tmpDir) = try makeAdapter(manifest: manifest)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -734,7 +740,8 @@ struct ExternalPackAdapterTests {
             templates: nil,
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
     }
 
@@ -752,7 +759,8 @@ struct ExternalPackAdapterTests {
             templates: nil,
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
     }
 

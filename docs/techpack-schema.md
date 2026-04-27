@@ -19,6 +19,7 @@ Complete field-by-field reference for `techpack.yaml`. For a tutorial-style intr
 | `prompts` | `[Prompt]` | No | Interactive prompts for `mcs sync` |
 | `configureProject` | `ConfigureProject` | No | Script to run after project configuration |
 | `supplementaryDoctorChecks` | `[DoctorCheck]` | No | Pack-level health checks |
+| `ignore` | `[String]` | No | POSIX-glob paths treated as non-material. See [The `ignore:` field](#the-ignore-field). |
 
 ## Components
 
@@ -511,6 +512,53 @@ The engine validates manifests on load. These rules are enforced:
 | Missing python module | MCP server uses `python -m <module>` but `<module>/` directory not found in the pack |
 
 Infrastructure directories (`.git`, `.github`, `.gitlab`, `.vscode`, `node_modules`, `__pycache__`, `.build`) and common root-level files (`techpack.yaml`, `README.md`, `LICENSE`, `Makefile`, etc.) are excluded from unreferenced-file checks.
+
+---
+
+## The `ignore:` field
+
+Pack authors can extend the engine's built-in deny-list of "non-material" paths via the top-level `ignore:` field. This serves two purposes from one declaration:
+
+- `mcs check-updates` (and the SessionStart hook) treats matching paths as non-material — README/CI/docs-only commits in your pack repo no longer trigger downstream "pack update available" notifications.
+- `mcs pack validate` no longer warns about matching paths as unreferenced files — authors can keep `docs/`, `examples/`, design assets, etc. in the pack repo without noise.
+
+Example:
+
+```yaml
+identifier: my-pack
+displayName: My Pack
+description: Example
+schemaVersion: 1
+ignore:
+  - docs/
+  - examples/
+  - diagrams/*.png
+```
+
+### Semantics
+
+- **Extends the built-ins**, never replaces. The built-in deny-list (README, LICENSE, CHANGELOG, `.github/`, `node_modules/`, `.build/`, etc.) always applies; `ignore:` adds to it.
+- **POSIX glob syntax** (via `fnmatch`):
+  - `*` matches any sequence of non-`/` characters (does not cross directories).
+  - `?` matches a single non-`/` character.
+  - `[abc]` matches one character from the set.
+  - **No `**` recursion** — POSIX globs only.
+- **Trailing `/` silences the entire directory tree.** `docs/` matches `docs`, `docs/guide.md`, `docs/sub/deep.md`. Otherwise `docs/*` would only match one level deep.
+
+### Forbidden entries
+
+`ignore:` cannot silence load-bearing files. Both `mcs pack validate` (publish-time, hard error) and the runtime sync loader (warns and strips) reject:
+
+- `techpack.yaml` — manifest edits change the install surface and must always surface (supply-chain invariant).
+- Any path referenced by a component (`copyPackFile.source`, `settingsFile.source`), template (`contentFile`), or configure script — silencing a file the manifest claims to use would produce a broken pack.
+
+Example error from `mcs pack validate`:
+
+```
+ignore: entry 'hooks/handler.sh' is not allowed: path is referenced by a component or template. Remove it from `ignore:` or remove the component.
+```
+
+If a malformed manifest reaches a user's machine (older mcs version, hand-edit), the sync loader silently strips the forbidden entries with a warning rather than failing the install — authors get loud feedback at publish time, users keep working.
 
 ---
 

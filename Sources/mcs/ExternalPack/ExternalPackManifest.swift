@@ -16,6 +16,13 @@ struct ExternalPackManifest: Codable {
     let prompts: [PromptDefinition]?
     let configureProject: ExternalConfigureProject?
     let supplementaryDoctorChecks: [ExternalDoctorCheckDefinition]?
+    /// POSIX-glob patterns (see `GlobMatcher`) that mark paths as non-material:
+    /// - `UpdateChecker`'s noise filter treats matching paths as infrastructure, extending the built-in
+    ///   deny-list (README, LICENSE, etc.) with author-supplied entries.
+    /// - `PackHeuristics.checkUnreferencedFiles` silences unreferenced-file warnings for matching paths.
+    /// Entries cannot reference `techpack.yaml` or any path referenced by a component/template —
+    /// `validate()` rejects those at publish time and the runtime loader strips them defensively.
+    let ignore: [String]?
 }
 
 // MARK: - Loading
@@ -175,6 +182,63 @@ extension ExternalPackManifest {
                 }
             }
         }
+
+        // `ignore:` entries cannot silence load-bearing files (issue #338).
+        // `techpack.yaml` is always material; any path referenced by a component/template
+        // is required for install — silencing it would produce a broken pack.
+        try validateIgnoreEntries()
+    }
+
+    /// Why an `ignore:` entry is forbidden. Both `validateIgnoreEntries` (publish-strict)
+    /// and `sanitizedIgnoreEntries` (runtime-lenient) classify entries via this enum so the
+    /// rule list lives in one place.
+    enum IgnoreEntryRejection {
+        case empty
+        case manifestFile
+        case referencedPath
+
+        var reason: String {
+            switch self {
+            case .empty:
+                "empty entries are not allowed"
+            case .manifestFile:
+                "\(Constants.ExternalPacks.manifestFilename) is always tracked — manifest edits can change the install surface"
+            case .referencedPath:
+                "path is referenced by a component or template. Remove it from `ignore:` or remove the component."
+            }
+        }
+    }
+
+    /// Classify a single `ignore:` entry; returns nil if the entry is acceptable.
+    ///
+    /// `ignore:` is glob-aware (issue #338), so the safety rule must be glob-aware too —
+    /// otherwise patterns like `*.yaml`, `hooks/*`, or `hooks/` would silently bypass the
+    /// "load-bearing files are always tracked" invariant. The entry is rejected whenever
+    /// its pattern *matches* `techpack.yaml` or any referenced path, not just when the
+    /// strings are equal.
+    static func classifyIgnoreEntry(
+        _ entry: String,
+        referenced: Set<String>
+    ) -> IgnoreEntryRejection? {
+        let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return .empty }
+        if GlobMatcher.matches(trimmed, path: Constants.ExternalPacks.manifestFilename) {
+            return .manifestFile
+        }
+        for path in referenced where GlobMatcher.matches(trimmed, path: path) {
+            return .referencedPath
+        }
+        return nil
+    }
+
+    private func validateIgnoreEntries() throws {
+        guard let ignore, !ignore.isEmpty else { return }
+        let referenced = PackHeuristics.referencedPaths(from: self)
+        for entry in ignore {
+            if let rejection = Self.classifyIgnoreEntry(entry, referenced: referenced) {
+                throw ManifestError.ignoreEntryLoadBearing(entry: entry, reason: rejection.reason)
+            }
+        }
     }
 
     private func validateDoctorCheck(_ check: ExternalDoctorCheckDefinition) throws {
@@ -213,6 +277,58 @@ extension ExternalPackManifest {
                 throw ManifestError.invalidDoctorCheck(name: check.name, reason: "settingsKeyEquals requires non-empty 'expectedValue'")
             }
         }
+    }
+}
+
+// MARK: - Ignore-entry sanitization (runtime safety guard)
+
+extension ExternalPackManifest {
+    /// Return a copy with forbidden `ignore:` entries stripped, emitting a warning for each.
+    /// Used by the sync-time load path so a malformed manifest (older toolchain, hand-edited)
+    /// doesn't break the user's workflow — `mcs pack validate` catches the same entries
+    /// with a hard error at publish time. Issue #338 belt-and-suspenders.
+    func sanitizedIgnoreEntries(output: CLIOutput) -> ExternalPackManifest {
+        sanitizedIgnoreEntries { entry, rejection in
+            output.warn("Pack '\(identifier)': dropping `ignore:` entry '\(entry)' — \(rejection.reason)")
+        }
+    }
+
+    /// Silent counterpart of `sanitizedIgnoreEntries(output:)` — used on hook paths
+    /// (e.g. update-check) where there is no `CLIOutput` to warn through but a malformed
+    /// local manifest still must not silence load-bearing files.
+    func silentlySanitizedIgnoreEntries() -> ExternalPackManifest {
+        sanitizedIgnoreEntries { _, _ in }
+    }
+
+    private func sanitizedIgnoreEntries(
+        rejected: (_ entry: String, _ rejection: IgnoreEntryRejection) -> Void
+    ) -> ExternalPackManifest {
+        guard let ignore, !ignore.isEmpty else { return self }
+        let referenced = PackHeuristics.referencedPaths(from: self)
+        var kept: [String] = []
+        for entry in ignore {
+            if let rejection = Self.classifyIgnoreEntry(entry, referenced: referenced) {
+                rejected(entry, rejection)
+                continue
+            }
+            kept.append(entry)
+        }
+        // Empty and absent collapse to nil so downstream callers (e.g. `isIgnoredByManifest`)
+        // can treat "no ignore list" as a single state.
+        return ExternalPackManifest(
+            schemaVersion: schemaVersion,
+            identifier: identifier,
+            displayName: displayName,
+            description: description,
+            author: author,
+            minMCSVersion: minMCSVersion,
+            components: components,
+            templates: templates,
+            prompts: prompts,
+            configureProject: configureProject,
+            supplementaryDoctorChecks: supplementaryDoctorChecks,
+            ignore: kept.isEmpty ? nil : kept
+        )
     }
 }
 
@@ -260,7 +376,8 @@ extension ExternalPackManifest {
             templates: normalizedTemplates,
             prompts: prompts,
             configureProject: configureProject,
-            supplementaryDoctorChecks: supplementaryDoctorChecks
+            supplementaryDoctorChecks: supplementaryDoctorChecks,
+            ignore: ignore
         )
     }
 }
@@ -282,6 +399,7 @@ enum ManifestError: Error, Equatable, LocalizedError {
     case unresolvedDependency(componentID: String, dependency: String)
     case invalidHookMetadata(componentID: String, reason: String)
     case duplicateDestination(destination: String, fileType: String, componentIDs: [String])
+    case ignoreEntryLoadBearing(entry: String, reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -312,6 +430,8 @@ enum ManifestError: Error, Equatable, LocalizedError {
         case let .duplicateDestination(destination, fileType, componentIDs):
             "Duplicate copyPackFile destination '\(destination)' (fileType: \(fileType))"
                 + " in components: \(componentIDs.joined(separator: ", "))"
+        case let .ignoreEntryLoadBearing(entry, reason):
+            "ignore: entry '\(entry)' is not allowed: \(reason)"
         }
     }
 }

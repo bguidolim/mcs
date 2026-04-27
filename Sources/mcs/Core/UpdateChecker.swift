@@ -114,12 +114,18 @@ struct UpdateChecker {
     struct CachedResult: Codable {
         let timestamp: String
         let result: CheckResult
+        /// SHA-256 of each pack's sorted `ignore:` list. Optional so pre-ignore caches still
+        /// decode. When present, `loadCache` invalidates if any pack's current hash differs —
+        /// an author edit shouldn't leave stale suppression inside the 24h window.
+        let perPackIgnoreHash: [String: String]?
     }
 
     // MARK: - Cache
 
-    /// Load the cached check result. Returns nil if missing, corrupt, or CLI version changed.
-    func loadCache() -> CachedResult? {
+    /// Load the cached check result. Returns nil if missing, corrupt, CLI version changed, or
+    /// (when `currentIgnoreHashes` is provided) any pack's `ignore:` list changed since the cache
+    /// was written.
+    func loadCache(currentIgnoreHashes: [String: String]? = nil) -> CachedResult? {
         guard let data = try? Data(contentsOf: environment.updateCheckCacheFile),
               let cached = try? JSONDecoder().decode(CachedResult.self, from: data)
         else {
@@ -130,14 +136,22 @@ struct UpdateChecker {
            cli.currentVersion != MCSVersion.current {
             return nil
         }
+        // Invalidate if any pack's `ignore:` list changed since the cache was written.
+        // Dict equality covers both directions: value drift (entry edited) AND key drift
+        // (pack added, removed, or its manifest just became unreadable so it dropped out
+        // of the current set). Either way, stale suppression cannot survive into the next run.
+        if let currentIgnoreHashes, (cached.perPackIgnoreHash ?? [:]) != currentIgnoreHashes {
+            return nil
+        }
         return cached
     }
 
     /// Save check results to the cache file.
-    func saveCache(_ result: CheckResult) {
+    func saveCache(_ result: CheckResult, ignoreHashes: [String: String]? = nil) {
         let cached = CachedResult(
             timestamp: ISO8601DateFormatter().string(from: Date()),
-            result: result
+            result: result,
+            perPackIgnoreHash: ignoreHashes
         )
         do {
             let dir = environment.updateCheckCacheFile.deletingLastPathComponent()
@@ -195,12 +209,17 @@ struct UpdateChecker {
     ///    (e.g. `.github/workflows/ci.yml`) OR the path is a single segment that matches
     ///    `PackHeuristics.infrastructureFilesForUpdateCheck` (e.g. `README.md` at the pack
     ///    root, but not `hooks/README.md`).
-    /// 3. If all paths are noise → `.suppressed`. Any survivor → `.material(survivors)`.
+    /// 3. When a manifest is provided, its `ignore:` entries also count as noise
+    ///    Authors extend the built-in deny-list this way.
+    /// 4. If all paths are noise → `.suppressed`. Any survivor → `.material(survivors)`.
     ///
     /// Empty input maps to `.suppressed`: `git diff --name-only` only produces empty output
     /// after a successful diff that found no changed paths, which is a "definitely no
     /// material change" signal — not an unknown one.
-    static func classifyDiffPaths(_ paths: [String]) -> UpstreamChange {
+    static func classifyDiffPaths(
+        _ paths: [String],
+        manifest: ExternalPackManifest? = nil
+    ) -> UpstreamChange {
         // `.whitespacesAndNewlines` (not `.whitespaces`) so a trailing `\r` from CRLF
         // output (git with `core.autocrlf=true`) gets stripped — otherwise `README.md\r`
         // would miss the deny-list and surface as material.
@@ -213,7 +232,12 @@ struct UpdateChecker {
             return .material([Constants.ExternalPacks.manifestFilename])
         }
 
-        let material = cleaned.filter { !isNoisePath($0) }
+        var material: [String] = []
+        for path in cleaned {
+            if isNoisePath(path) { continue }
+            if let manifest, PackHeuristics.isIgnoredByManifest(path, manifest: manifest) { continue }
+            material.append(path)
+        }
         return material.isEmpty ? .suppressed : .material(material)
     }
 
@@ -245,7 +269,14 @@ struct UpdateChecker {
     /// a ref arg and diff against `origin/HEAD` (more reliable across git servers than passing
     /// `HEAD` as a positional ref). When `entry.ref` is set, fetch that ref explicitly and diff
     /// against `FETCH_HEAD`.
-    func classifyUpstreamChange(entry: PackRegistryFile.PackEntry) -> UpstreamChange {
+    ///
+    /// - Parameter manifest: when non-nil, the manifest's `ignore:` list extends the built-in
+    ///   deny-list. Callers pre-load manifests once per pack so the parallel `concurrentPerform`
+    ///   loop doesn't re-parse YAML per iteration.
+    func classifyUpstreamChange(
+        entry: PackRegistryFile.PackEntry,
+        manifest: ExternalPackManifest? = nil
+    ) -> UpstreamChange {
         // `resolvedPath` only validates the path shape; it doesn't stat the filesystem. If the
         // clone was deleted out from under us (e.g. user `rm -rf`'d `~/.mcs/packs/foo`), classify
         // as `.missingClone` instead of letting git fail with a bogus cwd — same outcome at the
@@ -289,7 +320,7 @@ struct UpdateChecker {
         guard diffResult.succeeded else { return .unknown(.diffFailed) }
 
         let paths = diffResult.stdout.split(separator: "\n").map(String.init)
-        return Self.classifyDiffPaths(paths)
+        return Self.classifyDiffPaths(paths, manifest: manifest)
     }
 
     /// Per-iteration result of `checkPackUpdates`. Sum type — exactly one of:
@@ -307,7 +338,10 @@ struct UpdateChecker {
     /// When a remote SHA differs, runs the noise filter (`classifyUpstreamChange`) which may
     /// suppress the notification for README/CI/infra-only commits and advance the registry
     /// baseline so the same commits don't re-trigger.
-    func checkPackUpdates(entries: [PackRegistryFile.PackEntry]) -> [PackUpdate] {
+    func checkPackUpdates(
+        entries: [PackRegistryFile.PackEntry],
+        manifests: [String: ExternalPackManifest] = [:]
+    ) -> [PackUpdate] {
         let gitEntries = entries.filter { !$0.isLocalPack }
         guard !gitEntries.isEmpty else { return [] }
 
@@ -352,7 +386,7 @@ struct UpdateChecker {
                     remoteSHA: remoteSHA
                 )
 
-                switch classifyUpstreamChange(entry: entry) {
+                switch classifyUpstreamChange(entry: entry, manifest: manifests[entry.identifier]) {
                 case .suppressed:
                     buf[index] = .advance(identifier: entry.identifier, newSHA: remoteSHA)
                 case .material, .unknown:
@@ -374,6 +408,61 @@ struct UpdateChecker {
             applyRegistryAdvances(advances)
         }
         return updates
+    }
+
+    /// Best-effort manifest read for the noise filter's `ignore:` lookup. Falls back to nil
+    /// (built-in deny-list only) if the manifest is unreadable. The semantic of "no manifest →
+    /// no author ignore list" is correct — we never want a manifest read error to surface a
+    /// notification that should be suppressed (the never-hide invariant covers fetch/diff
+    /// errors, not manifest-read errors, which default to safe).
+    ///
+    /// Forbidden `ignore:` entries (matching `techpack.yaml` or any referenced path) are
+    /// stripped silently here. The same stripping happens loudly at sync-time via
+    /// `sanitizedIgnoreEntries(output:)`; this is the hook-path equivalent — we can't warn
+    /// the user from a SessionStart hook, but we still must not let a malformed local
+    /// manifest suppress notifications about load-bearing files.
+    private func loadManifestForIgnoreCheck(
+        entry: PackRegistryFile.PackEntry
+    ) -> ExternalPackManifest? {
+        guard let packPath = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
+            return nil
+        }
+        let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
+        do {
+            let raw = try ExternalPackManifest.load(from: manifestURL)
+            let normalized = try raw.normalized()
+            return normalized.silentlySanitizedIgnoreEntries()
+        } catch {
+            if Environment.isDebugMode {
+                let message = "mcs: ignore-check manifest unreadable for '\(entry.identifier)': \(error.localizedDescription)\n"
+                FileHandle.standardError.write(Data(message.utf8))
+            }
+            return nil
+        }
+    }
+
+    /// SHA-256 of a manifest's sorted, joined `ignore:` entries. Used as a cache invalidation
+    /// key so an author edit to `ignore:` doesn't leave stale suppression in the 24h window.
+    static func ignoreHash(manifest: ExternalPackManifest) -> String {
+        let sorted = (manifest.ignore ?? []).sorted().joined(separator: "\n")
+        return FileHasher.sha256(data: Data(sorted.utf8))
+    }
+
+    /// Pre-load manifests for the noise filter — once per `performCheck` call. Both the
+    /// cache-invalidation hash and the per-pack classifier need the manifest, so loading
+    /// here avoids a second YAML parse per pack.
+    func loadManifestsForIgnoreCheck(
+        entries: [PackRegistryFile.PackEntry]
+    ) -> [String: ExternalPackManifest] {
+        entries.reduce(into: [:]) { dict, entry in
+            guard !entry.isLocalPack else { return }
+            dict[entry.identifier] = loadManifestForIgnoreCheck(entry: entry)
+        }
+    }
+
+    /// Map pre-loaded manifests to their `ignore:` hashes for cache invalidation.
+    static func ignoreHashes(manifests: [String: ExternalPackManifest]) -> [String: String] {
+        manifests.mapValues { ignoreHash(manifest: $0) }
     }
 
     /// Apply collected SHA advances to `registry.yaml` in one load→mutate→save round-trip.
@@ -444,19 +533,31 @@ struct UpdateChecker {
         checkPacks: Bool,
         checkCLI: Bool
     ) -> CheckResult {
+        // Load manifests once per call. Both the cache-invalidation hash (`ignoreHashes`) and
+        // the parallel classifier in `checkPackUpdates` need them; loading here avoids a second
+        // YAML parse per pack on the SessionStart-hook hot path.
+        let manifests = checkPacks ? loadManifestsForIgnoreCheck(entries: entries) : [:]
+        let ignoreHashes = checkPacks ? Self.ignoreHashes(manifests: manifests) : [:]
+
+        // Only feed the hash set into cache invalidation when we're actually checking packs.
+        // With `checkPacks == false`, an empty `ignoreHashes` would force a miss against any
+        // prior cache that recorded hashes — defeating the cooldown for the CLI-only check.
+        let cacheInvalidationHashes: [String: String]? = checkPacks ? ignoreHashes : nil
+
         // Serve cached results if still fresh (single disk read), unless explicitly forced
-        if !forceRefresh, let cached = loadCache(),
+        if !forceRefresh,
+           let cached = loadCache(currentIgnoreHashes: cacheInvalidationHashes),
            let lastCheck = ISO8601DateFormatter().date(from: cached.timestamp),
            Date().timeIntervalSince(lastCheck) < Self.cooldownInterval {
             return cached.result
         }
 
-        let packUpdates = checkPacks ? checkPackUpdates(entries: entries) : []
+        let packUpdates = checkPacks ? checkPackUpdates(entries: entries, manifests: manifests) : []
         let cliUpdate = checkCLI ? checkCLIVersion(currentVersion: MCSVersion.current) : nil
         let result = CheckResult(packUpdates: packUpdates, cliUpdate: cliUpdate)
 
         // Always save to cache so the hook can serve fresh data between network checks
-        saveCache(result)
+        saveCache(result, ignoreHashes: ignoreHashes.isEmpty ? nil : ignoreHashes)
 
         return result
     }

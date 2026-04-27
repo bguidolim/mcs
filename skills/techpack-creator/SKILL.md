@@ -170,7 +170,7 @@ Generate the pack directory:
 3. **identifier**: lowercase alphanumeric + hyphens, no leading hyphen
 4. **Component IDs**: short names, NO dots (MCS auto-prefixes with `<pack-id>.`)
 5. **YAML field ordering**:
-   - Root: schemaVersion → identifier → displayName → description → author → prompts → components → templates → supplementaryDoctorChecks → configureProject
+   - Root: schemaVersion → identifier → displayName → description → author → prompts → components → templates → supplementaryDoctorChecks → configureProject → ignore
    - Components grouped: brew first → MCP servers → hooks → skills → commands → agents → settings → gitignore
    - Each component: id → displayName → description → dependencies → isRequired → hookEvent/hookMatcher/hookTimeout/hookAsync/hookStatusMessage → shorthand key
 6. **Dependencies**: Always declare them. `npx` MCP servers depend on `node`. `uvx`/`python` servers depend on `python`. Hooks using `jq` depend on `jq`.
@@ -178,6 +178,7 @@ Generate the pack directory:
 8. **MCP scope**: default to `local` (per-user, per-project isolation)
 9. **Prompts before components** in the YAML for readability
 10. **Placeholders**: `__UPPER_SNAKE__` format. Every `__KEY__` used in templates/settings MUST have a matching prompt
+11. **Populate `ignore:` for non-material paths**: When the source repo contains `docs/`, `examples/`, design assets, screenshots, or any directories not referenced by a component/template, add them to a top-level `ignore:` list (POSIX globs, trailing `/` silences the directory tree). This silences `mcs pack validate` unreferenced-file warnings AND stops downstream "pack update available" notifications from firing on doc/CI commits. Never put `techpack.yaml` or referenced paths in `ignore:` — `mcs pack validate` rejects those. Example: `ignore: [docs/, examples/, diagrams/*.png]`.
 
 #### Hook Script Template
 

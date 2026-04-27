@@ -82,7 +82,13 @@ struct ExternalPackLoader {
 
     /// Validate a pack directory contains a valid techpack.yaml.
     /// Returns the parsed and validated manifest.
-    func validate(at path: URL) throws -> ExternalPackManifest {
+    ///
+    /// - Parameter sanitizeOutput: When non-nil, forbidden `ignore:` entries are stripped
+    ///   (with a warn log via this output) before strict validation runs. Used by the
+    ///   sync-time load path so a malformed manifest doesn't break the user's workflow;
+    ///   publish-time callers (`mcs pack validate`, `mcs pack add`) leave this nil so
+    ///   authors see hard errors.
+    func validate(at path: URL, sanitizeOutput: CLIOutput? = nil) throws -> ExternalPackManifest {
         let manifestURL = path.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
         let fm = FileManager.default
 
@@ -90,7 +96,7 @@ struct ExternalPackLoader {
             throw LoadError.manifestNotFound(manifestURL.path)
         }
 
-        let manifest: ExternalPackManifest
+        var manifest: ExternalPackManifest
         let raw: ExternalPackManifest
         do {
             raw = try ExternalPackManifest.load(from: manifestURL)
@@ -107,6 +113,11 @@ struct ExternalPackLoader {
                 identifier: raw.identifier,
                 reason: error.localizedDescription
             )
+        }
+
+        // Runtime safety guard: strip forbidden `ignore:` entries before strict validation.
+        if let sanitizeOutput {
+            manifest = manifest.sanitizedIgnoreEntries(output: sanitizeOutput)
         }
 
         // Validate manifest structure
@@ -170,7 +181,11 @@ struct ExternalPackLoader {
             )
         }
 
-        let manifest = try validate(at: packPath)
+        // Sync-time load: sanitize forbidden `ignore:` entries with a warn log so a
+        // malformed manifest (older toolchain, hand-edit) doesn't break the user's sync.
+        // Publish-time callers (`mcs pack validate`, `mcs pack add`) leave sanitizeOutput nil
+        // and surface the same cases as hard errors.
+        let manifest = try validate(at: packPath, sanitizeOutput: CLIOutput())
 
         // Skip trust verification for local packs — scripts change during development
         if !entry.isLocalPack {

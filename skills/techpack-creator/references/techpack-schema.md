@@ -20,7 +20,8 @@ everything needed to generate valid manifests without access to the MCS source c
 8. [Configure Project](#configure-project)
 9. [Validation Rules](#validation-rules)
 10. [Heuristic Checks](#heuristic-checks)
-11. [Pack Directory Convention](#pack-directory-convention)
+11. [The `ignore:` field](#the-ignore-field)
+12. [Pack Directory Convention](#pack-directory-convention)
 
 ---
 
@@ -39,6 +40,7 @@ everything needed to generate valid manifests without access to the MCS source c
 | `prompts` | [Prompt] | No | Interactive prompts for `mcs sync` |
 | `configureProject` | Object | No | Script to run after project configuration |
 | `supplementaryDoctorChecks` | [DoctorCheck] | No | Pack-level health checks |
+| `ignore` | [String] | No | POSIX-glob paths the engine treats as non-material — silences `mcs pack validate` warnings AND prevents `mcs check-updates` from firing on commits limited to these paths. Cannot include `techpack.yaml` or any referenced component/template path. Trailing `/` silences the whole directory tree. Example: `["docs/", "examples/", "diagrams/*.png"]` |
 
 ---
 
@@ -463,6 +465,37 @@ Infrastructure files never flagged: `techpack.yaml`, `README.md`, `README`, `LIC
 `requirements.txt`, `Makefile`, `Dockerfile`, `.dockerignore`
 
 Ignored directories: `.git`, `.github`, `.gitlab`, `.vscode`, `node_modules`, `__pycache__`, `.build`
+
+---
+
+## The `ignore:` field
+
+Top-level optional list that extends the engine's built-in deny-list of "non-material" paths. One declaration drives two behaviors:
+
+- `mcs check-updates` (and the SessionStart hook) treats matching paths as non-material, so README/CI/docs-only commits don't trigger downstream "pack update available" notifications.
+- `mcs pack validate` no longer warns about matching paths as unreferenced files.
+
+```yaml
+ignore:
+  - docs/
+  - examples/
+  - diagrams/*.png
+```
+
+### Semantics
+
+- **Extends the built-ins**, never replaces. Built-in deny-list (README, LICENSE, CHANGELOG, `.github/`, `node_modules/`, `.build/`, etc.) always applies.
+- **POSIX glob syntax** via `fnmatch`: `*` (no `/` crossing), `?`, `[abc]`. **No `**` recursion** — POSIX globs only.
+- **Trailing `/` silences the entire directory tree.** `docs/` matches `docs`, `docs/guide.md`, `docs/sub/deep.md`. Without the trailing slash, `docs/*` only matches one level deep.
+
+### Forbidden entries (rejected glob-aware)
+
+`mcs pack validate` rejects with a hard error; the runtime sync loader strips with a warning. Both checks are glob-aware — `*.yaml`, `hooks/*`, or `hooks/` are rejected when they would silence load-bearing files:
+
+- `techpack.yaml` — manifest edits change the install surface and must always surface (supply-chain invariant).
+- Any path referenced by a component (`copyPackFile.source`, `settingsFile.source`), template (`contentFile`), or configure script.
+
+When generating manifests for repos with non-material directories (`docs/`, `examples/`, asset folders), populate `ignore:` so authors don't hit validation warnings or noisy update notifications.
 
 ---
 

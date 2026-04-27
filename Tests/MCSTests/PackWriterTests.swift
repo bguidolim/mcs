@@ -26,7 +26,8 @@ struct PackWriterTests {
             templates: nil,
             prompts: nil,
             configureProject: nil,
-            supplementaryDoctorChecks: nil
+            supplementaryDoctorChecks: nil,
+            ignore: nil
         )
     }
 

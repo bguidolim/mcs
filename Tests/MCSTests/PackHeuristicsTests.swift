@@ -886,4 +886,27 @@ struct PackHeuristicsTests {
         let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
         #expect(!findings.contains { $0.message.contains("Add intentional non-material paths") })
     }
+
+    @Test("ignore: silences root-level unreferenced file warnings")
+    func ignoreSilencesRootLevelUnreferencedFile() throws {
+        let tmpDir = try makeTmpDir(label: "heuristics-root-ignore")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: tmpDir.appendingPathComponent("screenshot.png"))
+
+        let manifest = minimalManifest(
+            components: [
+                ExternalComponentDefinition(
+                    id: "test-pack.brew",
+                    displayName: "Brew",
+                    description: "package",
+                    type: .brewPackage,
+                    installAction: .brewInstall(package: "git")
+                ),
+            ],
+            ignore: ["screenshot.png"]
+        )
+        let findings = PackHeuristics.check(manifest: manifest, packPath: tmpDir)
+        #expect(!findings.contains { $0.message.contains("screenshot.png") && $0.message.contains(PackHeuristics.unreferencedMarker) })
+    }
 }

@@ -253,7 +253,9 @@ enum PackHeuristics {
             guard fm.fileExists(atPath: itemURL.path, isDirectory: &isDir), !isDir.boolValue else { continue }
 
             let name = itemURL.lastPathComponent
-            if !infrastructureFiles.contains(name), !referencedRootFiles.contains(name) {
+            if !infrastructureFiles.contains(name),
+               !referencedRootFiles.contains(name),
+               !isIgnoredByManifest(name, manifest: manifest) {
                 findings.append(Finding(
                     severity: .warning,
                     message: "\(name) \(Self.unreferencedMarker) by any component"

@@ -149,17 +149,17 @@ struct UpdateCommand: LockedCommand {
     ) -> Bool {
         guard !dryRun, output.hasInteractiveStdin else { return true }
 
-        let projectRuns = runs.filter { !$0.isGlobal }
+        let projectPaths = runs.compactMap(\.projectPath)
         let hasGlobal = runs.contains(where: \.isGlobal)
-        guard !projectRuns.isEmpty || hasGlobal else { return true }
+        guard !projectPaths.isEmpty || hasGlobal else { return true }
 
-        let projectNoun = projectRuns.count == 1 ? "project" : "projects"
-        let summary = if hasGlobal, !projectRuns.isEmpty {
-            "1 global scope and \(projectRuns.count) \(projectNoun)"
+        let projectNoun = projectPaths.count == 1 ? "project" : "projects"
+        let summary = if hasGlobal, !projectPaths.isEmpty {
+            "the global scope and \(projectPaths.count) \(projectNoun)"
         } else if hasGlobal {
-            "1 global scope"
+            "the global scope"
         } else {
-            "\(projectRuns.count) \(projectNoun)"
+            "\(projectPaths.count) \(projectNoun)"
         }
 
         output.plain("")
@@ -168,10 +168,8 @@ struct UpdateCommand: LockedCommand {
         if hasGlobal {
             output.plain("  • global    \(env.claudeDirectory.path)")
         }
-        for run in projectRuns {
-            if let projectPath = run.projectPath {
-                output.plain("  • project   \(projectPath.path)")
-            }
+        for path in projectPaths {
+            output.plain("  • project   \(path.path)")
         }
         output.plain("")
         output.plain("  Each pack is re-applied in every listed scope. Local edits to")

@@ -438,6 +438,23 @@ struct UpdateCheckerOrchestratorTests {
         #expect(mock.runCalls.isEmpty, "No git invocation when the clone path can't be resolved")
     }
 
+    @Test("Clone directory absent on disk → .unknown(.missingClone), no git invoked")
+    func deletedCloneReturnsMissingClone() throws {
+        let tmpDir = try makeTmpDir(label: "classify")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Registry says the pack is at `~/.mcs/packs/pack-a/`, but the directory was deleted.
+        // `preparePackDir` is intentionally NOT called here.
+        let entry = makeEntry(identifier: "pack-a")
+
+        let mock = MockShellRunner(environment: Environment(home: tmpDir))
+        let checker = makeChecker(home: tmpDir, mock: mock)
+        let result = checker.classifyUpstreamChange(entry: entry)
+
+        #expect(result == .unknown(.missingClone))
+        #expect(mock.runCalls.isEmpty, "No git invocation when the clone is missing on disk")
+    }
+
     @Test("fetch fails → .unknown(.fetchFailed); diff is not called")
     func fetchFailsNeverHide() throws {
         let tmpDir = try makeTmpDir(label: "classify")

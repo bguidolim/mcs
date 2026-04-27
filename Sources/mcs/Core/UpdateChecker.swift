@@ -246,7 +246,13 @@ struct UpdateChecker {
     /// `HEAD` as a positional ref). When `entry.ref` is set, fetch that ref explicitly and diff
     /// against `FETCH_HEAD`.
     func classifyUpstreamChange(entry: PackRegistryFile.PackEntry) -> UpstreamChange {
-        guard let workDirURL = entry.resolvedPath(packsDirectory: environment.packsDirectory) else {
+        // `resolvedPath` only validates the path shape; it doesn't stat the filesystem. If the
+        // clone was deleted out from under us (e.g. user `rm -rf`'d `~/.mcs/packs/foo`), classify
+        // as `.missingClone` instead of letting git fail with a bogus cwd — same outcome at the
+        // call site (notification surfaces) but accurate telemetry and one fewer subprocess.
+        guard let workDirURL = entry.resolvedPath(packsDirectory: environment.packsDirectory),
+              FileManager.default.fileExists(atPath: workDirURL.path)
+        else {
             return .unknown(.missingClone)
         }
         let workDir = workDirURL.path

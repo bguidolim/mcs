@@ -102,7 +102,7 @@ Packs are modular — mix and match what you need instead of one monolith. Brows
 3. **Install** artifacts to the right locations (skills, hooks, commands, agents, settings, MCP servers)
 4. **Track** everything for convergence — re-running `mcs sync` adds what's missing, removes what's deselected, and updates what changed
 
-Use `mcs sync --global` for global-scope components (Homebrew packages, plugins, global MCP servers). See [Architecture](docs/architecture.md) for artifact locations and the full sync flow.
+Use `mcs sync --global` for global-scope components (Homebrew packages, plugins, global MCP servers). To pick up upstream pack updates across every scope you have configured (global + current project) in one command, run `mcs update`. See [Architecture](docs/architecture.md) for artifact locations and the full sync flow.
 
 ---
 

@@ -51,7 +51,7 @@ struct UpdateCommand: LockedCommand {
             return
         }
 
-        if allProjects, !confirmFanOut(runs: runs, output: output) {
+        if allProjects, !confirmFanOut(runs: runs, env: env, output: output) {
             output.info("Update cancelled.")
             return
         }
@@ -144,22 +144,36 @@ struct UpdateCommand: LockedCommand {
 
     private func confirmFanOut(
         runs: [UpdateScopeResolver.ScopeRun],
+        env: Environment,
         output: CLIOutput
     ) -> Bool {
         guard !dryRun, output.hasInteractiveStdin else { return true }
 
-        let projectRuns = runs.filter { !$0.isGlobal }
-        guard !projectRuns.isEmpty else { return true }
+        let projectPaths = runs.compactMap(\.projectPath)
+        let hasGlobal = runs.contains(where: \.isGlobal)
+        guard !projectPaths.isEmpty || hasGlobal else { return true }
 
-        output.warn("--all-projects will refresh \(projectRuns.count) project(s):")
-        for run in projectRuns {
-            if let projectPath = run.projectPath {
-                output.plain("  • \(projectPath.path)")
-            }
+        let projectNoun = projectPaths.count == 1 ? "project" : "projects"
+        let summary = if hasGlobal, !projectPaths.isEmpty {
+            "the global scope and \(projectPaths.count) \(projectNoun)"
+        } else if hasGlobal {
+            "the global scope"
+        } else {
+            "\(projectPaths.count) \(projectNoun)"
+        }
+
+        output.plain("")
+        output.warn("--all-projects will refresh \(summary):")
+        output.plain("")
+        if hasGlobal {
+            output.plain("  • global    \(env.claudeDirectory.path)")
+        }
+        for path in projectPaths {
+            output.plain("  • project   \(path.path)")
         }
         output.plain("")
-        output.plain("  Each project's pack-defined hooks will run with that project as cwd.")
-        output.plain("  Uncommitted changes in those projects may be overwritten by managed files.")
+        output.plain("  Each pack is re-applied in every listed scope. Local edits to")
+        output.plain("  settings.local.json, hooks, or skills in those projects may be overwritten.")
         output.plain("")
         return output.askYesNo("Proceed?", default: false)
     }

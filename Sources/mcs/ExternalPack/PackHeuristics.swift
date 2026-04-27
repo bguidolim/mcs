@@ -93,20 +93,29 @@ enum PackHeuristics {
         for component in manifest.components ?? [] {
             switch component.installAction {
             case let .copyPackFile(config):
-                paths.insert(config.source)
+                paths.insert(normalizeReferencedPath(config.source))
             case let .settingsFile(source):
-                paths.insert(source)
+                paths.insert(normalizeReferencedPath(source))
             default:
                 break
             }
         }
         for template in manifest.templates ?? [] {
-            paths.insert(template.contentFile)
+            paths.insert(normalizeReferencedPath(template.contentFile))
         }
         if let script = manifest.configureProject?.script {
-            paths.insert(script)
+            paths.insert(normalizeReferencedPath(script))
         }
         return paths
+    }
+
+    /// Normalize a referenced path so equivalent expressions collapse to the same key.
+    /// Trims whitespace and strips a leading `./` so `ignore:` validation doesn't miss
+    /// the same file expressed as `hooks/foo.sh` vs `./hooks/foo.sh` vs ` hooks/foo.sh`.
+    private static func normalizeReferencedPath(_ path: String) -> String {
+        var s = path.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("./") { s = String(s.dropFirst(2)) }
+        return s
     }
 
     private static func checkUnreferencedFiles(

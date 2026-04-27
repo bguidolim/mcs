@@ -210,14 +210,24 @@ extension ExternalPackManifest {
     }
 
     /// Classify a single `ignore:` entry; returns nil if the entry is acceptable.
+    ///
+    /// `ignore:` is glob-aware (issue #338), so the safety rule must be glob-aware too —
+    /// otherwise patterns like `*.yaml`, `hooks/*`, or `hooks/` would silently bypass the
+    /// "load-bearing files are always tracked" invariant. The entry is rejected whenever
+    /// its pattern *matches* `techpack.yaml` or any referenced path, not just when the
+    /// strings are equal.
     static func classifyIgnoreEntry(
         _ entry: String,
         referenced: Set<String>
     ) -> IgnoreEntryRejection? {
         let trimmed = entry.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return .empty }
-        if trimmed == Constants.ExternalPacks.manifestFilename { return .manifestFile }
-        if referenced.contains(trimmed) { return .referencedPath }
+        if GlobMatcher.matches(trimmed, path: Constants.ExternalPacks.manifestFilename) {
+            return .manifestFile
+        }
+        for path in referenced where GlobMatcher.matches(trimmed, path: path) {
+            return .referencedPath
+        }
         return nil
     }
 
@@ -278,12 +288,27 @@ extension ExternalPackManifest {
     /// doesn't break the user's workflow — `mcs pack validate` catches the same entries
     /// with a hard error at publish time. Issue #338 belt-and-suspenders.
     func sanitizedIgnoreEntries(output: CLIOutput) -> ExternalPackManifest {
+        sanitizedIgnoreEntries { entry, rejection in
+            output.warn("Pack '\(identifier)': dropping `ignore:` entry '\(entry)' — \(rejection.reason)")
+        }
+    }
+
+    /// Silent counterpart of `sanitizedIgnoreEntries(output:)` — used on hook paths
+    /// (e.g. update-check) where there is no `CLIOutput` to warn through but a malformed
+    /// local manifest still must not silence load-bearing files.
+    func silentlySanitizedIgnoreEntries() -> ExternalPackManifest {
+        sanitizedIgnoreEntries { _, _ in }
+    }
+
+    private func sanitizedIgnoreEntries(
+        rejected: (_ entry: String, _ rejection: IgnoreEntryRejection) -> Void
+    ) -> ExternalPackManifest {
         guard let ignore, !ignore.isEmpty else { return self }
         let referenced = PackHeuristics.referencedPaths(from: self)
         var kept: [String] = []
         for entry in ignore {
             if let rejection = Self.classifyIgnoreEntry(entry, referenced: referenced) {
-                output.warn("Pack '\(identifier)': dropping `ignore:` entry '\(entry)' — \(rejection.reason)")
+                rejected(entry, rejection)
                 continue
             }
             kept.append(entry)

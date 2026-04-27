@@ -22,7 +22,7 @@ enum GlobMatcher {
     /// "silence this whole directory" behavior pack authors expect, layered on top
     /// of `fnmatch` since POSIX globs have no native notion of directory trees.
     static func matches(_ pattern: String, path: String) -> Bool {
-        let trimmed = pattern.trimmingCharacters(in: .whitespaces)
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
         // Directory-suffix shortcut: `docs/` silences `docs/guide.md`, `docs/sub/x.md`, etc.
@@ -32,7 +32,7 @@ enum GlobMatcher {
             return path == dirName || path.hasPrefix("\(dirName)/")
         }
 
-        let result = pattern.withCString { patternCStr in
+        let result = trimmed.withCString { patternCStr in
             path.withCString { pathCStr in
                 fnmatch(patternCStr, pathCStr, FNM_PATHNAME)
             }

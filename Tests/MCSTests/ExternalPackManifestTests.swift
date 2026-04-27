@@ -3251,6 +3251,60 @@ struct ExternalPackManifestTests {
         try ignoreManifest(ignore: []).validate()
     }
 
+    @Test("ignore: glob that matches techpack.yaml is rejected (no bypass via *.yaml)")
+    func ignoreGlobMatchingManifestRejected() {
+        let manifest = ignoreManifest(ignore: ["*.yaml"])
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("ignore: directory pattern that contains a referenced file is rejected")
+    func ignoreDirectoryGlobMatchingReferencedRejected() {
+        let component = ExternalComponentDefinition(
+            id: "ignore-pack.hook",
+            displayName: "Hook",
+            description: "Hook script",
+            type: .hookFile,
+            installAction: .copyPackFile(ExternalCopyPackFileConfig(
+                source: "hooks/handler.sh",
+                destination: "handler.sh",
+                fileType: .hook
+            ))
+        )
+        // `hooks/` would silence `hooks/handler.sh` via the directory-suffix shortcut.
+        // Without glob-aware classification this would slip past validate().
+        let manifest = ignoreManifest(
+            ignore: ["hooks/"],
+            components: [component]
+        )
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
+    @Test("ignore: with referenced source written as ./hooks/x.sh still rejected")
+    func ignoreReferencedSourceWithDotPrefixNormalized() {
+        let component = ExternalComponentDefinition(
+            id: "ignore-pack.hook",
+            displayName: "Hook",
+            description: "Hook script",
+            type: .hookFile,
+            installAction: .copyPackFile(ExternalCopyPackFileConfig(
+                source: "./hooks/handler.sh",
+                destination: "handler.sh",
+                fileType: .hook
+            ))
+        )
+        let manifest = ignoreManifest(
+            ignore: ["hooks/handler.sh"],
+            components: [component]
+        )
+        #expect(throws: ManifestError.self) {
+            try manifest.validate()
+        }
+    }
+
     @Test("normalized() preserves ignore: entries")
     func normalizedPreservesIgnore() throws {
         let manifest = ignoreManifest(ignore: ["docs/", "*.md"])

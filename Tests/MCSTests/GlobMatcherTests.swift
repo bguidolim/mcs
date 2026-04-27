@@ -54,4 +54,11 @@ struct GlobMatcherTests {
         #expect(!GlobMatcher.matches("diagrams/*.png", path: "diagrams/architecture.jpg"))
         #expect(!GlobMatcher.matches("diagrams/*.png", path: "diagrams/sub/architecture.png"))
     }
+
+    @Test("Whitespace around the pattern is trimmed before matching")
+    func patternWhitespaceTrimmed() {
+        // Without trim, ` README.md ` would never match anything via fnmatch.
+        #expect(GlobMatcher.matches(" README.md ", path: "README.md"))
+        #expect(GlobMatcher.matches("\tdocs/*\n", path: "docs/guide.md"))
+    }
 }

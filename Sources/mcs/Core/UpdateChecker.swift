@@ -140,8 +140,14 @@ struct UpdateChecker {
         // Invalidate if any pack's `ignore:` list changed since the cache was written.
         // A cached suppression could hide updates that authors no longer want silenced,
         // or a cached notification could persist for commits authors have since ignored.
+        // The compare is bidirectional — a pack present in the cache but absent from the
+        // current set (e.g. its manifest just became unreadable) also invalidates, since
+        // its old hash would otherwise stamp stale suppression onto a now-unknown ignore list.
         if let currentIgnoreHashes {
             let cachedHashes = cached.perPackIgnoreHash ?? [:]
+            if Set(cachedHashes.keys) != Set(currentIgnoreHashes.keys) {
+                return nil
+            }
             for (identifier, hash) in currentIgnoreHashes where cachedHashes[identifier] != hash {
                 return nil
             }
@@ -418,6 +424,12 @@ struct UpdateChecker {
     /// no author ignore list" is correct — we never want a manifest read error to surface a
     /// notification that should be suppressed (the never-hide invariant covers fetch/diff
     /// errors, not manifest-read errors, which default to safe).
+    ///
+    /// Forbidden `ignore:` entries (matching `techpack.yaml` or any referenced path) are
+    /// stripped silently here. The same stripping happens loudly at sync-time via
+    /// `sanitizedIgnoreEntries(output:)`; this is the hook-path equivalent — we can't warn
+    /// the user from a SessionStart hook, but we still must not let a malformed local
+    /// manifest suppress notifications about load-bearing files.
     private func loadManifestForIgnoreCheck(
         entry: PackRegistryFile.PackEntry
     ) -> ExternalPackManifest? {
@@ -427,7 +439,8 @@ struct UpdateChecker {
         let manifestURL = packPath.appendingPathComponent(Constants.ExternalPacks.manifestFilename)
         do {
             let raw = try ExternalPackManifest.load(from: manifestURL)
-            return try raw.normalized()
+            let normalized = try raw.normalized()
+            return normalized.silentlySanitizedIgnoreEntries()
         } catch {
             return nil
         }

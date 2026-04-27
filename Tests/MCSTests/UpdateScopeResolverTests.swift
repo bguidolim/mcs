@@ -91,7 +91,11 @@ struct UpdateScopeResolverTests {
         #expect(runs[0].configuredPackIDs == ["pack-a"])
         #expect(!runs[1].isGlobal)
         #expect(runs[1].configuredPackIDs == ["pack-b"])
-        #expect(runs[1].projectPath?.standardizedFileURL == project.standardizedFileURL)
+        if case let .project(path) = runs[1].scope {
+            #expect(path.standardizedFileURL == project.standardizedFileURL)
+        } else {
+            Issue.record("Expected .project scope on second run, got \(runs[1].scope)")
+        }
     }
 
     @Test("Filter .globalOnly excludes the project scope")
@@ -169,7 +173,9 @@ struct UpdateScopeResolverTests {
         let runs = try resolver.resolve(filter: .everywhere, projectRoot: nil)
         #expect(runs.count == 3)
         #expect(runs[0].isGlobal)
-        let projectRunPaths = Set(runs.dropFirst().compactMap { $0.projectPath?.standardizedFileURL.path })
+        let projectRunPaths = Set(runs.dropFirst().compactMap { run -> String? in
+            if case let .project(url) = run.scope { url.standardizedFileURL.path } else { nil }
+        })
         #expect(projectRunPaths == [projectA.standardizedFileURL.path, projectB.standardizedFileURL.path])
     }
 

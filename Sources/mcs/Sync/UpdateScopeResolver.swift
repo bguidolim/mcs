@@ -17,10 +17,6 @@ struct UpdateScopeResolver {
         var isGlobal: Bool {
             if case .global = self { true } else { false }
         }
-
-        var projectPath: URL? {
-            if case let .project(url) = self { url } else { nil }
-        }
     }
 
     struct ScopeRun {
@@ -31,10 +27,6 @@ struct UpdateScopeResolver {
 
         var isGlobal: Bool {
             scope.isGlobal
-        }
-
-        var projectPath: URL? {
-            scope.projectPath
         }
 
         var label: String {

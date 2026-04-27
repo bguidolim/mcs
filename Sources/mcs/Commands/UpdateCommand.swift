@@ -1,8 +1,8 @@
 import ArgumentParser
 import Foundation
 
-/// Refresh-only orchestration. Lockfile writes are gated by `generate-lockfile`,
-/// unlike `mcs sync --update` which force-writes regardless of config.
+/// Refresh-only orchestration. Lockfile writes honour the `generate-lockfile`
+/// config — there is no force-write path.
 struct UpdateCommand: LockedCommand {
     static let configuration = CommandConfiguration(
         commandName: "update",
@@ -49,7 +49,7 @@ struct UpdateCommand: LockedCommand {
             return
         }
 
-        if allProjects, !confirmFanOut(runs: runs, output: output) {
+        if allProjects, !confirmFanOut(runs: runs, env: env, output: output) {
             output.info("Update cancelled.")
             return
         }
@@ -94,6 +94,11 @@ struct UpdateCommand: LockedCommand {
         let lockfileFailures = runLockfilePhase(runs: runs, env: env, shell: shell, output: output)
 
         if !dryRun {
+            // mcs update has just authoritatively re-checked every configured pack's
+            // upstream state; any cached "X has updates" notification is now stale.
+            if !UpdateChecker.invalidateCache(environment: env) {
+                output.warn("Could not clear update check cache at \(env.updateCheckCacheFile.path).")
+            }
             UpdateChecker.checkAndPrint(env: env, shell: shell, output: output)
         }
 
@@ -151,40 +156,36 @@ struct UpdateCommand: LockedCommand {
 
     private func confirmFanOut(
         runs: [UpdateScopeResolver.ScopeRun],
+        env: Environment,
         output: CLIOutput
     ) -> Bool {
         guard !dryRun, output.hasInteractiveStdin else { return true }
 
-        let projectRuns = runs.filter { !$0.isGlobal }
+        let projectPaths: [URL] = runs.compactMap { run in
+            if case let .project(path) = run.scope { path } else { nil }
+        }
         let hasGlobal = runs.contains(where: \.isGlobal)
-        guard !projectRuns.isEmpty || hasGlobal else { return true }
+        guard !projectPaths.isEmpty || hasGlobal else { return true }
 
-        let scopeSummary = if hasGlobal, !projectRuns.isEmpty {
-            "the global scope plus \(projectRuns.count) project(s)"
+        let scopeSummary = if hasGlobal, !projectPaths.isEmpty {
+            "the global scope plus \(projectPaths.count) project(s)"
         } else if hasGlobal {
             "the global scope"
         } else {
-            "\(projectRuns.count) project(s)"
+            "\(projectPaths.count) project(s)"
         }
 
         output.warn("--all-projects will refresh \(scopeSummary):")
         if hasGlobal {
-            output.plain("  • global (\(environment.claudeDirectory.path))")
+            output.plain("  • global (\(env.claudeDirectory.path))")
         }
-        for run in projectRuns {
-            if let projectPath = run.projectPath {
-                output.plain("  • \(projectPath.path)")
-            }
+        for path in projectPaths {
+            output.plain("  • \(path.path)")
         }
-        output.plain("")
         output.plain("  Each project's pack-defined hooks will run with that project as cwd.")
         output.plain("  Uncommitted changes in those projects may be overwritten by managed files.")
         output.plain("")
         return output.askYesNo("Proceed?", default: false)
-    }
-
-    private var environment: Environment {
-        Environment()
     }
 
     private func warnIfProjectScopeMissing(
@@ -217,8 +218,7 @@ struct UpdateCommand: LockedCommand {
         ProjectDetector.findProjectRoot(from: targetPath)
     }
 
-    /// Per-pack update results from `runUpdatePhase`. Buffered so success messages
-    /// don't print before the registry save persists them.
+    /// Buffered so success messages don't print before the registry save persists.
     private struct UpdateRecord {
         let displayName: String
         let priorSHA: String
@@ -288,8 +288,6 @@ struct UpdateCommand: LockedCommand {
         return (updatedData, updates, skipped)
     }
 
-    /// Save the updated registry, then emit success messages for each persisted update.
-    /// If save fails, the user gets a single clear error and the success messages never print.
     private func persistRegistryUpdates(
         registryFile: PackRegistryFile,
         updatedData: PackRegistryFile.RegistryData,
@@ -314,8 +312,6 @@ struct UpdateCommand: LockedCommand {
         }
     }
 
-    /// Re-apply each scope, capturing per-scope failures so one bad scope does not abort the rest.
-    /// Returns the labels of scopes that failed; the caller exits non-zero if any did.
     private func runReapplyPhase(
         runs: [UpdateScopeResolver.ScopeRun],
         skippedPackIDs: Set<String>,
@@ -378,8 +374,8 @@ struct UpdateCommand: LockedCommand {
         return failures
     }
 
-    /// Lockfile maintenance is best-effort across projects. `reportDrift` is purely
-    /// diagnostic and a single project's failure must not suppress sibling drift warnings.
+    /// `reportDrift` is purely diagnostic — a single project's failure must never
+    /// suppress sibling drift warnings.
     private func runLockfilePhase(
         runs: [UpdateScopeResolver.ScopeRun],
         env: Environment,
@@ -392,8 +388,8 @@ struct UpdateCommand: LockedCommand {
         let lockOps = LockfileOperations(environment: env, output: output, shell: shell)
         var failures: [String] = []
 
-        for run in runs where !run.isGlobal {
-            guard let projectPath = run.projectPath else { continue }
+        for run in runs {
+            guard case let .project(projectPath) = run.scope else { continue }
 
             do {
                 if config.isLockfileGenerationEnabled {

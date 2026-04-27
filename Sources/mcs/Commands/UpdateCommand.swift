@@ -132,7 +132,7 @@ struct UpdateCommand: LockedCommand {
             return (.globalOnly, nil)
         case .project:
             guard let root = detectProjectRoot() else {
-                output.error("--project specified but no project root detected at \(FileManager.default.currentDirectoryPath).")
+                output.error("--project specified but no project root detected at \(targetPath.path).")
                 output.plain("  cd into a project directory, pass a path, or omit --project.")
                 throw ExitCode.failure
             }
@@ -182,13 +182,16 @@ struct UpdateCommand: LockedCommand {
         }
     }
 
-    private func detectProjectRoot() -> URL? {
-        let target = if let path {
+    private var targetPath: URL {
+        if let path {
             URL(fileURLWithPath: path)
         } else {
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         }
-        return ProjectDetector.findProjectRoot(from: target)
+    }
+
+    private func detectProjectRoot() -> URL? {
+        ProjectDetector.findProjectRoot(from: targetPath)
     }
 
     private func runUpdatePhase(
@@ -262,7 +265,7 @@ struct UpdateCommand: LockedCommand {
         for run in runs {
             output.header(run.label)
 
-            let packIDs = run.configuredPackIDs.subtracting(skippedPackIDs)
+            let packIDs = run.configuredPackIDs.subtracting(skippedPackIDs).sorted()
 
             var packs: [any TechPack] = []
             var unresolved: [String] = []
@@ -274,7 +277,7 @@ struct UpdateCommand: LockedCommand {
                 }
             }
 
-            for packID in unresolved.sorted() {
+            for packID in unresolved {
                 output.warn("  \(packID): tracked in state but missing from pack registry — skipping. Run 'mcs pack add' to restore it.")
             }
 
